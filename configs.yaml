@@ -1,0 +1,10 @@
+defaults:
+  model: 'SlotAtt'
+
+  # Directories
+  logdir: "logs"
+  user_dir: "/home/jithen"            
+  storage_dir: "/home/jithen/scratch"
+  data_dir: "datasets/CoPhy"      # user_dir/storage_dir/data_dir
+  model_params_logdir: "model_params"         # has the form logs/<model_name>/model_params/<id>_00000xxxxx.pickle
+  
