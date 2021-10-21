@@ -1,5 +1,6 @@
 defaults:
-  model: 'SlotAtt'
+  batch_size: 8
+  model: 'SlotAttention_img'
 
   # Directories
   logdir: "logs"
@@ -7,4 +8,15 @@ defaults:
   storage_dir: "/home/jithen/scratch"
   data_dir: "datasets/CoPhy"      # user_dir/storage_dir/data_dir
   model_params_logdir: "model_params"         # has the form logs/<model_name>/model_params/<id>_00000xxxxx.pickle
-  
+
+  # Dataset details
+  resolution: 64
+  channels: 3
+
+  # Slot attention params
+  num_slots: 7
+  slot_size: 64
+  num_iterations: 3
+
+  # model architecture sizes
+  encoder_out_ch: 32
