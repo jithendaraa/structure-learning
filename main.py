@@ -3,6 +3,11 @@ import ruamel.yaml as yaml
 import sys
 import pathlib
 import utils
+import torch
+
+from models.SlotAttentionAutoEncoder import SlotAttentionAutoEncoder as Slot_Attention
+from train_test import train_model
+
 
 
 
@@ -33,8 +38,21 @@ def get_opt():
     # print()
     return opt, exp_config
 
+
+
+def build_model(opt, device):
+  
+  resolution = (opt.resolution, opt.resolution) 
+  if opt.model in ['SlotAttention_img']:
+    model = Slot_Attention(opt, resolution, opt.num_slots, opt.num_iterations, device)
+
+  return model
+    
+
 def main(opt, exp_config):
-    print("H")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = build_model(opt, device)
+    train_model(model, opt)
 
 if __name__ == '__main__':
     opt, exp_config = get_opt()
