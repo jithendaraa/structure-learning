@@ -43,3 +43,9 @@ def get_device(tensor):
     if tensor.is_cuda:
         device = tensor.get_device()
     return device
+
+def unstack_and_split(x, batch_size, num_channels=3):
+  """Unstack batch dimension and split into channels and alpha mask."""
+  unstacked = x.view([batch_size, -1] + list(x.size())[1:])
+  channels, masks = torch.split(unstacked, [num_channels, 1], dim=-3)
+  return channels, masks
