@@ -7,9 +7,7 @@ import torch
 
 from models.SlotAttentionAutoEncoder import SlotAttentionAutoEncoder as Slot_Attention
 from train_test import train_model
-
-
-
+from dataloader import *
 
 def get_opt():
     parser = argparse.ArgumentParser()
@@ -38,13 +36,17 @@ def get_opt():
     # print()
     return opt, exp_config
 
-
-
 def build_model(opt, device):
+
+  implemented_models = ['SlotAttention_img']
   
   resolution = (opt.resolution, opt.resolution) 
+  
   if opt.model in ['SlotAttention_img']:
     model = Slot_Attention(opt, resolution, opt.num_slots, opt.num_iterations, device)
+  
+  else: 
+    raise NotImplementedError(f'Model {opt.model} is not implemented. Try one of {implemented_models}')
 
   return model
     
@@ -52,7 +54,11 @@ def build_model(opt, device):
 def main(opt, exp_config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = build_model(opt, device)
-    train_model(model, opt)
+
+    # Dataloader
+    loader_objs = parse_datasets(opt, device)
+    
+    train_model(model, loader_objs, exp_config, opt, device)
 
 if __name__ == '__main__':
     opt, exp_config = get_opt()
