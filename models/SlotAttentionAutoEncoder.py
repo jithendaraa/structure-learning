@@ -28,6 +28,7 @@ class SlotAttentionAutoEncoder(nn.Module):
         self.num_slots = num_slots
         self.num_iterations = num_iterations
         self.opt = opt
+        self.device = device
 
         encoder_out_ch = opt.encoder_out_ch
         self.decoder_initial_size = (8, 8)
@@ -75,7 +76,21 @@ class SlotAttentionAutoEncoder(nn.Module):
 
         return recon_combined, recons, masks, slots
 
+    def get_prediction(self, batch_dict):
+        self.input_images = (batch_dict['observed_data'] + 0.5).to(self.device) # [0, 1]
+        self.ground_truth = (batch_dict['data_to_predict'] + 0.5).to(self.device) # [0, 1]
+        recon_combined, recons, masks, slots = self(self.input_images)
+        return recon_combined, recons, masks
     
+    def get_loss(self, pred):
+        recon_loss = F.mse_loss(pred, self.ground_truth) 
+        
+        loss_dict = {
+            'reconstruction loss': recon_loss.item()
+        }
+
+        return recon_loss, loss_dict
+
 
 def spatial_broadcast(slots, resolution):
   """Broadcast slot features to a 2D grid and collapse slot dimension."""
