@@ -1,3 +1,4 @@
 *__pycache__*
 wandb/
 slot_attention/
+*.out
