@@ -1,13 +1,25 @@
 defaults:
   batch_size: 8
   model: 'SlotAttention_img'
+  dataset: 'clevr'
 
   # Directories
   logdir: "logs"
   user_dir: "/home/jithen"            
   storage_dir: "/home/jithen/scratch"
-  data_dir: "datasets/CoPhy"      # user_dir/storage_dir/data_dir
+  data_dir: 'datasets/CLEVR_v1.0/images'      # user_dir/storage_dir/data_dir
   model_params_logdir: "model_params"         # has the form logs/<model_name>/model_params/<id>_00000xxxxx.pickle
+
+  # wandb
+  offline_wandb: True
+  off_wandb: True
+  wandb_project: 'structure-learning'
+  wandb_entity: 'jithendaraa'
+
+  # Logging adn checkpoint frequencies (steps)
+  loss_log_freq: 50
+  media_log_freq: 50
+  ckpt_save_freq: 5000
 
   # Dataset details
   resolution: 64
@@ -20,3 +32,8 @@ defaults:
 
   # model architecture sizes
   encoder_out_ch: 32
+
+  # hyperparams
+  lr: 4e-4
+  epochs: 1000
+  clip: -1
