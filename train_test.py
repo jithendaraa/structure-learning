@@ -6,15 +6,18 @@ import utils
 import wandb
 import os
 import time
+import numpy as np
+from torch.utils.tensorboard import SummaryWriter
+
 
 def train_model(model, loader_objs, exp_config_dict, opt, device):
 
-    step = 0
     # Data loaders
     train_dataloader = loader_objs['train_dataloader']
     n_train_batches = loader_objs['n_train_batches']
     print("Train batches", n_train_batches)
     optimizer = optim.Adam(model.parameters(), lr=opt.lr)
+    writer = SummaryWriter(os.path.join(opt.logdir, opt.ckpt_id))
 
     if opt.offline_wandb is True: os.system('wandb offline')
     else:   os.system('wandb online')
@@ -24,33 +27,35 @@ def train_model(model, loader_objs, exp_config_dict, opt, device):
         config = wandb.config
         wandb.watch(model)
 
-    for epoch in range(opt.epochs):
-        epoch_loss = 0
-        start_time = time.time()
+    start_time = time.time()
+    for step in range(opt.steps):
+        pred, gt, loss, loss_dict, media_dict = train_batch(model, train_dataloader, optimizer, opt, writer, step)
+        
+        pred_gt = torch.cat((pred[:opt.log_batches].detach().cpu(), gt[:opt.log_batches].cpu()), 0).numpy()
+        pred_gt = np.moveaxis(pred_gt, -3, -1)
 
-        for it in range(n_train_batches):
-            pred, gt, loss, loss_dict, media_dict = train_batch(model, train_dataloader, optimizer, opt, device)
-            pred_gt = torch.cat((pred.detach().cpu(), gt.cpu()), 0).numpy()
-            epoch_loss += loss
-            step += 1
+        # logging to tensorboard
+        for key in loss_dict.keys():
+            writer.add_scalar(key, loss_dict[key], step)
+        
+        # logging to wandb
+        if opt.off_wandb is False:  # Log losses and pred, gt videos
+            if step % opt.loss_log_freq == 0:   wandb.log(loss_dict, step=step)
 
-            if opt.off_wandb is False:  # Log losses and pred, gt videos
-                if step % opt.loss_log_freq == 0:   wandb.log(loss_dict, step=step)
-
-                if step == 1 or step % opt.media_log_freq == 0:
-                    media_dict['Pred_GT'] = wandb.Image(pred_gt) 
-                    wandb.log(media_dict, step=step)
-                    print("Logged media")
+            if step > 0 and step % opt.media_log_freq == 0:
+                media_dict['Pred_GT'] = [wandb.Image(m) for m in pred_gt]
+                wandb.log(media_dict, step=step)
+                print("Logged media")
                 
-            print(f"[Epoch {epoch}] step {step} | Step loss {round(loss, 5)}")
-            utils.save_model_params(model, optimizer, epoch, opt, step, opt.ckpt_save_freq) # Save model params
-
-        end_time = time.time()
-        print()
-        print(f'Epoch Num: {epoch} | Epoch Loss: {round(epoch_loss, 5)} | Time for epoch: {(end_time - start_time) / 60}m')
+        print(f"[Step {step}/{opt.steps}]  | Step loss {round(loss, 5)} | Time: {round((time.time() - start_time) / 60, 3)}m")
+        utils.save_model_params(model, optimizer, opt, step, opt.ckpt_save_freq) # Save model params
 
 
-def train_batch(model, train_dataloader, optimizer, opt, device):
+    writer.flush()
+    writer.close()
+
+
+def train_batch(model, train_dataloader, optimizer, opt, writer, step):
     # Get batch data & Get input sequence and output ground truth 
     data_dict = utils.get_data_dict(train_dataloader)
     batch_dict = utils.get_next_batch(data_dict, opt)
@@ -59,15 +64,25 @@ def train_batch(model, train_dataloader, optimizer, opt, device):
 
     if opt.model in ['SlotAttention_img']:
         recon_combined, slot_recons, slot_masks = model.get_prediction(batch_dict)
-        if opt.off_wandb is False:
-            media_dict['Slot reconstructions'] = wandb.Image(slot_recons[0].detach().cpu().numpy())
-            media_dict['Slotwise masks'] = wandb.Image(slot_masks[0].detach().cpu().numpy())
+        
+        gt_np = model.ground_truth[0].detach().cpu().numpy()
+        gt_np = np.moveaxis(gt_np, -3, -1)
+        gt_np = gt_np * 255.0
 
-        train_loss, loss_dict = model.get_loss(recon_combined)
-        prediction, gt = recon_combined, model.ground_truth
+        media_dict['Slot reconstructions'] = [wandb.Image(m) for m in slot_recons]
+        media_dict['Slotwise masks'] = [wandb.Image(m) for m in slot_masks]
+
+        if step > 0 and step % opt.media_log_freq == 0:
+            writer.add_images('Slot reconstructions', slot_recons, step, dataformats='NHWC')
+            writer.add_images('Slotwise masks', slot_masks, step, dataformats='NHWC')
+
+        train_loss, loss_dict = model.get_loss()
+        prediction, gt = recon_combined, model.ground_truth * 255.0
     
-    train_loss.backward()
     if opt.clip != -1:  torch.nn.utils.clip_grad_norm_(model.parameters(), float(opt.clip))
+    train_loss.backward()
     optimizer.step()
-    loss_dict['Gradient Norm'] = utils.get_grad_norm(model.parameters())
-    return prediction * 255.0, gt * 255.0, train_loss.item(), loss_dict, media_dict
+    grad_norm = utils.get_grad_norm(model.parameters())
+    loss_dict['Gradient Norm'] = grad_norm
+
+    return prediction, gt, train_loss.item(), loss_dict, media_dict
