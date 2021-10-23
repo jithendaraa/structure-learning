@@ -1,13 +1,15 @@
 import torch
 import os
 import pickle
+from os.path import *
+from pathlib import Path
 
 def set_opts(opt):
     print()
     # Set logdir and create dirs along the way
-    if os.path.isdir(opt.logdir) is False:  os.mkdir(opt.logdir)    # mkdir logs
-    opt.logdir = os.path.join(opt.logdir, opt.model)                # logs/ConvGRU
-    if os.path.isdir(opt.logdir) is False:  os.mkdir(opt.logdir)    # mkdir logs/ConvGRU
+    path_logdir = Path(opt.logdir)
+    opt.logdir = path_logdir / opt.dataset / opt.phase / opt.model
+    os.makedirs(opt.logdir, exist_ok=True)
     print("logdir:", opt.logdir)
 
     if opt.dataset == 'clevr':
@@ -17,8 +19,8 @@ def set_opts(opt):
     print("data_dir:", opt.data_dir)
 
     # Set model_params_logdir and create dirs along the way
-    opt.model_params_logdir = os.path.join(opt.logdir, opt.model_params_logdir)     # logs/ConvGRU/model_params
-    if os.path.isdir(opt.model_params_logdir) is False:  os.mkdir(opt.model_params_logdir)
+    opt.model_params_logdir = opt.logdir / opt.model_params_logdir
+    os.makedirs(opt.model_params_logdir, exist_ok=True)
     print("model_params_logdir:", opt.model_params_logdir)
     print()
     return opt
@@ -89,14 +91,13 @@ def get_next_batch(data_dict, opt):
 
 # Save model params
 # Save model params every `ckpt_save_freq` steps as model_params_logdir/ID_00000xxxxx.pickle
-def save_model_params(model, optimizer, epoch, opt, step, ckpt_save_freq):
+def save_model_params(model, optimizer, opt, step, ckpt_save_freq):
   if step > 0 and (step % ckpt_save_freq == 0):
       padded_zeros = '0' * (10 - len(str(step)))
       padded_step = padded_zeros + str(step)
       model_params_file_name = os.path.join(opt.model_params_logdir, opt.ckpt_id + '_' + padded_step + '.pickle')
 
       model_dict = {
-          'epoch': epoch,
           'step': step,
           'state_dict': model.state_dict(),
           'optimizer': optimizer.state_dict()}
