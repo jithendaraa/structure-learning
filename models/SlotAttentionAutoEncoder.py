@@ -67,26 +67,31 @@ class SlotAttentionAutoEncoder(nn.Module):
         # Undo combination of slot and batch dimension; split alpha masks.
         recons, masks = unstack_and_split(x, batch_size=self.opt.batch_size)
         # `recons` has shape: [batch_size, num_slots, num_channels, h, w]
-        # `masks` has shape: [batch_size, 1, num_channels, h, w]
+        # `masks` has shape: [batch_size, num_slots, 1, h, w].
 
         # Normalize alpha masks over slots.
         masks = F.softmax(masks, dim=1)
         recon_combined = torch.sum(recons * masks, dim=1)  # Recombine image.
-        # `recon_combined` has shape: [batch_size, width, height, num_channels].
+        # `recon_combined` has shape: [batch_size, c, h, w].
 
         return recon_combined, recons, masks, slots
 
     def get_prediction(self, batch_dict):
-        self.input_images = (batch_dict['observed_data'] + 0.5).to(self.device) # [0, 1]
-        self.ground_truth = (batch_dict['data_to_predict'] + 0.5).to(self.device) # [0, 1]
+        self.input_images = batch_dict['observed_data'].to(self.device) # [-1, 1]
+        self.ground_truth = batch_dict['data_to_predict'].to(self.device) # [-1, 1]
         recon_combined, recons, masks, slots = self(self.input_images)
-        return recon_combined, recons, masks
+        self.pred = recon_combined
+        
+        slot_recons, slot_masks = recons[0].detach().cpu().numpy(), masks[0].detach().cpu().numpy()
+        slot_recons, slot_masks = np.moveaxis(slot_recons, -3, -1), np.moveaxis(slot_masks, -3, -1)
+
+        return recon_combined * 255.0, slot_recons * 255.0, slot_masks
     
-    def get_loss(self, pred):
-        recon_loss = F.mse_loss(pred, self.ground_truth) 
+    def get_loss(self):
+        recon_loss = F.mse_loss(self.pred, self.ground_truth) 
         
         loss_dict = {
-            'reconstruction loss': recon_loss.item()
+            'Reconstruction loss': recon_loss.item()
         }
 
         return recon_loss, loss_dict
@@ -99,7 +104,6 @@ def spatial_broadcast(slots, resolution):
   slots = slots.reshape(-1, slot_size)[:, :, None, None]
   grid = slots.repeat(1, 1, resolution[0], resolution[1])   # `grid` has shape: [batch_size*num_slots, width, height, slot_size].
   return grid
-
 
 def spatial_flatten(x):
     b, c, h, w = x.size()

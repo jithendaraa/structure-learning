@@ -28,28 +28,14 @@ class CLEVR(Dataset):
 
         self.length = len(os.listdir(root))
 
-    def get_item(self, idx):
-        pass
-        
-        # in_frames = torch.from_numpy( (in_frames / 255.0) - 0.5 ).contiguous().float().to(self.device).permute(0, 3, 1, 2)
-        # out_frames = torch.from_numpy( (out_frames / 255.0) - 0.5 ).contiguous().float().to(self.device).permute(0, 3, 1, 2)
-        
-        # out = {
-        #     "idx": idx, 
-        #     "observed_data": in_frames, 
-        #     "data_to_predict": out_frames,
-        #     'mask': mask,
-        #     'in_flow_labels': in_flow_labels,
-        #     'out_flow_labels': out_flow_labels}
-
-        # return out
-
     def get_resized_torch_image(self, file_path, resolution):
         resolution = (resolution, resolution)
         cv_image = cv2.imread(file_path)
         np_image = np.array(cv2.resize(cv_image, resolution, interpolation=cv2.INTER_AREA))
         np_image = np.moveaxis(np_image, -1, 0) # move channel from dim -1 to dim 0
-        torch_image = torch.from_numpy( (np_image / 255.0) - 0.5 ).contiguous().float().to(self.device)
+        np_image = ((np_image / 255.0) - 0.5) * 2
+        np_image = np.clip(np_image, -1.0, 1.0)
+        torch_image = torch.from_numpy( np_image ).contiguous().float().to(self.device)
         return torch_image
 
     def get_item_dict(self, file_path):
