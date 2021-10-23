@@ -78,7 +78,7 @@ def build_clevr(split, resolution=(128, 128), shuffle=False, max_n_objects=10,
                 num_eval_examples=512, get_properties=True, apply_crop=False):
   """Build CLEVR dataset."""
   if split == "train" or split == "train_eval":
-    ds = tfds.load("clevr:3.1.0", split="train", shuffle_files=shuffle)
+    ds = tfds.load("clevr:3.1.0", split="train", shuffle_files=shuffle, data_dir='~/scratch/tensorflow_datasets')
     if split == "train":
       ds = ds.skip(num_eval_examples)
     elif split == "train_eval":
@@ -86,7 +86,7 @@ def build_clevr(split, resolution=(128, 128), shuffle=False, max_n_objects=10,
       # from the training dataset to monitor AP scores during training.
       ds = ds.take(num_eval_examples)
   else:
-    ds = tfds.load("clevr:3.1.0", split=split, shuffle_files=shuffle)
+    ds = tfds.load("clevr:3.1.0", split=split, shuffle_files=shuffle, data_dir='~/scratch/tensorflow_datasets')
 
   def filter_fn(example, max_n_objects=max_n_objects):
     """Filter examples based on number of objects.

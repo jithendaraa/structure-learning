@@ -2,3 +2,5 @@
 wandb/
 slot_attention/
 *.out
+logs/
+out/

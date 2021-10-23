@@ -122,6 +122,7 @@ def main(argv):
           global_step, tf.float32) / tf.cast(warmup_steps, tf.float32)
     else:
       learning_rate = base_learning_rate
+      
     learning_rate = learning_rate * (decay_rate ** (
         tf.cast(global_step, tf.float32) / tf.cast(decay_steps, tf.float32)))
     optimizer.lr = learning_rate.numpy()
