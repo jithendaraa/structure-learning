@@ -17,7 +17,7 @@ def train_model(model, loader_objs, exp_config_dict, opt, device):
     n_train_batches = loader_objs['n_train_batches']
     print("Train batches", n_train_batches)
     optimizer = optim.Adam(model.parameters(), lr=opt.lr)
-    writer = SummaryWriter(os.path.join(opt.logdir, opt.ckpt_id))
+    writer = SummaryWriter(os.path.join(opt.logdir, opt.ckpt_id + '_' + str(opt.batch_size) + '_' + str(opt.lr) + '_' + str(opt.steps)))
 
     if opt.offline_wandb is True: os.system('wandb offline')
     else:   os.system('wandb online')
