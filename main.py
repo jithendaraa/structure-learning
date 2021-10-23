@@ -12,6 +12,8 @@ from dataloader import *
 def get_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--configs', nargs='+', required=True)
+    parser.add_argument('--data_path', default="/home/jithen/scratch")
+
     args, remaining = parser.parse_known_args()
     configs = yaml.safe_load(
       (pathlib.Path(sys.argv[0]).parent / 'configs.yaml').read_text())
@@ -25,6 +27,7 @@ def get_opt():
       parser.add_argument(f'--{key}', type=arg_type, default=arg_type(value))
     
     opt = parser.parse_args(remaining)
+    opt.data_path = args.data_path
     opt = utils.set_opts(opt)
 
     exp_config = {}
@@ -32,15 +35,13 @@ def get_opt():
     for arg in vars(opt):
       val = getattr(opt, arg)
       exp_config[arg] = val
-    #   print(arg, val)
-    # print()
+      
     return opt, exp_config
 
 def build_model(opt, device):
 
-  implemented_models = ['SlotAttention_img']
-  
   resolution = (opt.resolution, opt.resolution) 
+  implemented_models = ['SlotAttention_img']
   
   if opt.model in ['SlotAttention_img']:
     model = Slot_Attention(opt, resolution, opt.num_slots, opt.num_iterations, device)
@@ -54,6 +55,7 @@ def build_model(opt, device):
 def main(opt, exp_config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = build_model(opt, device)
+    print("data path: ", opt.data_path)
 
     # Dataloader
     loader_objs = parse_datasets(opt, device)
