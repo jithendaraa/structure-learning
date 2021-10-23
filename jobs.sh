@@ -8,6 +8,6 @@ time=${4:-$def_time}
 
 if [ ${exp_id} == '0' ]
 then 
-    # Run my S3VAE (recon)
+    # Run Slot_attention_img
     bash script_runners/sa_img_job_run.sh ${dataset} ${train} 'SlotAttention_img' ${time}
 fi

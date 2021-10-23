@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --time=27:00:00
-#SBATCH --account=def-dnowrouz-ab
+#SBATCH --account=def-ebrahimi
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:1
 #SBATCH --job-name=MovingMNIST
@@ -16,7 +16,11 @@ id=$1
 start=`date +%s`
 echo $start
 
-python main.py --config defaults ${id}
+# cp /home/jithen/scratch/datasets/CLEVR_v1.0.zip $SLURM_TMPDIR/CLEVR_v1.0.zip
+# unzip $SLURM_TMPDIR/CLEVR_v1.0.zip
+act_causal
+module load python/3.7
+python main.py --data_path $SLURM_TMPDIR --config defaults ${id}
 
 echo $end
 end=`date +%s`

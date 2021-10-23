@@ -7,7 +7,6 @@ model=$3
 time=$4
 
 
-
 if [ ${train} == 'train' ]
 then
     if [ ${dataset} == 'clevr' ]
@@ -23,7 +22,6 @@ else
     echo "Not implemented dataset ${train}" 
 fi
 
-start=`date +%s`
 command="sbatch --job-name ${config} --output ${output_file} --time ${time} scripts/run_sa_img.sh ${config}"      
 echo ""
 echo ${command}
@@ -34,7 +32,3 @@ job_id=${RES##* }
 echo "Job ID"" ""${job_id}"" -> ""${config}" >> out/job_logs.txt
 echo "Job ID"" ""${job_id}"" -> ""${config}" 
 echo ""
-
-end=`date +%s`
-runtime=$((end-start))
-echo "Program time: $runtime s"
