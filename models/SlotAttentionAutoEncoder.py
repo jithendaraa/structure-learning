@@ -23,7 +23,6 @@ class SlotAttentionAutoEncoder(nn.Module):
             num_slots: Number of slots in Slot Attention.
             num_iterations: Number of iterations in Slot Attention.
         """
-
         self.resolution = resolution
         self.num_slots = num_slots
         self.num_iterations = num_iterations
@@ -77,15 +76,20 @@ class SlotAttentionAutoEncoder(nn.Module):
         return recon_combined, recons, masks, slots
 
     def get_prediction(self, batch_dict):
+        np_clip_convert = lambda x: np.clip(((x + 1) / 2) * 255.0, 0. , 255.).astype(np.uint8)
+        torch_clamp_convert = lambda x: torch.clamp(((x + 1) / 2) * 255.0, 0., 255.).to(torch.int8)
+
         self.input_images = batch_dict['observed_data'].to(self.device) # [-1, 1]
         self.ground_truth = batch_dict['data_to_predict'].to(self.device) # [-1, 1]
         recon_combined, recons, masks, slots = self(self.input_images)
         self.pred = recon_combined
         
+        weighted_recon = recons * masks
+        weighted_recon = weighted_recon[0].detach().cpu().numpy()
         slot_recons, slot_masks = recons[0].detach().cpu().numpy(), masks[0].detach().cpu().numpy()
-        slot_recons, slot_masks = np.moveaxis(slot_recons, -3, -1), np.moveaxis(slot_masks, -3, -1)
-
-        return recon_combined * 255.0, slot_recons * 255.0, slot_masks
+        slot_recons, slot_masks, weighted_recon = np.moveaxis(slot_recons, -3, -1), np.moveaxis(slot_masks, -3, -1), np.moveaxis(weighted_recon, -3, -1)
+        
+        return torch_clamp_convert(recon_combined), np_clip_convert(slot_recons), slot_masks, np_clip_convert(weighted_recon)
     
     def get_loss(self):
         recon_loss = F.mse_loss(self.pred, self.ground_truth) 

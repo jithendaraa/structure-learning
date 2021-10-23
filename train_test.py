@@ -17,7 +17,7 @@ def train_model(model, loader_objs, exp_config_dict, opt, device):
     n_train_batches = loader_objs['n_train_batches']
     print("Train batches", n_train_batches)
     optimizer = optim.Adam(model.parameters(), lr=opt.lr)
-    writer = SummaryWriter(os.path.join(opt.logdir, opt.ckpt_id + '_' + str(opt.batch_size) + '_' + str(opt.lr) + '_' + str(opt.steps)))
+    writer = SummaryWriter(os.path.join(opt.logdir, opt.ckpt_id + '_' + str(opt.batch_size) + '_' + str(opt.lr) + '_' + str(opt.steps) + '_' + str(opt.resolution)))
 
     if opt.offline_wandb is True: os.system('wandb offline')
     else:   os.system('wandb online')
@@ -35,8 +35,12 @@ def train_model(model, loader_objs, exp_config_dict, opt, device):
         pred_gt = np.moveaxis(pred_gt, -3, -1)
 
         # logging to tensorboard
-        for key in loss_dict.keys():
-            writer.add_scalar(key, loss_dict[key], step)
+        if step % opt.loss_log_freq == 0:
+            for key in loss_dict.keys():
+                writer.add_scalar(key, loss_dict[key], step)
+        
+        if step > 0 and step % opt.media_log_freq == 0:
+            writer.add_images("Reconstruction", pred_gt / 255.0, step, dataformats='NHWC')
         
         # logging to wandb
         if opt.off_wandb is False:  # Log losses and pred, gt videos
@@ -63,21 +67,23 @@ def train_batch(model, train_dataloader, optimizer, opt, writer, step):
     optimizer.zero_grad()
 
     if opt.model in ['SlotAttention_img']:
-        recon_combined, slot_recons, slot_masks = model.get_prediction(batch_dict)
+        recon_combined, slot_recons, slot_masks, weighted_recon = model.get_prediction(batch_dict)
         
         gt_np = model.ground_truth[0].detach().cpu().numpy()
         gt_np = np.moveaxis(gt_np, -3, -1)
-        gt_np = gt_np * 255.0
+        gt_np = ((gt_np + 1)/2) * 255.0
 
         media_dict['Slot reconstructions'] = [wandb.Image(m) for m in slot_recons]
         media_dict['Slotwise masks'] = [wandb.Image(m) for m in slot_masks]
+        media_dict['Weighted reconstructions'] = [wandb.Image(m) for m in weighted_recon]
 
         if step > 0 and step % opt.media_log_freq == 0:
-            writer.add_images('Slot reconstructions', slot_recons, step, dataformats='NHWC')
+            writer.add_images('Slot reconstructions', slot_recons / 255.0, step, dataformats='NHWC')
+            writer.add_images('Weighted reconstructions', weighted_recon / 255.0, step, dataformats='NHWC')
             writer.add_images('Slotwise masks', slot_masks, step, dataformats='NHWC')
 
         train_loss, loss_dict = model.get_loss()
-        prediction, gt = recon_combined, model.ground_truth * 255.0
+        prediction, gt = recon_combined, ((model.ground_truth + 1)/2) * 255.0
     
     if opt.clip != -1:  torch.nn.utils.clip_grad_norm_(model.parameters(), float(opt.clip))
     train_loss.backward()
