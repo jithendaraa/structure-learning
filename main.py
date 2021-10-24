@@ -5,6 +5,7 @@ import pathlib
 import utils
 import torch
 
+from models.VCN import VCN
 from models.SlotAttentionAutoEncoder import SlotAttentionAutoEncoder as Slot_Attention
 from train_test import train_model
 from dataloader import *
@@ -41,11 +42,14 @@ def get_opt():
 def build_model(opt, device):
 
   resolution = (opt.resolution, opt.resolution) 
-  implemented_models = ['SlotAttention_img']
+  implemented_models = ['SlotAttention_img', 'VCN']
   
   if opt.model in ['SlotAttention_img']:
     model = Slot_Attention(opt, resolution, opt.num_slots, opt.num_iterations, device)
   
+  elif opt.model in ['VCN']:
+    model = VCN(opt, opt.num_nodes, opt.sparsity_factor, opt.gibbs_temp_init, device)
+    print(model)
   else: 
     raise NotImplementedError(f'Model {opt.model} is not implemented. Try one of {implemented_models}')
 
@@ -60,7 +64,7 @@ def main(opt, exp_config):
     # Dataloader
     loader_objs = parse_datasets(opt, device)
     
-    train_model(model, loader_objs, exp_config, opt, device)
+    # train_model(model, loader_objs, exp_config, opt, device)
 
 if __name__ == '__main__':
     opt, exp_config = get_opt()

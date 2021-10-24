@@ -45,6 +45,7 @@ class SlotAttentionAutoEncoder(nn.Module):
 
         self.pos_decoder = SoftPositionEmbed(self.decoder_initial_size, opt.slot_size, device=device)
         self.cnn_decoder = CNN_Decoder(out_ch=opt.channels, device=device)
+        print("Initialised model: SlotAttention AutoEncoder")
 
     def forward(self, x):
         x = self.cnn_encoder(x)

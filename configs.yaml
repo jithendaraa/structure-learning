@@ -18,10 +18,10 @@ defaults:
   wandb_entity: 'jithendaraa'
   log_batches: 4
 
-  # Logging adn checkpoint frequencies (steps)
-  loss_log_freq: 20
+  # Logging and checkpoint frequencies (steps)
+  loss_log_freq: 40
   media_log_freq: 500
-  ckpt_save_freq: 1000
+  ckpt_save_freq: 5000
 
   # Dataset details
   resolution: 64
@@ -39,11 +39,29 @@ defaults:
   lr: 4e-4
   decay_rate: 0.5
   # decay_steps: 
-  steps: 50000
+  steps: 110000
   clip: -1
 
   # misc
   phase: 'train'
+
+  # VCN params
+  num_nodes: 2
+  seed: 10
+  data_seed: 20
+  num_samples: 100
+  no_autoreg_base: False
+  sparsity_factor: 1e-3
+  gibbs_temp_init: 10
+  gibbs_temp: 1000
+  noise_type: 'isotropic-gaussian'
+  noise_sigma: 1.0
+  theta_mu: 2.0
+  theta_sigma: 1.0
+  data_type: 'er'
+  exp_edges: 1.0
+  eval_only: False
+  anneal: True
 
 experimental:
   off_wandb: True
@@ -51,7 +69,7 @@ experimental:
 mini:
   loss_log_freq: 5
   media_log_freq: 5
-  steps: 250
+  steps: 100
 
 mila:
   offline_wandb: False
@@ -60,5 +78,14 @@ mila:
 train_clevr_sa_img:
   ckpt_id: 'train_clevr_sa_img'
   model: 'SlotAttention_img'
-  phase: 'train'
   dataset: 'clevr'
+
+train_vcn_autoreg:
+  dataset: 'er'
+  ckpt_id: 'train_vcn_autoreg' 
+  batch_size: 1000
+  lr: 1e-2
+  steps: 30000
+  model: 'VCN'
+  no_autoreg_base: False
+  
