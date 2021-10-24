@@ -131,3 +131,19 @@ def unstack_and_split(x, batch_size, num_channels=3):
   channels, masks = torch.split(unstacked, [num_channels, 1], dim=-3)
   return channels, masks
 
+# VCN
+def vec_to_adj_mat(matrix, num_nodes):
+	matrix = matrix.view(-1, num_nodes, num_nodes-1)
+	matrix_full = torch.cat((torch.zeros(matrix.shape[0], num_nodes,1).to(matrix.device), matrix), dim = -1)
+	for xx in range(num_nodes):
+		matrix_full[:,xx] = torch.roll(matrix_full[:,xx], xx, -1) 
+	return matrix_full
+
+def matrix_poly(matrix, d):
+	x = torch.eye(d).to(matrix.device) + torch.div(matrix, d)
+	return torch.matrix_power(x, d)
+
+def expm(A, m):
+	expm_A = matrix_poly(A, m)
+	h_A = expm_A.diagonal(dim1=-2, dim2=-1).sum(-1) - m
+	return h_A
