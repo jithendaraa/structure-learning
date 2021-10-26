@@ -23,6 +23,8 @@ def set_opts(opt):
     os.makedirs(opt.model_params_logdir, exist_ok=True)
     print("model_params_logdir:", opt.model_params_logdir)
     print()
+
+    if opt.num_nodes == 2:  opt.exp_edges = 0.8
     return opt
 
 def args_type(default):
