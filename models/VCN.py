@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import utils
 from modules.AutoregressiveBase import AutoregressiveBase
+from modules.data import distributions
 
 class VCN(nn.Module):
 	def __init__(self, opt, num_nodes, sparsity_factor = 0.0, gibbs_temp_init = 10., device=None):
@@ -19,12 +20,19 @@ class VCN(nn.Module):
 			NotImplemented('Have not implemented factorised version yet (only autoregressive works)')
         	# graph_dist = factorised_base.FactorisedBase(opt.num_nodes, device = device, temp_rsample = 0.1).to(device)
 
-		if self.opt.anneal: 
-			self.gibbs_update = self._gibbs_update
-		else:
-			self.gibbs_update = None
+		if self.opt.anneal:	self.gibbs_update = self._gibbs_update
+		else:				self.gibbs_update = None
 
+		self.init_gibbs_dist()
 		print("Initialised VCN")
+
+	def init_gibbs_dist(self):
+		if self.opt.num_nodes <= 4:
+			self.gibbs_dist = distributions.GibbsDAGDistributionFull(self.opt.num_nodes, self.opt.gibbs_temp, self.opt.sparsity_factor)
+		else:
+			self.gibbs_dist = distributions.GibbsUniformDAGDistribution(self.opt.num_nodes, self.opt.gibbs_temp, self.opt.sparsity_factor)
+		
+		print("Got Gibbs distribution", self.gibbs_dist)
 
 	def _gibbs_update(self, curr, epoch):
 		if epoch < self.opt.steps*0.05:
