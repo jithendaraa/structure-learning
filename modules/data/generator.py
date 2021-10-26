@@ -75,7 +75,7 @@ class Generator(torch.utils.data.Dataset):
 					sample = dist.sample()
 					self.weights[k] = sample
 
-		print(self.weights)
+		print("sampled edge weight:", self.weights.item())
 
 	def sample(self, num_samples, graph = None, node = None, value = None):
 		"""Sample observations given a graph
