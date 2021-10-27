@@ -2,9 +2,10 @@ import sys
 sys.path.append('..')
 import torch
 import torch.nn as nn
-import utils
+
 from modules.AutoregressiveBase import AutoregressiveBase
 from modules.data import distributions
+import vcn_utils as utils
 
 class VCN(nn.Module):
 	def __init__(self, opt, num_nodes, sparsity_factor = 0.0, gibbs_temp_init = 10., device=None):
@@ -13,6 +14,7 @@ class VCN(nn.Module):
 		self.num_nodes = num_nodes
 		self.sparsity_factor = sparsity_factor
 		self.gibbs_temp = gibbs_temp_init
+		self.baseline = 0.
 
 		if not opt.no_autoreg_base:
 			self.graph_dist = AutoregressiveBase(opt.num_nodes, device = device, temp_rsample = 0.1).to(device)
@@ -40,22 +42,41 @@ class VCN(nn.Module):
 		else:
 			return self.opt.gibbs_temp_init+ (self.opt.gibbs_temp - self.opt.gibbs_temp_init)*(10**(-2 * max(0, (self.opt.steps - 1.1*epoch)/self.opt.steps)))
 	
-	def forward(self, n_samples, bge_model, e, curr, epoch, interv_targets = None):
-		
+	def forward(self, bge_model, e, interv_targets = None):
+		n_samples = self.opt.batch_size
 		samples = self.graph_dist.sample([n_samples])	
 		log_probs = self.graph_dist.log_prob(samples).squeeze()
 
-	# 	G = utils.vec_to_adj_mat(samples, self.num_nodes) 
-	# 	likelihood = bge_model.log_marginal_likelihood_given_g(w = G, interv_targets=interv_targets)
+		G = utils.vec_to_adj_mat(samples, self.num_nodes) 
+		likelihood = bge_model.log_marginal_likelihood_given_g(w = G, interv_targets=interv_targets)
+		dagness = utils.expm(G, self.num_nodes)
 
-	# 	dagness = utils.expm(G, self.num_nodes)
-	# 	self.update_gibbs_temp(e)
-	# 	kl_graph = log_probs + self.gibbs_temp*dagness + self.sparsity_factor*torch.sum(G, axis = [-1, -2]) 
-	# 	return likelihood, kl_graph, log_probs
+		self.update_gibbs_temp(e)
+		kl_graph = log_probs + self.gibbs_temp*dagness + self.sparsity_factor*torch.sum(G, axis = [-1, -2]) 
+		return likelihood, kl_graph, log_probs
 
+	def get_prediction(self, bge_train, e):
+		self.likelihood, self.kl_graph, self.log_probs = self(bge_train, e)
+	
+	def get_loss(self):
+		# ELBO Loss
+		reconstruction_loss, kl_loss = - self.likelihood, self.kl_graph
+		score_val = ( reconstruction_loss + kl_loss ).detach()
+		per_sample_elbo = self.log_probs*(score_val-self.baseline)
+		self.baseline = 0.95 * self.baseline + 0.05 * score_val.mean() 
+		loss = (per_sample_elbo).mean()
+		
+		loss_dict = {
+			'Reconstruction loss': reconstruction_loss.mean().item(),
+			'KL loss':	kl_loss.mean().item(),
+			'Total loss': (reconstruction_loss + kl_loss).mean().item(),
+			'Per sample loss': loss.item()
+		}
 
-	# def update_gibbs_temp(self, e):
-	# 	if self.gibbs_update is None:
-	# 		return 0
-	# 	else:
-	# 		self.gibbs_temp =  self.gibbs_update(self.gibbs_temp, e)
+		return loss, loss_dict, self.baseline
+
+	def update_gibbs_temp(self, e):
+		if self.gibbs_update is None:
+			return 0
+		else:
+			self.gibbs_temp =  self.gibbs_update(self.gibbs_temp, e)
