@@ -1,14 +1,17 @@
+import warnings
+warnings.filterwarnings("ignore")
 import argparse
 import ruamel.yaml as yaml
 import sys
 import pathlib
-import utils
 import torch
-
-from models.VCN import VCN
-from models.SlotAttentionAutoEncoder import SlotAttentionAutoEncoder as Slot_Attention
 from train_test import train_model
+import utils
 from dataloader import *
+
+from models.SlotAttentionAutoEncoder import SlotAttentionAutoEncoder as Slot_Attention
+from models.VCN import VCN
+from models.Slot_VCN import Slot_VCN
 
 def get_opt():
     parser = argparse.ArgumentParser()
@@ -49,10 +52,15 @@ def build_model(opt, device):
   
   elif opt.model in ['VCN']:
     model = VCN(opt, opt.num_nodes, opt.sparsity_factor, opt.gibbs_temp_init, device)
-    print(model)
+
+  elif opt.model in ['Slot_VCN_img']:
+    model = Slot_VCN(opt, opt.datatype)
+    
+  
   else: 
     raise NotImplementedError(f'Model {opt.model} is not implemented. Try one of {implemented_models}')
 
+  print(model)
   return model
     
 
@@ -63,8 +71,7 @@ def main(opt, exp_config):
 
     # Dataloader
     loader_objs = parse_datasets(opt, device)
-    
-    # train_model(model, loader_objs, exp_config, opt, device)
+    train_model(model, loader_objs, exp_config, opt, device)
 
 if __name__ == '__main__':
     opt, exp_config = get_opt()

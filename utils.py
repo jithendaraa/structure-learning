@@ -3,6 +3,7 @@ import os
 import pickle
 from os.path import *
 from pathlib import Path
+import wandb
 
 def set_opts(opt):
     print()
@@ -25,6 +26,10 @@ def set_opts(opt):
     print()
 
     if opt.num_nodes == 2:  opt.exp_edges = 0.8
+    
+    if opt.num_nodes <=4: opt.alpha_lambd = 10.
+    else: opt.alpha_lambd = 1000.
+
     return opt
 
 def args_type(default):
@@ -133,19 +138,28 @@ def unstack_and_split(x, batch_size, num_channels=3):
   channels, masks = torch.split(unstacked, [num_channels, 1], dim=-3)
   return channels, masks
 
-# VCN
-def vec_to_adj_mat(matrix, num_nodes):
-	matrix = matrix.view(-1, num_nodes, num_nodes-1)
-	matrix_full = torch.cat((torch.zeros(matrix.shape[0], num_nodes,1).to(matrix.device), matrix), dim = -1)
-	for xx in range(num_nodes):
-		matrix_full[:,xx] = torch.roll(matrix_full[:,xx], xx, -1) 
-	return matrix_full
+def log_to_tb(opt, writer, loss_dict, step, pred_gt):
+  if step % opt.loss_log_freq == 0:
+    for key in loss_dict.keys():
+        writer.add_scalar(key, loss_dict[key], step)
+        
+  if step > 0 and step % opt.media_log_freq == 0 and pred_gt is not None:
+      writer.add_images("Reconstruction", pred_gt / 255.0, step, dataformats='NHWC')
 
-def matrix_poly(matrix, d):
-	x = torch.eye(d).to(matrix.device) + torch.div(matrix, d)
-	return torch.matrix_power(x, d)
+def log_to_wandb(opt, step, loss_dict, media_dict, pred_gt):
+  if opt.off_wandb is False:  # Log losses and pred, gt videos
+    if step % opt.loss_log_freq == 0:   wandb.log(loss_dict, step=step)
 
-def expm(A, m):
-	expm_A = matrix_poly(A, m)
-	h_A = expm_A.diagonal(dim1=-2, dim2=-1).sum(-1) - m
-	return h_A
+    if step > 0 and step % opt.media_log_freq == 0 and pred_gt:
+        media_dict['Pred_GT'] = [wandb.Image(m) for m in pred_gt]
+        wandb.log(media_dict, step=step)
+        print("Logged media")
+
+def log_images_to_tb(opt, step, keys, values, writer, dataformats='NHWC'):
+  assert len(keys) == len(values)
+  
+  if step > 0 and step % opt.media_log_freq == 0:
+    for i in range(len(keys)):
+      key, val = keys[i], val[i]
+      writer.add_images(key, val, step, dataformats=dataformats)
+

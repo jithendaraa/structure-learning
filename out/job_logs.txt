@@ -1,1 +1,14 @@
-Job ID 26841039 -> train_clevr_sa_img
+[Completed]
+
+[Failed]
+Job ID 26891561 -> train_clevr_sa_img 
+
+[Running]
+Job ID 26890565 -> train_clevr_sa_img
+Job ID 26938268 -> train_clevr_sa_img
+Job ID 26938285 -> train_clevr_sa_img
+Job ID 26938328 -> train_clevr_sa_img
+Job ID 26939345 -> train_clevr_sa_img
+Job ID 26939396 -> train_clevr_sa_img
+Job ID 26939448 -> train_clevr_sa_img
+Job ID 26939456 -> train_clevr_sa_img
