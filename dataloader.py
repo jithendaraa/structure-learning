@@ -9,6 +9,9 @@ from torchvision import transforms as T
 import utils
 import cv2
 
+from modules.data.erdos_renyi import ER
+from modules.BGe import BGe
+
 class CLEVR(Dataset):
     def __init__(self, root, opt, is_train, device=None, ch=3):
         '''
@@ -55,6 +58,8 @@ class CLEVR(Dataset):
         return self.length
 
 def parse_datasets(opt, device):
+    data_objects = {}
+
     if opt.dataset == 'clevr':
         train_dir = os.path.join(opt.data_dir, 'train')
         test_dir = os.path.join(opt.data_dir, 'test')
@@ -65,12 +70,36 @@ def parse_datasets(opt, device):
         train_dataloader = DataLoader(trainFolder, batch_size=opt.batch_size, shuffle=False)
         test_dataloader = DataLoader(testFolder, batch_size=opt.batch_size, shuffle=False)
 
+        data_objects = {"train_dataloader": utils.inf_generator(train_dataloader),
+                        "test_dataloader": utils.inf_generator(test_dataloader),
+                        # "n_train_batches": len(train_dataloader),
+                        # "n_test_batches": len(test_dataloader)
+                        }
+    elif opt.dataset == 'er':
+        train_dataloader = ER(num_nodes = opt.num_nodes, 
+                        exp_edges = opt.exp_edges, 
+                        noise_type = opt.noise_type, 
+                        noise_sigma = opt.noise_sigma, 
+                        num_samples = opt.num_samples, 
+                        mu_prior = opt.theta_mu, 
+                        sigma_prior = opt.theta_sigma, 
+                        seed = opt.data_seed)
+
+        bge_train = BGe(mean_obs = [opt.theta_mu]*opt.num_nodes, 
+                        alpha_mu = 1.0, 
+                        alpha_lambd=opt.alpha_lambd, 
+                        data = train_dataloader.samples, 
+                        device = device)
+        print("BGE_train:", bge_train)
+
+        data_objects = {"train_dataloader": train_dataloader,
+                        "test_dataloader": None,
+                        "bge_train": bge_train
+                        }
+
     else:
         raise NotImplementedError(f"There is no dataset named {opt.dataset}")
 
-    data_objects = {"train_dataloader": utils.inf_generator(train_dataloader),
-                    "test_dataloader": utils.inf_generator(test_dataloader),
-                    "n_train_batches": len(train_dataloader),
-                    "n_test_batches": len(test_dataloader)}
+    
     
     return data_objects
