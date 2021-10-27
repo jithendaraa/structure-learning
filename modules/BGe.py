@@ -1,3 +1,5 @@
+import warnings
+warnings.filterwarnings("ignore")
 import torch
 import numpy as np
 
@@ -75,7 +77,7 @@ class BGe(torch.nn.Module):
 		adding a diagonal of ones everywhere else for the 
 		valid determinant
 		"""
-
+		torch.cuda.init()
 		if R is None:
 			R = self.R.clone()
 		batch_size = parents.shape[0]
@@ -84,7 +86,8 @@ class BGe(torch.nn.Module):
 		mask = torch.matmul(parents.unsqueeze(2), parents.unsqueeze(1)).to(torch.bool) #[batch_size, d,d]
 		R = torch.where(mask, R, torch.tensor([np.nan], device = self.device).to(torch.float64))
 		submat = torch.where(torch.isnan(R), torch.eye(self.d, dtype = torch.float64).unsqueeze(0).expand(batch_size,-1,-1).to(self.device), R)
-		return torch.linalg.slogdet(submat)[1]
+		res = torch.linalg.slogdet(submat)[1]
+		return res
 
 	def log_marginal_likelihood_given_g_j(self, j, w):
 		"""
@@ -92,23 +95,26 @@ class BGe(torch.nn.Module):
 		j : Node to compute the marginal likelihood. Marginal Likelihood decomposes over each node.
 		w : [batch_size, num_nodes, num_nodes] : {0,1} adjacency matrix 
 		"""
-
 		batch_size = w.shape[0]
 		isj = (torch.arange(self.d) == j).unsqueeze(0).expand(batch_size, -1).to(self.device)
 		parents = w[:, :, j] == 1
 		parents_and_j = parents | isj
+
 		n_parents = (w.sum(axis=1)[:,j]).long()
 		n_parents_mask = n_parents == 0
 		_log_term_r_no_parents = - 0.5 * (self.N + self.alpha_lambd - self.d + 1) * torch.log(torch.abs(self.R[j, j]))
 
+		
 		_log_term_r = 0.5 * (self.N + self.alpha_lambd - self.d + n_parents[~n_parents_mask]) *\
 						self.slogdet_pytorch(parents[~n_parents_mask])\
 					- 0.5 * (self.N + self.alpha_lambd - self.d + n_parents[~n_parents_mask] + 1) *\
 						self.slogdet_pytorch(parents_and_j[~n_parents_mask])     # log det(R_II)^(..) / det(R_JJ)^(..)
+		
 	
 		log_term_r = torch.zeros(batch_size, dtype = torch.float64, device = self.device)
 		log_term_r[n_parents_mask] = _log_term_r_no_parents
 		log_term_r[~n_parents_mask] = _log_term_r
+
 		return log_term_r + self.log_gamma_terms[n_parents]
 
 

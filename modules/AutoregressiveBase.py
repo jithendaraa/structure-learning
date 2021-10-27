@@ -1,5 +1,8 @@
+import sys
+sys.path.append('../..')
+
 import torch
-import utils
+import vcn_utils as utils
 
 class AutoregressiveBase(torch.nn.Module):
     """Autoregressive bernoulli sampler based on LSTM"""
