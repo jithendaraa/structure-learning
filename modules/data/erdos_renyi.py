@@ -21,6 +21,10 @@ class ER(Generator):
 		p = float(exp_edges)/ (num_nodes-1)
 		acyclic, mmec, count  = 0, 0, 1
 		
+		# Sample a random directed graph;
+		# if acyclic, set to true
+		# if MEC(DAG) >= 2; set mmec true
+		# break from while if acyclic and mmec 
 		while not (acyclic and mmec):
 			if exp_edges <= 2:
 				self.graph = nx.generators.random_graphs.fast_gnp_random_graph(num_nodes, p, directed = True, seed = seed*count)
@@ -33,9 +37,11 @@ class ER(Generator):
 		super().__init__(num_nodes, len(self.graph.edges), noise_type, num_samples, mu_prior = mu_prior , sigma_prior = sigma_prior, seed = seed)
 		self.init_sampler()
 		self.samples = self.sample(self.num_samples)
+		print("self.samples", self.samples.size())
 
-	def __getitem__(self, index):
-		return self.samples[index]
+	# def __getitem__(self, index):
+	# 	print(index)
+	# 	return self.samples[index]
 
 def matrix_poly_np(matrix, d):
 	x = np.eye(d) + matrix/d

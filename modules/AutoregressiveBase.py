@@ -7,8 +7,9 @@ import vcn_utils as utils
 class AutoregressiveBase(torch.nn.Module):
     """Autoregressive bernoulli sampler based on LSTM"""
     
-    def __init__(self, n_nodes, hidden_dim=48, n_layers=3, temp_rsample=0.1, device = 'cpu'):
+    def __init__(self, opt, n_nodes, hidden_dim=48, n_layers=3, temp_rsample=0.1, device = 'cpu'):
         super().__init__()
+        self.opt = opt
         self.n_nodes = n_nodes
         self.n_dim_out = n_nodes*(n_nodes-1)
         self.hidden_dim = hidden_dim
@@ -91,12 +92,16 @@ class AutoregressiveBase(torch.nn.Module):
 
 
     def log_prob(self, value, return_logits = False):
+        # n_dim_out_value = L = n(n-1)
         batch_size, n_dim_out_value,_ = value.shape
+
         assert n_dim_out_value == self.n_dim_out
         # add start value
         state = self._get_state(batch_size) # hidden / cell state at t=0
         input = self._init_input(batch_size) # input at t=0
+
         value = torch.cat([input, value], dim=-2)
+
         logits, _ = self.forward(value, state)
         logits = logits[:, :-1, :]
         value = value[:, 1:]

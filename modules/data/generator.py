@@ -62,10 +62,11 @@ class Generator(torch.utils.data.Dataset):
 
 	def sample_weights(self):
 		"""Sample the edge weights"""
+		print("MU prior", self.mu_prior, self.sigma_prior, self.num_edges)
 
 		if self.mu_prior is not None:
-		
 			self.weights = torch.distributions.normal.Normal(self.mu_prior, self.sigma_prior).sample([self.num_edges])
+
 		else:
 			dist = torch.distributions.uniform.Uniform(-5, 5)
 			self.weights = torch.zeros(self.num_edges)
@@ -75,7 +76,7 @@ class Generator(torch.utils.data.Dataset):
 					sample = dist.sample()
 					self.weights[k] = sample
 
-		print("sampled edge weight:", self.weights.item())
+		print("sampled edge weight:", self.weights)
 
 	def sample(self, num_samples, graph = None, node = None, value = None):
 		"""Sample observations given a graph
@@ -89,6 +90,9 @@ class Generator(torch.utils.data.Dataset):
 
 		if graph is None:
 			graph = self.graph
+
+		print("Graph", self.graph)
+		print("weighted adj mat", self.weighted_adjacency_matrix)
 
 		samples = torch.zeros(num_samples, self.num_nodes)
 		edge_pointer = 0
@@ -107,7 +111,8 @@ class Generator(torch.utils.data.Dataset):
 					edge_pointer += 1
 				curr += noise
 				samples[:, i] = curr
-		return samples
+
+		return samples # (num_samples * num_nodes)
 
 	def intervene(self, num_samples, node = None, value = None):
 		
