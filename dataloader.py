@@ -31,6 +31,9 @@ class CLEVR(Dataset):
 
         self.length = len(os.listdir(root))
 
+        # if opt.datatype in ['image'] and opt.model in ['VCN']:
+        #     self.samples
+
     def get_resized_torch_image(self, file_path, resolution):
         resolution = (resolution, resolution)
         cv_image = cv2.imread(file_path)
@@ -42,13 +45,12 @@ class CLEVR(Dataset):
         return torch_image
 
     def get_item_dict(self, file_path):
-        if self.opt.model in ['SlotAttention_img']:
+        if self.opt.model in ['SlotAttention_img', 'VCN']:
             image = self.get_resized_torch_image(file_path, self.opt.resolution) # [-0.5, 0.5]
             item_dict = { 'observed_data': image, 'predicted_data': image}
         
         return item_dict
         
-
     def __getitem__(self, idx):
         file_path = os.path.join(self.root, self.files[idx])
         item_dict = self.get_item_dict(file_path)
@@ -58,7 +60,7 @@ class CLEVR(Dataset):
         return self.length
 
 def parse_datasets(opt, device):
-    data_objects = {}
+    data_objects, data = {}, None
 
     if opt.dataset == 'clevr':
         train_dir = os.path.join(opt.data_dir, 'train')
@@ -75,31 +77,30 @@ def parse_datasets(opt, device):
                         # "n_train_batches": len(train_dataloader),
                         # "n_test_batches": len(test_dataloader)
                         }
+
+        data = train_dataloader
+
     elif opt.dataset == 'er':
-        train_dataloader = ER(num_nodes = opt.num_nodes, 
-                        exp_edges = opt.exp_edges, 
-                        noise_type = opt.noise_type, 
-                        noise_sigma = opt.noise_sigma, 
-                        num_samples = opt.num_samples, 
-                        mu_prior = opt.theta_mu, 
-                        sigma_prior = opt.theta_sigma, 
-                        seed = opt.data_seed)
-
-        bge_train = BGe(mean_obs = [opt.theta_mu]*opt.num_nodes, 
-                        alpha_mu = 1.0, 
-                        alpha_lambd=opt.alpha_lambd, 
-                        data = train_dataloader.samples, 
-                        device = device)
-        print("BGE_train:", bge_train)
-
-        data_objects = {"train_dataloader": train_dataloader,
-                        "test_dataloader": None,
-                        "bge_train": bge_train
-                        }
-
+        train_dataloader = ER(num_nodes = opt.num_nodes, exp_edges = opt.exp_edges, noise_type = opt.noise_type, noise_sigma = opt.noise_sigma, num_samples = opt.num_samples, mu_prior = opt.theta_mu, sigma_prior = opt.theta_sigma, seed = opt.data_seed)
+        data = train_dataloader.samples
+    
     else:
         raise NotImplementedError(f"There is no dataset named {opt.dataset}")
 
-    
-    
+    if opt.model[:3] == 'VCN':
+        if data is None:    data = train_dataloader.samples
+
+        bge_train = BGe(opt,
+                        mean_obs = [opt.theta_mu]*opt.num_nodes, 
+                        alpha_mu = opt.alpha_mu, 
+                        alpha_lambd=opt.alpha_lambd, 
+                        data = data, 
+                        device = device)
+        
+        print("BGE_train:", bge_train)
+        data_objects["bge_train"] = bge_train
+
+
+    print(f"Loaded dataset {opt.dataset}")
+    print()
     return data_objects
