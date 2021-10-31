@@ -42,6 +42,7 @@ class BGe(torch.nn.Module):
 		self.alpha_mu = alpha_mu
 		self.alpha_lambd = alpha_lambd
 		self.device = device
+		self.d = opt.num_nodes
 
 		# pre-compute matrices
 		self.small_t = (self.alpha_mu * (self.alpha_lambd - self.d - 1)) / \
@@ -51,6 +52,7 @@ class BGe(torch.nn.Module):
 
 		if opt.datatype in ['er']:
 			if not isinstance(data, torch.DoubleTensor):	data = torch.tensor(data).to(torch.float64)
+			assert data.shape[-1] == self.opt.num_nodes
 			self.N, self.d = data.shape 
 			self.precompute_matrices_numerical(data) 
 
@@ -61,24 +63,37 @@ class BGe(torch.nn.Module):
 	def precompute_matrices_images(self, data):
 		
 		# data is of size: b, num_nodes, chan_per_node, h', w'; h', w' -> resolution after conv encoding input images
-		print("calculating per batch marginal log likelihood")
+		data = data.cpu()
+		if not isinstance(data, torch.DoubleTensor):	data = torch.tensor(data).to(torch.float64)
+
 		b, d, c_per_node, h, w = data.size()
 		num_image_samples = b # no. of total images in this batch
-		print("data", data.shape)
 
 		x_bar = torch.mean(data, dim = 0)
 		x_center = data - x_bar
-		print("x_bar and x_center", x_bar.size(), x_center.size())
 
 		flat_imgs = x_center.view(b, d, -1)
 		s_N = torch.bmm(flat_imgs, flat_imgs.permute(0, 2, 1))  # [d, d]
 		s_N = torch.sum(s_N, dim=0)
-		print("covariance", s_N.size())
+
+		gamma_var = torch.bmm(x_bar.view(b, d, -1) - self.mean_obs, 
+								(x_bar.view(b, d, -1) - self.mean_obs).permute(0, 2, 1))
+		gamma_var = torch.sum(gamma_var, dim=0).squeeze(0)
 
 		T = self.T
-		# self.R = (T + s_N + ((self.N * self.alpha_mu) / (self.N + self.alpha_mu)) * \
-		# (torch.matmul((x_bar - self.mean_obs).t(), x_bar - self.mean_obs))).to(self.device)
+		small_t = self.small_t
+		self.R = (T + s_N + ((self.N * self.alpha_mu) / (self.N + self.alpha_mu)) * \
+		(gamma_var)).to(self.device)
 
+		all_l = torch.arange(self.d)
+		self.log_gamma_terms = (
+		0.5 * ( np.log(self.alpha_mu) - np.log(self.N + self.alpha_mu) )
+		+ torch.special.gammaln(0.5 * (self.N + self.alpha_lambd - self.d + all_l + 1))
+		- torch.special.gammaln(0.5 * (self.alpha_lambd - self.d + all_l + 1))
+		- 0.5 * self.N * np.log(np.pi)
+		# log det(T_JJ)^(..) / det(T_II)^(..) for default T
+		+ 0.5 * (self.alpha_lambd - self.d + 2 * all_l + 1) * \
+		np.log(small_t)).to(self.device) # size: (num_nodes)
 
 
 	def precompute_matrices_numerical(self, data):
@@ -90,17 +105,19 @@ class BGe(torch.nn.Module):
 		print()
 
 		x_bar = data.mean(axis=0, keepdims=True)
-		print("x_bar", x_bar.shape)
+		print("x_bar", x_bar.shape, x_bar)
 
 		x_center = data - x_bar
 		s_N = torch.matmul(x_center.t(), x_center)  # [d, d]
 		print("Covariance: ", s_N.size())
 		print()
+		gamma_var = torch.matmul((x_bar - self.mean_obs).t(), x_bar - self.mean_obs)
+		print("gamma_var", gamma_var)
 
 		# Kuipers (2014) states R wrongly in the paper, using alpha_lambd rather than alpha_mu;
 		# the supplementary contains the correct term
 		self.R = (T + s_N + ((self.N * self.alpha_mu) / (self.N + self.alpha_mu)) * \
-		(torch.matmul((x_bar - self.mean_obs).t(), x_bar - self.mean_obs))).to(self.device)
+		(gamma_var)).to(self.device)
 		print("R", self.R)
 
 		all_l = torch.arange(self.d)
@@ -113,6 +130,8 @@ class BGe(torch.nn.Module):
 		# log det(T_JJ)^(..) / det(T_II)^(..) for default T
 		+ 0.5 * (self.alpha_lambd - self.d + 2 * all_l + 1) * \
 		np.log(small_t)).to(self.device)
+
+		print("gammaln terms", self.log_gamma_terms.size())
 
 	def slogdet_pytorch(self, parents, R = None):
 		"""
@@ -127,9 +146,13 @@ class BGe(torch.nn.Module):
 		batch_size = parents.shape[0]
 		R = R.unsqueeze(0).expand(batch_size,-1,-1)
 		parents = parents.to(torch.float64).to(self.device)
+
 		mask = torch.matmul(parents.unsqueeze(2), parents.unsqueeze(1)).to(torch.bool) #[batch_size, d,d]
+		
 		R = torch.where(mask, R, torch.tensor([np.nan], device = self.device).to(torch.float64))
+
 		submat = torch.where(torch.isnan(R), torch.eye(self.d, dtype = torch.float64).unsqueeze(0).expand(batch_size,-1,-1).to(self.device), R)
+		
 		res = torch.linalg.slogdet(submat)[1]
 		return res
 
@@ -167,9 +190,8 @@ class BGe(torch.nn.Module):
 		"""
 
 		if x is not None:
-			print("batch data: ", x.shape)
 			self.precompute_matrices_images(x)
-
+			print("Computed matrices for images")
 
 		batch_size = w.shape[0]
 		if interv_targets is None:
@@ -181,4 +203,6 @@ class BGe(torch.nn.Module):
 		for i in range(self.d):
 			#print(self.log_marginal_likelihood_given_g_j(i, w)[interv_targets[:,i]]) 
 			mll[interv_targets[:,i]] += self.log_marginal_likelihood_given_g_j(i, w)[interv_targets[:,i]]  ##TODO: Possible to use torch.vmap but should be okay for now 
+		
+		print("Got marginal log likelihood")
 		return mll
