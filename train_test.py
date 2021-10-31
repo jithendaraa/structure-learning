@@ -2,6 +2,7 @@ import torch
 import torch.optim as optim
 import torch.nn as nn
 import torch.nn.functional as F
+from models.VCN_image import VCN_img
 import utils
 import wandb
 import os
@@ -15,7 +16,7 @@ def train_model(model, loader_objs, exp_config_dict, opt, device):
     pred_gt, time_epoch, likelihood, kl_graph, elbo_train, vae_elbo = None, [], [], [], [], []
 
     optimizer = optim.Adam(model.parameters(), lr=opt.lr)
-    logdir = os.path.join(opt.logdir, opt.ckpt_id + '_' + str(opt.batch_size) + '_' + str(opt.lr) + '_' + str(opt.steps) + '_' + str(opt.resolution))
+    logdir = utils.set_tb_logdir(opt)
     writer = SummaryWriter(logdir)
 
     if opt.offline_wandb is True: os.system('wandb offline')
@@ -29,15 +30,16 @@ def train_model(model, loader_objs, exp_config_dict, opt, device):
     start_time = time.time()
     
     for step in range(opt.steps):
-    
         start_step_time = time.time()
         pred, gt, loss, loss_dict, media_dict = train_batch(model, loader_objs, optimizer, opt, writer, step)
         time_epoch.append(time.time() - start_step_time)
 
-        if opt.model not in ['VCN']:
+        if opt.model in ['SlotAttention_img', 'VCN_img']:
             pred_gt = torch.cat((pred[:opt.log_batches].detach().cpu(), gt[:opt.log_batches].cpu()), 0).numpy()
             pred_gt = np.moveaxis(pred_gt, -3, -1)
-        else:
+            print("pred_gt", pred_gt.shape)
+        
+        elif opt.model in ['VCN']:
             vae_elbo = evaluate_batch(opt, model, loader_objs['bge_train'], step, vae_elbo, device, loss_dict, time_epoch, loader_objs['train_dataloader'])
 
         # logging to tensorboard and wandb
@@ -53,7 +55,6 @@ def train_model(model, loader_objs, exp_config_dict, opt, device):
 
 def train_batch(model, loader_objs, optimizer, opt, writer, step):
     
-    train_dataloader = loader_objs['train_dataloader']
     loss_dict, media_dict = {}, {}
     optimizer.zero_grad()
     model.train()
@@ -61,7 +62,7 @@ def train_batch(model, loader_objs, optimizer, opt, writer, step):
     if opt.model in ['SlotAttention_img']:
         keys = ['Slot reconstructions', 'Weighted reconstructions', 'Slotwise masks']
 
-        data_dict = utils.get_data_dict(train_dataloader)
+        data_dict = utils.get_data_dict(loader_objs['train_dataloader'])
         batch_dict = utils.get_next_batch(data_dict, opt)
         
         recon_combined, slot_recons, slot_masks, weighted_recon = model.get_prediction(batch_dict)
@@ -80,10 +81,22 @@ def train_batch(model, loader_objs, optimizer, opt, writer, step):
         train_loss, loss_dict = model.get_loss()
         prediction, gt = recon_combined, ((model.ground_truth + 1)/2) * 255.0
     
-    elif opt.model in ['VCN']:
-        model.get_prediction(loader_objs['bge_train'], step)
-        train_loss, loss_dict, _ = model.get_loss()
+    elif opt.model in ['VCN', 'VCN_img']:
         prediction, gt = None, None
+        bge_train = loader_objs['bge_train']
+
+        if opt.datatype in ['er']:
+            model.get_prediction(bge_train, step)
+            train_loss, loss_dict, _ = model.get_loss()
+            
+        elif opt.datatype in ['image']:
+            data_dict = utils.get_data_dict(loader_objs['train_dataloader'])
+            batch_dict = utils.get_next_batch(data_dict, opt)
+            enc_inp, prediction = model.get_prediction(batch_dict, bge_train, step)
+            
+            utils.log_encodings_per_node_to_tb(opt, writer, enc_inp, step)  # enc_inp has shape [num_nodes, chan_per_nodes, h, w]
+            train_loss, loss_dict, _ = model.get_loss()
+            gt = ((model.ground_truth + 1)/2) * 255.0
 
     if opt.clip != -1:  torch.nn.utils.clip_grad_norm_(model.parameters(), float(opt.clip))
     train_loss.backward()

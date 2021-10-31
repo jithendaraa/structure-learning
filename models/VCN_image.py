@@ -102,12 +102,14 @@ class VCN_img(nn.Module):
 
         x_pred = self.conv_decoder(x.view(b, -1, h, w))
         
-        return x_pred, log_likelihood, kl_graph, posterior_log_probs
+        return x[0], x_pred, log_likelihood, kl_graph, posterior_log_probs
 
     def get_prediction(self, batch_dict, bge_train, e):
+        torch_clamp_convert = lambda x: torch.clamp(((x + 1) / 2) * 255.0, 0., 255.).to(torch.int8)
         self.input_images = batch_dict['observed_data'].to(self.device) # [-1, 1]
         self.ground_truth = batch_dict['data_to_predict'].to(self.device) # [-1, 1]
-        self.pred, self.log_likelihood, self.kl_graph, self.posterior_log_probs = self(bge_train, e)
+        enc_inp, self.pred, self.log_likelihood, self.kl_graph, self.posterior_log_probs = self(bge_train, e)
+        return enc_inp, torch_clamp_convert(self.pred)
 
     def get_loss(self):
         # ELBO Loss for graph likelihood, posterior and prior
@@ -124,16 +126,16 @@ class VCN_img(nn.Module):
         total_loss = loss + recon_loss
 
         loss_dict = {
-	    	'Neg. log likelihood loss (G)': neg_log_likeli.mean().item(),
+	    	'Neg. log likelihood (G)': neg_log_likeli.mean().item(),
 	    	'KL loss (G)':	kl_loss.mean().item(),
 	    	'Graph loss (G)': (neg_log_likeli + kl_loss).mean().item(),
 	    	'Per sample ELBO loss (G)': loss.item(),
-            'Image reconstruction loss': recon_loss.item(),
+            'Reconstruction loss': recon_loss.item(),
             'Total loss (G + image)': loss.item() + recon_loss.item()
 	    }   
 
         print()
-        print(f'Neg. log likelihood loss (G): {loss_dict["Neg. log likelihood loss (G)"]} | KL loss (G): {loss_dict["KL loss (G)"]} | Graph loss (G): {loss_dict["Graph loss (G)"]} | Per sample ELBO loss (G): {loss_dict["Per sample ELBO loss (G)"]} | Image reconstruction loss: {loss_dict["Image reconstruction loss"]} | Total loss (G + image): {loss_dict["Total loss (G + image)"]} ')
+        print(f'Neg. log likelihood (G): {round(loss_dict["Neg. log likelihood (G)"], 2)} | KL loss (G): {round(loss_dict["KL loss (G)"], 2)} | Graph loss (G): {round(loss_dict["Graph loss (G)"], 2)} | Per sample ELBO loss (G): {round(loss_dict["Per sample ELBO loss (G)"], 2)} | Reconstruction loss: {round(loss_dict["Reconstruction loss"], 2)} | Total loss (G + image): {round(loss_dict["Total loss (G + image)"], 2)} ')
 
         return total_loss, loss_dict, self.baseline   
 

@@ -67,18 +67,17 @@ class BGe(torch.nn.Module):
 		if not isinstance(data, torch.DoubleTensor):	data = torch.tensor(data).to(torch.float64)
 
 		b, d, c_per_node, h, w = data.size()
-		num_image_samples = b # no. of total images in this batch
 
 		x_bar = torch.mean(data, dim = 0)
 		x_center = data - x_bar
 
 		flat_imgs = x_center.view(b, d, -1)
-		s_N = torch.bmm(flat_imgs, flat_imgs.permute(0, 2, 1))  # [d, d]
-		s_N = torch.sum(s_N, dim=0)
+		s_N = torch.bmm(flat_imgs, flat_imgs.permute(0, 2, 1))  
+		s_N = torch.sum(s_N, dim=0)	# [d, d]
 
-		gamma_var = torch.bmm(x_bar.view(b, d, -1) - self.mean_obs, 
-								(x_bar.view(b, d, -1) - self.mean_obs).permute(0, 2, 1))
-		gamma_var = torch.sum(gamma_var, dim=0).squeeze(0)
+		gamma_var = torch.matmul(x_bar.view(d, -1) - self.mean_obs.unsqueeze(-1), 
+								(x_bar.view(d, -1) - self.mean_obs.unsqueeze(-1)).t())
+
 
 		T = self.T
 		small_t = self.small_t
@@ -118,7 +117,6 @@ class BGe(torch.nn.Module):
 		# the supplementary contains the correct term
 		self.R = (T + s_N + ((self.N * self.alpha_mu) / (self.N + self.alpha_mu)) * \
 		(gamma_var)).to(self.device)
-		print("R", self.R)
 
 		all_l = torch.arange(self.d)
 		
@@ -146,13 +144,9 @@ class BGe(torch.nn.Module):
 		batch_size = parents.shape[0]
 		R = R.unsqueeze(0).expand(batch_size,-1,-1)
 		parents = parents.to(torch.float64).to(self.device)
-
 		mask = torch.matmul(parents.unsqueeze(2), parents.unsqueeze(1)).to(torch.bool) #[batch_size, d,d]
-		
 		R = torch.where(mask, R, torch.tensor([np.nan], device = self.device).to(torch.float64))
-
 		submat = torch.where(torch.isnan(R), torch.eye(self.d, dtype = torch.float64).unsqueeze(0).expand(batch_size,-1,-1).to(self.device), R)
-		
 		res = torch.linalg.slogdet(submat)[1]
 		return res
 
@@ -191,7 +185,6 @@ class BGe(torch.nn.Module):
 
 		if x is not None:
 			self.precompute_matrices_images(x)
-			print("Computed matrices for images")
 
 		batch_size = w.shape[0]
 		if interv_targets is None:
@@ -204,5 +197,4 @@ class BGe(torch.nn.Module):
 			#print(self.log_marginal_likelihood_given_g_j(i, w)[interv_targets[:,i]]) 
 			mll[interv_targets[:,i]] += self.log_marginal_likelihood_given_g_j(i, w)[interv_targets[:,i]]  ##TODO: Possible to use torch.vmap but should be okay for now 
 		
-		print("Got marginal log likelihood")
 		return mll
