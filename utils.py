@@ -68,11 +68,11 @@ def get_data_dict(dataloader):
     return data_dict
 
 def get_dict_template(opt):
-  if opt.model in ['SlotAttention_img']:
+  if opt.model in ['SlotAttention_img', 'VCN']:
     return {"observed_data": None}
 
 def set_batch_dict(opt, data_dict, batch_dict):
-  if opt.model in ['SlotAttention_img']:
+  if opt.model in ['SlotAttention_img', 'VCN']:
     # Image reconstruction task
     batch_dict["observed_data"] = data_dict["observed_data"]
     batch_dict["data_to_predict"] = data_dict["observed_data"]
