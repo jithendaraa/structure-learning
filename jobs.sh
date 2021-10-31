@@ -9,4 +9,9 @@ if [ ${exp_id} == '0' ]
 then 
     # Run Slot_attention_img
     bash script_runners/sa_img_job_run.sh ${dataset} ${train} 'SlotAttention_img' ${time}
+    
+elif [ ${exp_id} == '1' ]
+then
+    # Run VCN_img
+    bash script_runners/vcn_img_job_run.sh ${dataset} ${train} 'VCN_img' ${time}
 fi
