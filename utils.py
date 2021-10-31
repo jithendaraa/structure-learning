@@ -1,9 +1,13 @@
 import torch
+from torch.functional import norm
+from torchvision.utils import make_grid
+
 import os
 import pickle
 from os.path import *
 from pathlib import Path
 import wandb
+import numpy as np
 
 def set_opts(opt):
     print()
@@ -144,22 +148,41 @@ def log_to_tb(opt, writer, loss_dict, step, pred_gt):
         writer.add_scalar(key, loss_dict[key], step)
         
   if step > 0 and step % opt.media_log_freq == 0 and pred_gt is not None:
-      writer.add_images("Reconstruction", pred_gt / 255.0, step, dataformats='NHWC')
+    pred_gt = torch.from_numpy(np.moveaxis(pred_gt, -1, -3)) / 255.0 # b, c, h, w
+    nrow = int(len(pred_gt) // 2)
+    grid = make_grid(pred_gt , nrow = nrow)
+    writer.add_images("Reconstruction", grid, step, dataformats='CHW')
 
 def log_to_wandb(opt, step, loss_dict, media_dict, pred_gt):
   if opt.off_wandb is False:  # Log losses and pred, gt videos
     if step % opt.loss_log_freq == 0:   wandb.log(loss_dict, step=step)
 
-    if step > 0 and step % opt.media_log_freq == 0 and pred_gt:
+    if step > 0 and step % opt.media_log_freq == 0 and pred_gt is not None:
         media_dict['Pred_GT'] = [wandb.Image(m) for m in pred_gt]
         wandb.log(media_dict, step=step)
         print("Logged media")
 
 def log_images_to_tb(opt, step, keys, values, writer, dataformats='NHWC'):
   assert len(keys) == len(values)
-  
   if step > 0 and step % opt.media_log_freq == 0:
     for i in range(len(keys)):
-      key, val = keys[i], val[i]
+      key, val = keys[i], values[i]
       writer.add_images(key, val, step, dataformats=dataformats)
 
+def log_encodings_per_node_to_tb(opt, writer, enc_inp, step):
+  d, chan_per_node, h, w = enc_inp.size()
+
+  if step > 0 and step % opt.media_log_freq == 0:
+    grid = make_grid(enc_inp.view(-1, 1, h, w), nrow=chan_per_node)
+    writer.add_images("Encodings learned per node (rows)", grid, step, dataformats='CHW')
+
+def set_tb_logdir(opt):
+
+  logdir = os.path.join(opt.logdir, opt.ckpt_id + '_' + str(opt.batch_size) + '_' + str(opt.lr) + '_' + str(opt.steps) + '_' + str(opt.resolution))
+
+  if opt.model in ['VCN']:
+    logdir += '_(' + str(opt.num_nodes) + ')'
+  elif opt.model in ['VCN_img']:
+    logdir += '_(' + str(opt.num_nodes) + '/' + str(opt.chan_per_img) + ')'
+
+  return logdir
