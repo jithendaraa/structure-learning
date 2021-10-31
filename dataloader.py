@@ -45,7 +45,7 @@ class CLEVR(Dataset):
         return torch_image
 
     def get_item_dict(self, file_path):
-        if self.opt.model in ['SlotAttention_img', 'VCN']:
+        if self.opt.model in ['SlotAttention_img', 'VCN', 'VCN_img']:
             image = self.get_resized_torch_image(file_path, self.opt.resolution) # [-0.5, 0.5]
             item_dict = { 'observed_data': image, 'predicted_data': image}
         
@@ -97,7 +97,6 @@ def parse_datasets(opt, device):
                         data = data, 
                         device = device)
         
-        print("BGE_train:", bge_train)
         data_objects["bge_train"] = bge_train
 
 

@@ -67,7 +67,6 @@ defaults:
   noise_sigma: 1.0
   noise_type: 'isotropic-gaussian'
 
-
   # Slot VCN
 
 experimental:
@@ -104,16 +103,18 @@ train_vcn:
 
 train_vcn_img:
   ckpt_id: 'train_vcn_img' 
-  model: 'VCN'
-  batch_size: 128
+  model: 'VCN_img'
+  batch_size: 64
+  lr: 1e-3
+  steps: 10000
   dataset: 'clevr'
   datatype: 'image'
-  loss_log_freq: 50
-  media_log_freq: 100
-  ckpt_save_freq: 5000
+  loss_log_freq: 5
+  media_log_freq: 20
+  ckpt_save_freq: 100
   hidden_dims: 64
   off_wandb: True
-  chan_per_node: 4
+  chan_per_node: 3
   num_nodes: 2
 
   

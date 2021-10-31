@@ -49,7 +49,7 @@ def build_model(opt, device):
     from models.SlotAttentionAutoEncoder import SlotAttentionAutoEncoder as Slot_Attention
     model = Slot_Attention(opt, resolution, opt.num_slots, opt.num_iterations, device)
   
-  elif opt.model in ['VCN']:
+  elif opt.model in ['VCN', 'VCN_img']:
     if opt.datatype in ['er']: from models.VCN import VCN
     elif opt.datatype in ['image']: from models.VCN_image import VCN_img as VCN
     elif opt.datatype in ['video']: 

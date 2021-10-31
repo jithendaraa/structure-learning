@@ -1,7 +1,9 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from modules.AutoregressiveBase import AutoregressiveBase
+from modules.data import distributions
 import vcn_utils as utils
 
 
@@ -19,10 +21,17 @@ class VCN_img(nn.Module):
         self.baseline = 0.
 
         self.conv_encoder = nn.Sequential(
-            nn.Conv2d(opt.channels, 16, 3, 2, 1), nn.BatchNorm2d(16), nn.ReLU(),
-            nn.Conv2d(16, 32, 3, 2, 1), nn.BatchNorm2d(32), nn.ReLU(),
-            nn.Conv2d(32, 64, 3, 2, 1), nn.BatchNorm2d(64), nn.ReLU(),
+            nn.Conv2d(opt.channels, 16, 3, 2, 1), nn.ReLU(),
+            nn.Conv2d(16, 32, 3, 2, 1), nn.ReLU(),
+            nn.Conv2d(32, 64, 3, 2, 1), nn.ReLU(),
             nn.Conv2d(64, opt.num_nodes * opt.chan_per_node, 3, 1, 1),
+        ).to(device)
+
+        self.conv_decoder = nn.Sequential(
+            nn.ConvTranspose2d(opt.num_nodes * opt.chan_per_node, 64, 4, 2, 1), nn.ReLU(),
+            nn.ConvTranspose2d(64, 32, 3, 1, 1), nn.ReLU(),
+            nn.ConvTranspose2d(32, 16, 4, 2, 1), nn.ReLU(),
+            nn.ConvTranspose2d(16, opt.channels, 4, 2, 1),
         ).to(device)
 
         if not opt.no_autoreg_base:
@@ -30,62 +39,103 @@ class VCN_img(nn.Module):
         else:
             NotImplemented('Have not implemented factorised version yet (only autoregressive works)')
 
+        if self.opt.anneal:	self.gibbs_update = self._gibbs_update
+        else:				self.gibbs_update = None
+        
+        self.init_gibbs_dist()
         print("Initialised model VCN_img")
     
     def init_gibbs_dist(self):
-        pass
+        if self.opt.num_nodes <= 4:
+            self.gibbs_dist = distributions.GibbsDAGDistributionFull(self.opt.num_nodes, self.opt.gibbs_temp, self.opt.sparsity_factor)
+        else:
+            self.gibbs_dist = distributions.GibbsUniformDAGDistribution(self.opt.num_nodes, self.opt.gibbs_temp, self.opt.sparsity_factor)
 
     def _gibbs_update(self, curr, epoch):
         if epoch < self.opt.steps*0.05:
             return curr
         else:
-            return self.opt.gibbs_temp_init+ (self.opt.gibbs_temp - self.opt.gibbs_temp_init)*(10**(-2 * max(0, (self.opt.steps - 1.1*epoch)/self.opt.steps)))
+            return self.opt.gibbs_temp_init + (self.opt.gibbs_temp - self.opt.gibbs_temp_init)*(10**(-2 * max(0, (self.opt.steps - 1.1*epoch)/self.opt.steps)))
 
     def forward(self, bge_model, e, interv_targets = None):
         x = self.input_images
-        print("inp_images", x.size())
-
         x = self.conv_encoder(x)
-        x = x.view(-1, self.opt.num_nodes, self.opt.chan_per_node, x.size()[-2], x.size()[-1])
-        print("After encoding:", x.size())
+        b, c, h, w = x.size()
+        x = x.view(-1, self.opt.num_nodes, self.opt.chan_per_node, h, w)
+        # print("After encoding:", x.size())
 
         n_samples = self.opt.batch_size
-        print(f"inside VCN_img forward bsize(n_samples)")
+        # print(f"inside VCN_img forward bsize(n_samples)")
         
         # 1. Sample L ( n*(n-1) ) graph structures autoregressively, per batch from q_phi
         # for i = 1..L: 
         #   G(i) ~ q_phi(G_i)
         #  samples has dimensions (b, L, 1)
         samples = self.graph_dist.sample([n_samples])
-        print("samples", samples.size())
-
-        # posterior_log_probs = approx. P(G | D) = q_phi_(G)
-        posterior_log_probs = self.graph_dist.log_prob(samples).squeeze()
-        print("posterior lp", posterior_log_probs.shape)
+        # print("samples", samples.size())
         
-        # Get G = adjacency matrix of samples; batch_size, num_nodes, num_nodes
+        # 2. Get G = adjacency matrix of samples; batch_size, num_nodes, num_nodes
         G = utils.vec_to_adj_mat(samples, self.num_nodes)
-        print("G", G.size()) 
-        print()
+        # print("G", G.size()) 
+        # print()
 
-        # Calculate per sample marginal likelihood P(D | G(i)) using BGe score, size (b)
-        likelihood = bge_model.log_marginal_likelihood_given_g(G, interv_targets, x)
-		# print("likelihood", likelihood.size())
+        # 3. compute DAG constraint (tr[e^A(G)] - d) and get log prior
+        dagness = utils.expm(G, self.num_nodes)
+        # print("dagness", dagness.size())
+        self.update_gibbs_temp(e)
+        # lambda1 * dagness + lambda2 * || A(G) ||_1 (2nd term for sparsity)
+		# Since graph prior is a gibbs distribution.
+        log_prior_graph = - (self.gibbs_temp*dagness + self.sparsity_factor*torch.sum(G, axis = [-1, -2]))
 
-        return None, None, None
+        # 4. Get approximate posterior_log_probs = approx. P(G | D) = q_phi_(G)
+        posterior_log_probs = self.graph_dist.log_prob(samples).squeeze()
+        # print("posterior lp", posterior_log_probs.shape)
+
+        # 5. Get marginal log likelihood (after marginalising theta ~ normal-Wishart)
+		# by getting log p(D | G) in closed form (BGe score)
+        log_likelihood = bge_model.log_marginal_likelihood_given_g(G, interv_targets, x)
+        # print("log_likelihood", log_likelihood.size())
+
+		# 6. Get D_KL = KL (approx posterior || prior)
+        kl_graph = posterior_log_probs - log_prior_graph
+        # print("kl_graph", kl_graph.size())
+
+        x_pred = self.conv_decoder(x.view(b, -1, h, w))
+        
+        return x_pred, log_likelihood, kl_graph, posterior_log_probs
 
     def get_prediction(self, batch_dict, bge_train, e):
-        np_clip_convert = lambda x: np.clip(((x + 1) / 2) * 255.0, 0. , 255.).astype(np.uint8)
-        torch_clamp_convert = lambda x: torch.clamp(((x + 1) / 2) * 255.0, 0., 255.).to(torch.int8)
-
         self.input_images = batch_dict['observed_data'].to(self.device) # [-1, 1]
         self.ground_truth = batch_dict['data_to_predict'].to(self.device) # [-1, 1]
-
-        self.likelihood, self.kl_graph, self.posterior_log_probs = self(bge_train, e)
-
+        self.pred, self.log_likelihood, self.kl_graph, self.posterior_log_probs = self(bge_train, e)
 
     def get_loss(self):
-        pass
+        # ELBO Loss for graph likelihood, posterior and prior
+        neg_log_likeli, kl_loss = - self.log_likelihood, self.kl_graph
+        score_val = ( neg_log_likeli + kl_loss ).detach()
+        per_sample_elbo = self.posterior_log_probs*(score_val-self.baseline)
+        self.baseline = 0.95 * self.baseline + 0.05 * score_val.mean() 
+        loss = (per_sample_elbo).mean()
+
+        # MSE reconstruction loss for image
+        recon_loss = F.mse_loss(self.pred, self.ground_truth) 
+        
+        # Graph loss + image loss
+        total_loss = loss + recon_loss
+
+        loss_dict = {
+	    	'Neg. log likelihood loss (G)': neg_log_likeli.mean().item(),
+	    	'KL loss (G)':	kl_loss.mean().item(),
+	    	'Graph loss (G)': (neg_log_likeli + kl_loss).mean().item(),
+	    	'Per sample ELBO loss (G)': loss.item(),
+            'Image reconstruction loss': recon_loss.item(),
+            'Total loss (G + image)': loss.item() + recon_loss.item()
+	    }   
+
+        print()
+        print(f'Neg. log likelihood loss (G): {loss_dict["Neg. log likelihood loss (G)"]} | KL loss (G): {loss_dict["KL loss (G)"]} | Graph loss (G): {loss_dict["Graph loss (G)"]} | Per sample ELBO loss (G): {loss_dict["Per sample ELBO loss (G)"]} | Image reconstruction loss: {loss_dict["Image reconstruction loss"]} | Total loss (G + image): {loss_dict["Total loss (G + image)"]} ')
+
+        return total_loss, loss_dict, self.baseline   
 
     def update_gibbs_temp(self, e): 
         if self.gibbs_update is None:
