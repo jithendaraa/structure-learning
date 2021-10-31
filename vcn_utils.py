@@ -28,6 +28,7 @@ def matrix_poly_np(matrix, d):
   
 def expm(A, m):
 	expm_A = matrix_poly(A, m)
+	# DAGness constraint on graph_prior: tr[e^A(G)] - d
 	h_A = expm_A.diagonal(dim1=-2, dim2=-1).sum(-1) - m
 	return h_A
 
