@@ -5,7 +5,6 @@ import torch
 import argparse
 from datetime import datetime
 import pickle as pkl
-import shutil
 import networkx as nx
 import time
 
@@ -13,7 +12,6 @@ import utils
 import matplotlib.pyplot as plt
 from models import vcn, autoreg_base, factorised_base, bge_model
 from data import erdos_renyi, distributions
-import graphical_models
 from sklearn import metrics
 
 def parse_args():
@@ -108,8 +106,7 @@ def auroc(model, ground_truth, num_samples = 1000):
         tnr[i] = float(tn)/(tn + fp)
     auroc = metrics.auc(fpr, tpr)
     return auroc
-
-        
+  
 def exp_shd(model, ground_truth, num_samples = 1000):
     """Compute the Expected Structural Hamming Distance of the model"""
     shd = 0
@@ -127,7 +124,6 @@ def exp_shd(model, ground_truth, num_samples = 1000):
  
 def full_kl_and_hellinger(model, bge_train, g_dist, device):
     """Compute the KL Divergence and Hellinger distance in lower dimensional settings (d<=4)"""
-
     bs = 100000
     all_adj = utils.all_combinations(model.num_nodes, return_adj = True).astype(np.float32)
     all_adj_vec = utils.all_combinations(model.num_nodes, return_adj = False).astype(np.float32)
@@ -145,36 +141,30 @@ def full_kl_and_hellinger(model, bge_train, g_dist, device):
     hellinger = (1./np.sqrt(2)) * torch.sqrt((torch.sqrt(graph_p.probs) - torch.sqrt(graph_q.probs)).pow(2).sum()) 
     return torch.distributions.kl.kl_divergence(graph_q, graph_p).item(), hellinger.item()
 
-
 def train(model, bge_train, optimizer, baseline, batch_size, e, device):
     kl_graphs = 0.
     losses = 0.
     likelihoods = 0.
-
     model.train()
-   
     optimizer.zero_grad()
+    
     likelihood, kl_graph, log_probs = model(batch_size, bge_train, e)  #TODO: Check if additional entropy regularization is required
     score_val = ( - likelihood + kl_graph).detach()
     per_sample_elbo = log_probs*(score_val-baseline)
     baseline = 0.95 * baseline + 0.05 * score_val.mean() 
     loss = (per_sample_elbo).mean()
+    print(likelihood.size(), kl_graph.size(), log_probs.size(), score_val.size())
+    
     loss.backward()
     optimizer.step()
-    
     likelihoods = -likelihood.mean().item()
     kl_graphs = kl_graph.mean().item() 
     losses = ( -likelihood  + kl_graph).mean().item()
-        
     return  losses, likelihoods,  kl_graphs, baseline
-    
-
 
 def evaluate(model, bge_test, batch_size, e, device):
     model.eval()
-
     with torch.no_grad():
-        
         likelihood, kl_graph, _ = model(batch_size, bge_test, e) 
         elbo = (-likelihood + kl_graph).mean().item()
         likelihoods = -likelihood.mean().item()
@@ -209,30 +199,31 @@ def load_data(args):
         train_data = data_map[args.data_type](num_nodes = args.num_nodes, exp_edges = args.exp_edges, noise_type = args.noise_type, noise_sigma = args.noise_sigma, \
             num_samples = args.num_samples, mu_prior = args.theta_mu, sigma_prior = args.theta_sigma, seed = args.data_seed)
 
+    # print("train_data", train_data)
     bge_train = bge_model.BGe(mean_obs = [args.theta_mu]*args.num_nodes, alpha_mu = 1.0, alpha_lambd=args.alpha_lambd, data = train_data.samples, device = args.device)
     return bge_train, train_data
 
 def main(args):
     model = load_model(args)
-
     optimizer = torch.optim.Adam(model.parameters() , args.lr)
-    
+    # print(tha)
     bge_train, train_data = load_data(args)
+    print("BGE_train:", bge_train)
+
     if args.num_nodes <=4:
         g_dist = distributions.GibbsDAGDistributionFull(args.num_nodes, args.gibbs_temp, args.sparsity_factor)
     else:
         g_dist = distributions.GibbsUniformDAGDistribution(args.num_nodes, args.gibbs_temp, args.sparsity_factor)
     
+    print("Got Gibbs distribution", g_dist)
     best_elbo = 1e20
     likelihood = []
     kl_graph = []
     elbo_train = []
     val_elbo = []
     baseline = 0.
-    best_likelihood = 1e20
-    best_kl = 1e20
-    
     time_epoch = []
+
     if not args.eval_only:    
         for e in range(1, args.epochs + 1):
             temp_time = time.time()

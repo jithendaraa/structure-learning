@@ -90,6 +90,8 @@ class Generator(torch.utils.data.Dataset):
 		if graph is None:
 			graph = self.graph
 
+		print("WAM: ", self.weighted_adjacency_matrix.size(), self.weighted_adjacency_matrix)
+
 		samples = torch.zeros(num_samples, self.num_nodes)
 		edge_pointer = 0
 		for i in nx.topological_sort(graph):
