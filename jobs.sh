@@ -5,7 +5,6 @@ train=${3:-'train'}
 def_time='23:00:00'
 time=${4:-$def_time}
 
-
 if [ ${exp_id} == '0' ]
 then 
     # Run Slot_attention_img

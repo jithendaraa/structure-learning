@@ -9,9 +9,7 @@ from train_test import train_model
 import utils
 from dataloader import *
 
-from models.SlotAttentionAutoEncoder import SlotAttentionAutoEncoder as Slot_Attention
-from models.VCN import VCN
-from models.Slot_VCN import Slot_VCN
+
 
 def get_opt():
     parser = argparse.ArgumentParser()
@@ -45,29 +43,34 @@ def get_opt():
 def build_model(opt, device):
 
   resolution = (opt.resolution, opt.resolution) 
-  implemented_models = ['SlotAttention_img', 'VCN']
+  implemented_models = ['SlotAttention_img', 'VCN', 'VCN_img']
   
   if opt.model in ['SlotAttention_img']:
+    from models.SlotAttentionAutoEncoder import SlotAttentionAutoEncoder as Slot_Attention
     model = Slot_Attention(opt, resolution, opt.num_slots, opt.num_iterations, device)
   
   elif opt.model in ['VCN']:
+    if opt.datatype in ['er']: from models.VCN import VCN
+    elif opt.datatype in ['image']: from models.VCN_image import VCN_img as VCN
+    elif opt.datatype in ['video']: 
+      pass
+
     model = VCN(opt, opt.num_nodes, opt.sparsity_factor, opt.gibbs_temp_init, device)
 
-  elif opt.model in ['Slot_VCN_img']:
+  elif opt.model in ['Slot_VCN']:
+    from models.Slot_VCN import Slot_VCN
     model = Slot_VCN(opt, opt.datatype)
     
   
   else: 
     raise NotImplementedError(f'Model {opt.model} is not implemented. Try one of {implemented_models}')
 
-  print(model)
   return model
     
 
 def main(opt, exp_config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = build_model(opt, device)
-    print("data path: ", opt.data_path)
 
     # Dataloader
     loader_objs = parse_datasets(opt, device)
