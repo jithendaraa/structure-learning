@@ -4,3 +4,4 @@ slot_attention/
 *.out
 logs/
 out/
+vcn_pytorch/
