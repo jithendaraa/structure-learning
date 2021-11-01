@@ -182,7 +182,7 @@ def set_tb_logdir(opt):
 
   if opt.model in ['VCN']:
     logdir += '_(' + str(opt.num_nodes) + ')'
-  elif opt.model in ['VCN_img']:
+  elif opt.model in ['VCN_img', 'Slot_VCN_img']:
     logdir += '_(' + str(opt.num_nodes) + '/' + str(opt.chan_per_node) + ')'
 
   return logdir
