@@ -10,8 +10,6 @@ from modules.SoftPosnEmbed import SoftPositionEmbed
 from modules.SlotAttention import SlotAttention
 from utils import unstack_and_split
 
-
-
 class SlotAttentionAutoEncoder(nn.Module):
     """Slot Attention-based auto-encoder for object discovery."""
     def __init__(self, opt, resolution, num_slots, num_iterations, device):
@@ -59,7 +57,7 @@ class SlotAttentionAutoEncoder(nn.Module):
 
         # Spatial broadcast decoder.
         x = spatial_broadcast(slots, self.decoder_initial_size) # b*num_slots, c, h, w
-        # `x` has shape: [v*num_slots, h, w, slot_size].
+        # `x` has shape: [b*num_slots, h, w, slot_size].
         x = self.pos_decoder(x)
         x = self.cnn_decoder(x)
         # `x` has shape: [b*num_slots, c+1, h, w].
@@ -90,7 +88,7 @@ class SlotAttentionAutoEncoder(nn.Module):
         slot_recons, slot_masks = recons[0].detach().cpu().numpy(), masks[0].detach().cpu().numpy()
         slot_recons, slot_masks, weighted_recon = np.moveaxis(slot_recons, -3, -1), np.moveaxis(slot_masks, -3, -1), np.moveaxis(weighted_recon, -3, -1)
         
-        return torch_clamp_convert(recon_combined), np_clip_convert(slot_recons), slot_masks, np_clip_convert(weighted_recon)
+        return torch_clamp_convert(recon_combined), np_clip_convert(slot_recons), slot_masks, np_clip_convert(weighted_recon), slots
     
     def get_loss(self):
         recon_loss = F.mse_loss(self.pred, self.ground_truth) 

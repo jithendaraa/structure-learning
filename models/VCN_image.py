@@ -104,11 +104,11 @@ class VCN_img(nn.Module):
         
         return x[0], x_pred, log_likelihood, kl_graph, posterior_log_probs
 
-    def get_prediction(self, batch_dict, bge_train, e):
+    def get_prediction(self, batch_dict, bge_model, step):
         torch_clamp_convert = lambda x: torch.clamp(((x + 1) / 2) * 255.0, 0., 255.).to(torch.int8)
         self.input_images = batch_dict['observed_data'].to(self.device) # [-1, 1]
         self.ground_truth = batch_dict['data_to_predict'].to(self.device) # [-1, 1]
-        enc_inp, self.pred, self.log_likelihood, self.kl_graph, self.posterior_log_probs = self(bge_train, e)
+        enc_inp, self.pred, self.log_likelihood, self.kl_graph, self.posterior_log_probs = self(bge_model, step)
         return enc_inp, torch_clamp_convert(self.pred)
 
     def get_loss(self):
@@ -117,21 +117,21 @@ class VCN_img(nn.Module):
         score_val = ( neg_log_likeli + kl_loss ).detach()
         per_sample_elbo = self.posterior_log_probs*(score_val-self.baseline)
         self.baseline = 0.95 * self.baseline + 0.05 * score_val.mean() 
-        loss = (per_sample_elbo).mean()
+        graph_loss = (per_sample_elbo).mean()
 
         # MSE reconstruction loss for image
         recon_loss = F.mse_loss(self.pred, self.ground_truth) 
         
         # Graph loss + image loss
-        total_loss = loss + recon_loss
+        total_loss = graph_loss + recon_loss
 
         loss_dict = {
 	    	'Neg. log likelihood (G)': neg_log_likeli.mean().item(),
 	    	'KL loss (G)':	kl_loss.mean().item(),
 	    	'Graph loss (G)': (neg_log_likeli + kl_loss).mean().item(),
-	    	'Per sample ELBO loss (G)': loss.item(),
+	    	'Per sample ELBO loss (G)': graph_loss.item(),
             'Reconstruction loss': recon_loss.item(),
-            'Total loss (G + image)': loss.item() + recon_loss.item()
+            'Total loss (G + image)': total_loss.item()
 	    }   
 
         print()
