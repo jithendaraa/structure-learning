@@ -43,7 +43,7 @@ def get_opt():
 def build_model(opt, device):
 
   resolution = (opt.resolution, opt.resolution) 
-  implemented_models = ['SlotAttention_img', 'VCN', 'VCN_img']
+  implemented_models = ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img']
   
   if opt.model in ['SlotAttention_img']:
     from models.SlotAttentionAutoEncoder import SlotAttentionAutoEncoder as Slot_Attention
@@ -54,13 +54,11 @@ def build_model(opt, device):
     elif opt.datatype in ['image']: from models.VCN_image import VCN_img as VCN
     elif opt.datatype in ['video']: 
       pass
+  
+  elif opt.model in ['Slot_VCN_img']:
+    from models.Slot_VCN_img import Slot_VCN_img
+    model = Slot_VCN_img(opt, resolution, opt.num_slots, opt.num_iterations, opt.sparsity_factor, opt.gibbs_temp, device)
 
-    model = VCN(opt, opt.num_nodes, opt.sparsity_factor, opt.gibbs_temp_init, device)
-
-  elif opt.model in ['Slot_VCN']:
-    from models.Slot_VCN import Slot_VCN
-    model = Slot_VCN(opt, opt.datatype)
-    
   
   else: 
     raise NotImplementedError(f'Model {opt.model} is not implemented. Try one of {implemented_models}')
