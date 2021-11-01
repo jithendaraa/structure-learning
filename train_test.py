@@ -55,26 +55,28 @@ def train_model(model, loader_objs, exp_config_dict, opt, device):
 
 def train_batch(model, loader_objs, optimizer, opt, writer, step):
     
+    keys = ['Slot reconstructions', 'Weighted reconstructions', 'Slotwise masks']
     loss_dict, media_dict = {}, {}
+    prediction, gt = None, None
     optimizer.zero_grad()
     model.train()
 
-    if opt.model in ['SlotAttention_img']:
-        keys = ['Slot reconstructions', 'Weighted reconstructions', 'Slotwise masks']
-
+    if opt.model in ['VCN', 'VCN_img', 'Slot_VCN_img']: bge_train = loader_objs['bge_train']
+    
+    if opt.model in ['SlotAttention_img', 'VCN_img', 'Slot_VCN_img']:
         data_dict = utils.get_data_dict(loader_objs['train_dataloader'])
         batch_dict = utils.get_next_batch(data_dict, opt)
-        
-        recon_combined, slot_recons, slot_masks, weighted_recon = model.get_prediction(batch_dict)
+
+
+    if opt.model in ['SlotAttention_img']:
+        recon_combined, slot_recons, slot_masks, weighted_recon, _ = model.get_prediction(batch_dict)
         
         gt_np = model.ground_truth[0].detach().cpu().numpy()
         gt_np = np.moveaxis(gt_np, -3, -1)
         gt_np = ((gt_np + 1)/2) * 255.0
-
         media_dict['Slot reconstructions'] = [wandb.Image(m) for m in slot_recons]
         media_dict['Weighted reconstructions'] = [wandb.Image(m) for m in weighted_recon]
         media_dict['Slotwise masks'] = [wandb.Image(m) for m in slot_masks]
-
         values = [slot_recons / 255.0, weighted_recon / 255.0, slot_masks]
         utils.log_images_to_tb(opt, step, keys, values, writer, 'NHWC')
 
@@ -82,21 +84,21 @@ def train_batch(model, loader_objs, optimizer, opt, writer, step):
         prediction, gt = recon_combined, ((model.ground_truth + 1)/2) * 255.0
     
     elif opt.model in ['VCN', 'VCN_img']:
-        prediction, gt = None, None
-        bge_train = loader_objs['bge_train']
 
         if opt.datatype in ['er']:
             model.get_prediction(bge_train, step)
             train_loss, loss_dict, _ = model.get_loss()
             
         elif opt.datatype in ['image']:
-            data_dict = utils.get_data_dict(loader_objs['train_dataloader'])
-            batch_dict = utils.get_next_batch(data_dict, opt)
             enc_inp, prediction = model.get_prediction(batch_dict, bge_train, step)
-            
             utils.log_encodings_per_node_to_tb(opt, writer, enc_inp, step)  # enc_inp has shape [num_nodes, chan_per_nodes, h, w]
             train_loss, loss_dict, _ = model.get_loss()
             gt = ((model.ground_truth + 1)/2) * 255.0
+
+    elif opt.model in ['Slot_VCN_img']:
+        recon_combined, slot_recons, slot_masks, weighted_recon, _ = model.get_prediction(batch_dict, bge_train, step)
+        train_loss, loss_dict = model.get_loss()
+
 
     if opt.clip != -1:  torch.nn.utils.clip_grad_norm_(model.parameters(), float(opt.clip))
     train_loss.backward()
