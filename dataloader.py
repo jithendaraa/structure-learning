@@ -45,7 +45,7 @@ class CLEVR(Dataset):
         return torch_image
 
     def get_item_dict(self, file_path):
-        if self.opt.model in ['SlotAttention_img', 'VCN', 'VCN_img']:
+        if self.opt.model in ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img']:
             image = self.get_resized_torch_image(file_path, self.opt.resolution) # [-0.5, 0.5]
             item_dict = { 'observed_data': image, 'predicted_data': image}
         
@@ -87,7 +87,7 @@ def parse_datasets(opt, device):
     else:
         raise NotImplementedError(f"There is no dataset named {opt.dataset}")
 
-    if opt.model[:3] == 'VCN':
+    if opt.model in ['VCN', 'VCN_img', 'Slot_VCN_img']:
         if data is None:    data = train_dataloader.samples
 
         bge_train = BGe(opt,
