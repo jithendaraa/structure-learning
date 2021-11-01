@@ -74,7 +74,7 @@ class SlotAttentionAutoEncoder(nn.Module):
 
         return recon_combined, recons, masks, slots
 
-    def get_prediction(self, batch_dict):
+    def get_prediction(self, batch_dict, dummy1=None, dummy2=None):
         np_clip_convert = lambda x: np.clip(((x + 1) / 2) * 255.0, 0. , 255.).astype(np.uint8)
         torch_clamp_convert = lambda x: torch.clamp(((x + 1) / 2) * 255.0, 0., 255.).to(torch.int8)
 

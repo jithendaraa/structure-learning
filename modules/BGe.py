@@ -50,34 +50,30 @@ class BGe(torch.nn.Module):
 
 		self.T = self.small_t * torch.eye(self.d)
 
-		if opt.datatype in ['er']:
+		if opt.model in ['VCN']:
 			if not isinstance(data, torch.DoubleTensor):	data = torch.tensor(data).to(torch.float64)
 			assert data.shape[-1] == self.opt.num_nodes
 			self.N, self.d = data.shape 
 			self.precompute_matrices_numerical(data) 
 
-		if opt.datatype == 'image':
+		elif opt.model in ['VCN_img', 'Slot_VCN_img']:
 			# print("<BGe.py> calculate likelihood P(D | G)")
 			self.N, self.d, self.h, self.w = self.opt.batch_size, self.opt.num_nodes, self.opt.resolution, self.opt.resolution
 
 	def precompute_matrices_images(self, data):
-		
 		# data is of size: b, num_nodes, chan_per_node, h', w'; h', w' -> resolution after conv encoding input images
 		data = data.cpu()
 		if not isinstance(data, torch.DoubleTensor):	data = torch.tensor(data).to(torch.float64)
-
-		b, d, c_per_node, h, w = data.size()
-
+		b, d = data.size()[0], data.size()[1]
 		x_bar = torch.mean(data, dim = 0)
 		x_center = data - x_bar
 
 		flat_imgs = x_center.view(b, d, -1)
 		s_N = torch.bmm(flat_imgs, flat_imgs.permute(0, 2, 1))  
 		s_N = torch.sum(s_N, dim=0)	# [d, d]
-
+		
 		gamma_var = torch.matmul(x_bar.view(d, -1) - self.mean_obs.unsqueeze(-1), 
 								(x_bar.view(d, -1) - self.mean_obs.unsqueeze(-1)).t())
-
 
 		T = self.T
 		small_t = self.small_t
@@ -184,7 +180,8 @@ class BGe(torch.nn.Module):
 		"""
 
 		if x is not None:
-			self.precompute_matrices_images(x)
+			if self.opt.model in ['VCN_img', 'Slot_VCN_img']:			
+				self.precompute_matrices_images(x)
 
 		batch_size = w.shape[0]
 		if interv_targets is None:
