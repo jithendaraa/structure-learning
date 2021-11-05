@@ -11,7 +11,6 @@ from modules.SlotAttention import SlotAttention
 from modules.data import distributions
 from modules.AutoregressiveBase import AutoregressiveBase
 
-
 import utils
 import vcn_utils 
 
@@ -81,6 +80,7 @@ class Slot_VCN_img(nn.Module):
         # 1. Encode image to lower dims, position encode and flatten it and pass through slot attention 
         # (get z1...zk | x) k == num_slots == num_nodes
         x = self.input_images
+        b = x.size()[0]
         x = self.cnn_encoder(x)
         x = self.pos_encoder(x) # b, c, h, w
         x = spatial_flatten(x)    # FLatten spatial dimension
@@ -109,8 +109,8 @@ class Slot_VCN_img(nn.Module):
         x = self.pos_decoder(x)
         x = self.cnn_decoder(x)     # [b*num_slots, c+1, h, w].
 
-        # 7. Get slotwise recons x_hat_1..x_hat_k and masks m1..mk
-        recons, masks = utils.unstack_and_split(x, batch_size=self.opt.batch_size)
+        # # 7. Get slotwise recons x_hat_1..x_hat_k and masks m1..mk
+        recons, masks = utils.unstack_and_split(x, batch_size=b)
 
         # 8. Normalize alpha masks over slots and combine per slots reconstructions. 
         # Get final prediction x_hat = Sum (x_hat_i) = Sum (recons_i * masks_i)
@@ -125,7 +125,8 @@ class Slot_VCN_img(nn.Module):
         torch_clamp_convert = lambda x: torch.clamp(((x + 1) / 2) * 255.0, 0., 255.).to(torch.int8)
         
         self.input_images = batch_dict['observed_data'].to(self.device) # [-1, 1]
-        self.ground_truth = batch_dict['data_to_predict'].to(self.device) # [-1, 1]
+        self.ground_truth = batch_dict['observed_data'].to(self.device) # [-1, 1]
+        self(bge_model, step)
         self.pred, recons, masks, slots, self.log_likelihood, self.kl_graph, self.posterior_log_probs = self(bge_model, step)
 
         weighted_recon = recons * masks
@@ -146,6 +147,7 @@ class Slot_VCN_img(nn.Module):
 
         # Image reconstruction loss
         recon_loss = F.mse_loss(self.pred, self.ground_truth) 
+        print(self.pred.shape, self.ground_truth.shape)
 
         # Graph loss + image loss
         total_loss = graph_loss + recon_loss
