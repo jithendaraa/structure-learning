@@ -41,9 +41,8 @@ def get_opt():
     return opt, exp_config
 
 def build_model(opt, device):
-
   resolution = (opt.resolution, opt.resolution) 
-  implemented_models = ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img']
+  implemented_models = ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img', 'GraphVAE']
   
   if opt.model in ['SlotAttention_img']:
     from models.SlotAttentionAutoEncoder import SlotAttentionAutoEncoder as Slot_Attention
@@ -54,11 +53,16 @@ def build_model(opt, device):
     elif opt.datatype in ['image']: from models.VCN_image import VCN_img as VCN
     elif opt.datatype in ['video']: 
       pass
-  
+    
+    model = VCN(opt, resolution, opt.num_slots, opt.num_iterations, opt.sparsity_factor, opt.gibbs_temp, device)
+
   elif opt.model in ['Slot_VCN_img']:
     from models.Slot_VCN_img import Slot_VCN_img
     model = Slot_VCN_img(opt, resolution, opt.num_slots, opt.num_iterations, opt.sparsity_factor, opt.gibbs_temp, device)
 
+  elif opt.model in ['GraphVAE']:
+    from models.GraphVAE import GraphVAE
+    model = GraphVAE(opt, opt.N, opt.M, device)
   
   else: 
     raise NotImplementedError(f'Model {opt.model} is not implemented. Try one of {implemented_models}')

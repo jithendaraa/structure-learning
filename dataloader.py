@@ -6,6 +6,7 @@ import random
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms as T
+from torchvision.datasets.mnist import MNIST
 import utils
 import cv2
 
@@ -30,6 +31,7 @@ class CLEVR(Dataset):
         random.shuffle(self.files)
 
         self.length = len(os.listdir(root))
+        self.length = 1000
 
         # if opt.datatype in ['image'] and opt.model in ['VCN']:
         #     self.samples
@@ -45,7 +47,7 @@ class CLEVR(Dataset):
         return torch_image
 
     def get_item_dict(self, file_path):
-        if self.opt.model in ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img']:
+        if self.opt.model in ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img', 'GraphVAE']:
             image = self.get_resized_torch_image(file_path, self.opt.resolution) # [-0.5, 0.5]
             item_dict = { 'observed_data': image, 'predicted_data': image}
         
@@ -59,25 +61,34 @@ class CLEVR(Dataset):
     def __len__(self):
         return self.length
 
+
+
 def parse_datasets(opt, device):
     data_objects, data = {}, None
+    train_dir = os.path.join(opt.data_dir, 'train')
+    test_dir = os.path.join(opt.data_dir, 'test')
 
     if opt.dataset == 'clevr':
-        train_dir = os.path.join(opt.data_dir, 'train')
-        test_dir = os.path.join(opt.data_dir, 'test')
-        
         trainFolder = CLEVR(train_dir, opt, is_train=True, device=device, ch=opt.channels)
         testFolder = CLEVR(test_dir, opt, is_train=False, device=device, ch=opt.channels)
-    
         train_dataloader = DataLoader(trainFolder, batch_size=opt.batch_size, shuffle=False)
         test_dataloader = DataLoader(testFolder, batch_size=opt.batch_size, shuffle=False)
-
         data_objects = {"train_dataloader": utils.inf_generator(train_dataloader),
                         "test_dataloader": utils.inf_generator(test_dataloader),
                         # "n_train_batches": len(train_dataloader),
                         # "n_test_batches": len(test_dataloader)
                         }
+        data = train_dataloader
 
+    elif opt.dataset == 'mnist':
+        from torchvision.datasets import MNIST
+        # set download = True for the first time you run and ensure internet access before running for 1st time
+        trainFolder = MNIST(train_dir, train=True)
+        testFolder = MNIST(test_dir, train=False)
+        train_dataloader = DataLoader(trainFolder, batch_size=opt.batch_size, shuffle=False)
+        test_dataloader = DataLoader(testFolder, batch_size=opt.batch_size, shuffle=False)
+        data_objects = {"train_dataloader": utils.inf_generator(train_dataloader),
+                        "test_dataloader": utils.inf_generator(test_dataloader),}
         data = train_dataloader
 
     elif opt.dataset == 'er':

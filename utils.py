@@ -1,5 +1,6 @@
 import torch
 from torch.functional import norm
+from torchvision import datasets
 from torchvision.utils import make_grid
 
 import os
@@ -19,20 +20,25 @@ def set_opts(opt):
 
     if opt.dataset == 'clevr':
       opt.data_dir = 'datasets/CLEVR_v1.0/images'
+    elif opt.dataset == 'mnist':
+      opt.data_dir = 'datasets/MNIST'
+      opt.resolution, opt.channels = 28, 1
 
     opt.data_dir = os.path.join(opt.storage_dir, opt.data_dir)
     print("data_dir:", opt.data_dir)
 
     # Set model_params_logdir and create dirs along the way
     opt.model_params_logdir = opt.logdir / opt.model_params_logdir
+    
     os.makedirs(opt.model_params_logdir, exist_ok=True)
     print("model_params_logdir:", opt.model_params_logdir)
     print()
 
     if opt.num_nodes == 2:  opt.exp_edges = 0.8
-    
     if opt.num_nodes <=4: opt.alpha_lambd = 10.
     else: opt.alpha_lambd = 1000.
+
+    
 
     return opt
 
@@ -72,11 +78,11 @@ def get_data_dict(dataloader):
     return data_dict
 
 def get_dict_template(opt):
-  if opt.model in ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img']:
+  if opt.model in ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img', 'GraphVAE']:
     return {"observed_data": None}
 
 def set_batch_dict(opt, data_dict, batch_dict):
-  if opt.model in ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img']:
+  if opt.model in ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img', 'GraphVAE']:
     # Image reconstruction task
     batch_dict["observed_data"] = data_dict["observed_data"]
     batch_dict["data_to_predict"] = data_dict["observed_data"]
@@ -103,19 +109,29 @@ def get_next_batch(data_dict, opt):
 # Save model params
 # Save model params every `ckpt_save_freq` steps as model_params_logdir/ID_00000xxxxx.pickle
 def save_model_params(model, optimizer, opt, step, ckpt_save_freq):
-  if step > 0 and (step % ckpt_save_freq == 0):
+  if step > 0 and ((step+1) % ckpt_save_freq == 0):
       padded_zeros = '0' * (10 - len(str(step)))
       padded_step = padded_zeros + str(step)
-      model_params_file_name = os.path.join(opt.model_params_logdir, opt.ckpt_id + '_' + padded_step + '.pickle')
+
+      ckpt_filename = os.path.join(opt.model_params_logdir, opt.ckpt_id + '_' + str(opt.batch_size) + '_' + str(opt.lr)[2:] + '_' + str(opt.steps) + '_' + str(opt.resolution))
+
+      if opt.model in ['VCN']:
+        ckpt_filename += '_(' + str(opt.num_nodes) + ')'
+      elif opt.model in ['VCN_img']:
+        ckpt_filename += '_(' + str(opt.num_nodes) + '-' + str(opt.chan_per_node) + ')'
+      elif opt.model in ['Slot_VCN_img']:
+        ckpt_filename += '_(' + str(opt.num_nodes) + '-' + str(opt.slot_size) + ')'
+
+      ckpt_filename += '_' + padded_step + '.pickle'
 
       model_dict = {
           'step': step,
           'state_dict': model.state_dict(),
           'optimizer': optimizer.state_dict()}
 
-      with open(model_params_file_name, 'wb') as handle:
+      with open(ckpt_filename, 'wb') as handle:
           pickle.dump(model_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
-          print(f"Saved model parameters at step {step} -> {model_params_file_name}")
+          print(f"Saved model parameters at step {step} -> {ckpt_filename}")
 
 
 
@@ -182,7 +198,8 @@ def set_tb_logdir(opt):
 
   if opt.model in ['VCN']:
     logdir += '_(' + str(opt.num_nodes) + ')'
-  elif opt.model in ['VCN_img', 'Slot_VCN_img']:
-    logdir += '_(' + str(opt.num_nodes) + '/' + str(opt.chan_per_node) + ')'
-
+  elif opt.model in ['VCN_img']:
+    logdir += '_(' + str(opt.num_nodes) + '-' + str(opt.chan_per_node) + ')'
+  elif opt.model in ['Slot_VCN_img']:
+    logdir += '_(' + str(opt.num_nodes) + '-' + str(opt.slot_size) + ')'
   return logdir
