@@ -73,19 +73,28 @@ def inf_generator(iterable):
         except StopIteration:
             iterator = iterable.__iter__()
 
-def get_data_dict(dataloader):
-    data_dict = dataloader.__next__()
-    return data_dict
+def get_data_dict(opt, dataloader):
+  data_dict = dataloader.__next__()
+  if opt.model in ['GraphVAE']: 
+    res = {"observed_data": data_dict[0]}
+    if opt.dataset in ['mnist']:
+      res['train_len'] = 60000
+      res['test_len'] = 10000
+    return res
+  return data_dict
 
 def get_dict_template(opt):
   if opt.model in ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img', 'GraphVAE']:
-    return {"observed_data": None}
+    return {"observed_data": None, 'train_len': None, 'test_len': None}
 
 def set_batch_dict(opt, data_dict, batch_dict):
   if opt.model in ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img', 'GraphVAE']:
     # Image reconstruction task
     batch_dict["observed_data"] = data_dict["observed_data"]
     batch_dict["data_to_predict"] = data_dict["observed_data"]
+    batch_dict["train_len"] = data_dict["train_len"]
+    batch_dict["test_len"] = data_dict["test_len"]
+
 
   return batch_dict
   
