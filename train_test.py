@@ -34,10 +34,9 @@ def train_model(model, loader_objs, exp_config_dict, opt, device):
         pred, gt, loss, loss_dict, media_dict = train_batch(model, loader_objs, optimizer, opt, writer, step)
         time_epoch.append(time.time() - start_step_time)
 
-        if opt.model in ['SlotAttention_img', 'VCN_img', 'Slot_VCN_img']:
+        if opt.model in ['SlotAttention_img', 'VCN_img', 'Slot_VCN_img', 'GraphVAE']:
             pred_gt = torch.cat((pred[:opt.log_batches].detach().cpu(), gt[:opt.log_batches].cpu()), 0).numpy()
             pred_gt = np.moveaxis(pred_gt, -3, -1)
-            print("pred_gt", pred_gt.shape)
         
         elif opt.model in ['VCN']:
             vae_elbo = evaluate_batch(opt, model, loader_objs['bge_train'], step, vae_elbo, device, loss_dict, time_epoch, loader_objs['train_dataloader'])
@@ -55,7 +54,6 @@ def train_model(model, loader_objs, exp_config_dict, opt, device):
 
 def train_batch(model, loader_objs, optimizer, opt, writer, step):
     
-    keys = ['Slot reconstructions', 'Weighted reconstructions', 'Slotwise masks']
     loss_dict, media_dict = {}, {}
     prediction, gt = None, None
     optimizer.zero_grad()
@@ -63,11 +61,13 @@ def train_batch(model, loader_objs, optimizer, opt, writer, step):
 
     if opt.model in ['VCN', 'VCN_img', 'Slot_VCN_img']: bge_train = loader_objs['bge_train']
     
-    if opt.model in ['SlotAttention_img', 'VCN_img', 'Slot_VCN_img']:
-        data_dict = utils.get_data_dict(loader_objs['train_dataloader'])
+    if opt.model in ['SlotAttention_img', 'VCN_img', 'Slot_VCN_img', 'GraphVAE']:
+        data_dict = utils.get_data_dict(opt, loader_objs['train_dataloader'])
         batch_dict = utils.get_next_batch(data_dict, opt)
 
     if opt.model in ['SlotAttention_img', 'Slot_VCN_img']:
+        keys = ['Slot reconstructions', 'Weighted reconstructions', 'Slotwise masks']
+        model.get_prediction(batch_dict, bge_train, step)
         recon_combined, slot_recons, slot_masks, weighted_recon, _ = model.get_prediction(batch_dict, bge_train, step)
         train_loss, loss_dict = model.get_loss()
         
@@ -93,7 +93,11 @@ def train_batch(model, loader_objs, optimizer, opt, writer, step):
             utils.log_encodings_per_node_to_tb(opt, writer, enc_inp, step)  # enc_inp has shape [num_nodes, chan_per_nodes, h, w]
             train_loss, loss_dict, _ = model.get_loss()
             gt = ((model.ground_truth + 1)/2) * 255.0
-
+    
+    elif opt.model in ['GraphVAE']:
+        prediction = model.get_prediction(batch_dict, step)
+        train_loss, loss_dict = model.get_loss()
+        gt = ((model.ground_truth + 1)/2) * 255.0
 
     if opt.clip != -1:  torch.nn.utils.clip_grad_norm_(model.parameters(), float(opt.clip))
     train_loss.backward()
