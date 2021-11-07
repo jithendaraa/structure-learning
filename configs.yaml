@@ -67,9 +67,14 @@ defaults:
   noise_sigma: 1.0
   noise_type: 'isotropic-gaussian'
 
-  # Slot VCN
+  # Graph VAE
+  M: 80 # M - total dims per node
+  N: 5 # num nodes
+  dims_per_node: 16 
 
 
+
+# 1. Vanilla Slot attention
 train_clevr_sa_img:
   ckpt_id: 'train_clevr_sa_img'
   model: 'SlotAttention_img'
@@ -79,6 +84,7 @@ train_clevr_sa_img:
   media_log_freq: 500
   ckpt_save_freq: 5000
 
+# 2. Vanilla VCN (numerical)
 train_vcn:
   ckpt_id: 'train_vcn' 
   dataset: 'er'
@@ -92,6 +98,7 @@ train_vcn:
   ckpt_save_freq: 5000
   num_nodes: 3
 
+# 3. Image VCN
 train_clevr_vcn_img:
   ckpt_id: 'train_clevr_vcn_img' 
   model: 'VCN_img'
@@ -106,23 +113,38 @@ train_clevr_vcn_img:
   chan_per_node: 6
   num_nodes: 3
 
+# 4. Slot-Image VCN
 train_clevr_slot1d_vcn_img:
   ckpt_id: 'train_clevr_slot1d_vcn_img' 
   model: 'Slot_VCN_img'
   batch_size: 64
   lr: 1e-3
-  steps: 10000
+  steps: 100000 
   dataset: 'clevr'
-  loss_log_freq: 5
-  media_log_freq: 5
+  loss_log_freq: 20
+  media_log_freq: 50
   ckpt_save_freq: 1000
   hidden_dims: 64
   slot_size: 64
   num_slots: 4
   num_nodes: 4
-  off_wandb: True
   slot_space: '1d' # can be 1d or 2d
 
+# 5. Graph VAE
+train_graph_vae:
+  ckpt_id: 'train_graph_vae' 
+  model: 'GraphVAE'
+  batch_size: 64
+  lr: 1e-3
+  steps: 2000
+  dataset: 'mnist'
+  loss_log_freq: 10
+  media_log_freq: 10
+  ckpt_save_freq: 1000
+  N: 5
+  M: 80
+  dims_per_node: 16 # N': dims per node
+  
 
 
 experimental:
