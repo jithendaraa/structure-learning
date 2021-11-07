@@ -75,16 +75,16 @@ def parse_datasets(opt, device):
         test_dataloader = DataLoader(testFolder, batch_size=opt.batch_size, shuffle=False)
         data_objects = {"train_dataloader": utils.inf_generator(train_dataloader),
                         "test_dataloader": utils.inf_generator(test_dataloader),
-                        # "n_train_batches": len(train_dataloader),
-                        # "n_test_batches": len(test_dataloader)
+                        "n_train_batches": len(train_dataloader),
+                        "n_test_batches": len(test_dataloader)
                         }
         data = train_dataloader
 
     elif opt.dataset == 'mnist':
         from torchvision.datasets import MNIST
         # set download = True for the first time you run and ensure internet access before running for 1st time
-        trainFolder = MNIST(train_dir, train=True)
-        testFolder = MNIST(test_dir, train=False)
+        trainFolder = MNIST(train_dir, train=True, transform=T.Compose([T.ToTensor()]))
+        testFolder = MNIST(test_dir, train=False, transform=T.Compose([T.ToTensor()]))
         train_dataloader = DataLoader(trainFolder, batch_size=opt.batch_size, shuffle=False)
         test_dataloader = DataLoader(testFolder, batch_size=opt.batch_size, shuffle=False)
         data_objects = {"train_dataloader": utils.inf_generator(train_dataloader),
