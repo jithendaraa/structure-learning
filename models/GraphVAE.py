@@ -7,11 +7,13 @@ import torch.nn.functional as F
 import numpy as np
 
 from torch.distributions.normal import Normal
+from torch.distributions.gumbel import Gumbel
 
 from modules.graph_vae_ED import Encoder_BU, Decoder
 from modules.graph_vae_ED import MLP_BU_n as MLP_BU
 from modules.graph_vae_ED import MLP_TD_n as MLP_TD
 
+EPSILON = 1e-30
 
 class GraphVAE(nn.Module):
     def __init__(self, opt, N, M, device):
@@ -26,9 +28,12 @@ class GraphVAE(nn.Module):
         self.epoch = 0
         assert self.D == self.opt.dims_per_node
 
-        # The mean params for the gumbel-softmax; we access μ(i, j) for i>j; lower triangle of the parameter matrix
-        self.gs_logits = nn.Parameter( np.log(0.5) * torch.ones((self.N, self.N)) ).to(device)
+        # mean of Bernoulli variables c_{i,j} representing edges
+        self.gating_params = nn.ParameterList([nn.Parameter(torch.empty(self.N - i - 1, 1, 1).fill_(0.5), requires_grad=True) for i in range(self.N-1)]).to(device) # ignore z_N
         self.tau = 1
+
+        # distributions for sampling
+        self.gumbel = Gumbel(0., 1.)
 
         # Bottom up networks: to predict μ_tilde and log Σ_tilde    
         self.encoder = Encoder_BU(opt, device)
@@ -72,26 +77,30 @@ class GraphVAE(nn.Module):
         """
 
         for j in range(N-2, -1, -1):
-            c_j = []
-            weighted_parents = []
+            self.gating_params[j].data = self.gating_params[j].data.clamp(0., 1.)
+            sampled_parents = []
+            # Sample gating parameter from Gumbel Softmax and mean params mu_ij to get c_ij's
+            mu_j = self.gating_params[j]
+            eps1, eps2 = self.gumbel.sample(mu_j.size()).to(self.device), self.gumbel.sample(mu_j.size()).to(self.device)
+            num = torch.exp((eps2 - eps1)/self.tau)
+            t1 = torch.pow(mu_j, 1./self.tau)
+            t2 = torch.pow((1.-mu_j), 1./self.tau)*num
+            c_j = t1 / (t1 + t2 + EPSILON)
 
             # Traverse parents of node z_j (basically all z_i with i>j)
             for i in range(j+1, N):
-                # Sample gating parameter from Gumbel Softmax
-                c_ij = self.gs_logits[i][j] # gating parameter
-                c_j.append(F.gumbel_softmax(c_ij, self.tau))
-                
                 # Use Prior means and std of z_i and sample * gating param.
                 mean, std = prior_mu_hats[i-N], prior_std_hats[i-N]
                 sampled_z_i = Normal(mean, std).rsample()   # sampled parent
-                weighted_parents.append(sampled_z_i * c_ij)
+                sampled_parents.append(sampled_z_i)
             
             c[j] = c_j
+            sampled_parents = torch.stack(sampled_parents, dim=0)
 
             # Get prior(j) from c and Prior(j+1)..prior(N)
-            weighted_parents = torch.stack(weighted_parents, dim=0).view(b, -1).to(self.device)
+            weighted_parents = (sampled_parents * c_j).view(b, -1).to(self.device)
             mu_tilde, logvar_tilde = self.MLP_TD_n[j](weighted_parents)
-            # import pdb; pdb.set_trace()
+
             prior_mu_hats = [mu_tilde] + prior_mu_hats
             prior_std_hats = [ (0.5 * logvar_tilde).exp() ] + prior_std_hats
         
@@ -153,13 +162,15 @@ class GraphVAE(nn.Module):
         kl_loss = F.kl_div(post_log_probs, prior_log_probs, log_target=True)
 
         total_loss = recon_loss + kl_loss
+        # total_loss = recon_loss
 
         loss_dict = {
             'Reconstruction loss': recon_loss.item(),
-            'KL loss': kl_loss.item(),
+            'KL loss': 0,
             'Total loss': total_loss.item()
         }
 
-        print(f'ELBO Loss: {total_loss.item()} | Reconstruction loss: {recon_loss.item()} | KL Loss: {kl_loss.item()}')
+        if step % 100 == 0:
+            print(f"ELBO Loss: {loss_dict['Total loss']} | Reconstruction loss: {loss_dict['Reconstruction loss']} | KL Loss: {loss_dict['KL loss']}")
 
         return total_loss, loss_dict
