@@ -1,6 +1,4 @@
 import torch
-from torch.functional import norm
-from torchvision import datasets
 from torchvision.utils import make_grid
 
 import os
@@ -9,6 +7,8 @@ from os.path import *
 from pathlib import Path
 import wandb
 import numpy as np
+import imageio
+import graphical_models
 
 def set_opts(opt):
     print()
@@ -78,6 +78,7 @@ def get_data_dict(opt, dataloader):
   if opt.model in ['GraphVAE']: 
     res = {"observed_data": data_dict[0]}
     if opt.dataset in ['mnist']:
+      res = {"observed_data": (data_dict[0]*2.0) - 1.0}
       res['train_len'] = 60000
       res['test_len'] = 10000
     return res
@@ -206,9 +207,29 @@ def set_tb_logdir(opt):
   logdir = os.path.join(opt.logdir, opt.ckpt_id + '_' + str(opt.batch_size) + '_' + str(opt.lr) + '_' + str(opt.steps) + '_' + str(opt.resolution))
 
   if opt.model in ['VCN']:
-    logdir += '_(' + str(opt.num_nodes) + ')'
+    logdir += '_(' + str(opt.num_nodes) + ')_seed' + str(opt.seed) + '_' + str(opt.data_seed)
   elif opt.model in ['VCN_img']:
-    logdir += '_(' + str(opt.num_nodes) + '-' + str(opt.chan_per_node) + ')'
+    logdir += '_(' + str(opt.num_nodes) + '-' + str(opt.chan_per_node) + ')_seed' + str(opt.seed) + '_' + str(opt.data_seed)
   elif opt.model in ['Slot_VCN_img']:
-    logdir += '_(' + str(opt.num_nodes) + '-' + str(opt.slot_size) + ')'
+    logdir += '_(' + str(opt.num_nodes) + '-' + str(opt.slot_size) + ')_seed' + str(opt.seed) + '_' + str(opt.data_seed)
   return logdir
+
+def log_enumerated_dags_to_tb(writer, logdir, opt):
+  if opt.model in ['VCN']:
+    dag_file = os.path.join(logdir, 'enumerated_dags.png')
+  else:
+    raise NotImplemented('Not implemented yet')
+  enumerated_dag = np.asarray(imageio.imread(dag_file))
+  writer.add_image('graph_structure(GT-pred)/All DAGs', enumerated_dag, 0, dataformats='HWC')
+
+def is_mec(g1, g2):
+  """
+    Returns True if graph g1 is a Markov Equivalent Class of graph g2
+  """
+  g1 = graphical_models.DAG.from_nx(g1)
+  g1_skeleton = g1.cpdag() ##Find the skeleton
+  all_g1_mecs = g1_skeleton.all_dags() #Find all DAGs in MEC
+  g2 = graphical_models.DAG.from_nx(g2)
+  g2_skeleton = g2.cpdag() ##Find the skeleton
+  all_g2_mecs = g2_skeleton.all_dags() #Find all DAGs in MEC
+  return all_g1_mecs == all_g2_mecs
