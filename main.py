@@ -49,12 +49,16 @@ def build_model(opt, device):
     model = Slot_Attention(opt, resolution, opt.num_slots, opt.num_iterations, device)
   
   elif opt.model in ['VCN', 'VCN_img']:
-    if opt.datatype in ['er']: from models.VCN import VCN
-    elif opt.datatype in ['image']: from models.VCN_image import VCN_img as VCN
+    if opt.datatype in ['er']: 
+      from models.VCN import VCN
+      model = VCN(opt, opt.num_nodes, opt.sparsity_factor, opt.gibbs_temp, device)
+    
+    elif opt.datatype in ['image']: 
+      from models.VCN_image import VCN_img as VCN
+      model = VCN(opt, resolution, opt.num_slots, opt.num_iterations, opt.sparsity_factor, opt.gibbs_temp, device)
+    
     elif opt.datatype in ['video']: 
       pass
-    
-    model = VCN(opt, resolution, opt.num_slots, opt.num_iterations, opt.sparsity_factor, opt.gibbs_temp, device)
 
   elif opt.model in ['Slot_VCN_img']:
     from models.Slot_VCN_img import Slot_VCN_img
