@@ -1,7 +1,8 @@
 import os
-from PIL import Image
+from os.path import join
 import numpy as np
 import random
+import matplotlib.pyplot as plt
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -12,6 +13,7 @@ import cv2
 
 from modules.data.erdos_renyi import ER
 from modules.BGe import BGe
+import networkx as nx 
 
 class CLEVR(Dataset):
     def __init__(self, root, opt, is_train, device=None, ch=3):
@@ -31,7 +33,6 @@ class CLEVR(Dataset):
         random.shuffle(self.files)
 
         self.length = len(os.listdir(root))
-        self.length = 1000
 
         # if opt.datatype in ['image'] and opt.model in ['VCN']:
         #     self.samples
@@ -93,6 +94,13 @@ def parse_datasets(opt, device):
 
     elif opt.dataset == 'er':
         train_dataloader = ER(num_nodes = opt.num_nodes, exp_edges = opt.exp_edges, noise_type = opt.noise_type, noise_sigma = opt.noise_sigma, num_samples = opt.num_samples, mu_prior = opt.theta_mu, sigma_prior = opt.theta_sigma, seed = opt.data_seed)
+        # import pdb; pdb.set_trace()
+        # save ground truth graph
+        nx.draw(train_dataloader.graph, with_labels=True, font_weight='bold', node_size=1000, font_size=25, arrowsize=40, node_color='#FFFF00')
+        logdir = utils.set_tb_logdir(opt)
+        plt.savefig(join(logdir,'gt_graph.png'))
+
+        data_objects = {"train_dataloader": train_dataloader}
         data = train_dataloader.samples
     
     else:
