@@ -47,7 +47,6 @@ class GraphVAE(nn.Module):
     def anneal(self):
         self.tau = 0.99 ** self.epoch
         
-
     def forward(self, x):
         self.anneal()
         N, c, b = self.N, {}, x.size()[0]
@@ -136,10 +135,14 @@ class GraphVAE(nn.Module):
         pred_x = self.decoder(z_posterior).view(b, self.opt.channels, -1)
         pred_x = pred_x.view(b, self.opt.channels, self.opt.resolution, self.opt.resolution)
 
+        # pred_x last layer is a sigmoid so return in [-1, 1] range just like inputs
+        pred_x = (pred_x * 2.0) - 1
         return pred_x, z_posterior, z_prior
 
     def get_prediction(self, batch_dict, step):
+        # convert [-1, 1] to [0, 255.]
         torch_clamp_convert = lambda x: torch.clamp(((x + 1) / 2) * 255.0, 0., 255.).to(torch.int8)
+        
         self.input_images = batch_dict['observed_data'].to(self.device) # [-1, 1]
         self.ground_truth = batch_dict['data_to_predict'].to(self.device) # [-1, 1]
         epoch = 1 + int((step * self.opt.batch_size) // batch_dict[self.opt.phase + '_len'])
@@ -151,7 +154,7 @@ class GraphVAE(nn.Module):
         self.pred_x, self.z_posterior, self.z_prior = self.forward(self.input_images)
         return torch_clamp_convert(self.pred_x)
 
-    def get_loss(self):
+    def get_loss(self, step):
         # ELBO Loss = recon_loss + KL_loss
         recon_loss = F.mse_loss(self.pred_x, self.ground_truth) 
         
@@ -162,15 +165,14 @@ class GraphVAE(nn.Module):
         kl_loss = F.kl_div(post_log_probs, prior_log_probs, log_target=True)
 
         total_loss = recon_loss + kl_loss
-        # total_loss = recon_loss
 
         loss_dict = {
             'Reconstruction loss': recon_loss.item(),
-            'KL loss': 0,
+            'KL loss': kl_loss.item(),
             'Total loss': total_loss.item()
         }
 
-        if step % 100 == 0:
+        if step % 20 == 0:
             print(f"ELBO Loss: {loss_dict['Total loss']} | Reconstruction loss: {loss_dict['Reconstruction loss']} | KL Loss: {loss_dict['KL loss']}")
 
         return total_loss, loss_dict
