@@ -108,7 +108,7 @@ class AutoregressiveBase(torch.nn.Module):
         log_probs = torch.distributions.Bernoulli(logits = logits).log_prob(value).sum(1)
         if return_logits:
             return log_probs, logits
-        return log_probs
+        return log_probs.squeeze()
 
     def entropy(self, n_samples=10 ** 6):
         bs = 100000
