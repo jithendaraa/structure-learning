@@ -1,5 +1,4 @@
 import numpy as np
-import torch
 from .generator import Generator
 import networkx as nx 
 import graphical_models
@@ -18,7 +17,7 @@ class ER(Generator):
 	"""
 	def __init__(self, num_nodes, exp_edges = 1, noise_type='isotropic-gaussian', noise_sigma = 1.0, num_samples=1000, mu_prior = 2.0, sigma_prior = 1.0, seed = 10):
 		self.noise_sigma = noise_sigma
-		p = float(exp_edges)/ (num_nodes-1)
+		p = float(exp_edges) / (num_nodes-1)
 		acyclic, mmec, count  = 0, 0, 1
 		
 		# Sample a random directed graph;
@@ -30,6 +29,7 @@ class ER(Generator):
 				self.graph = nx.generators.random_graphs.fast_gnp_random_graph(num_nodes, p, directed = True, seed = seed*count)
 			else:
 				self.graph = nx.generators.random_graphs.gnp_random_graph(num_nodes, p, directed = True, seed = seed*count)
+			
 			acyclic = expm_np(nx.to_numpy_matrix(self.graph), num_nodes) == 0
 			if acyclic:	mmec = num_mec(self.graph) >=2
 			count += 1
@@ -38,10 +38,6 @@ class ER(Generator):
 		self.init_sampler()
 		self.samples = self.sample(self.num_samples)
 		print("self.samples", self.samples.size())
-
-	# def __getitem__(self, index):
-	# 	print(index)
-	# 	return self.samples[index]
 
 def matrix_poly_np(matrix, d):
 	x = np.eye(d) + matrix/d
