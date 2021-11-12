@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 1. Train VCN_img on clevr
+# 1. Train Slot_VCN_img on clevr
 dataset=$1
 train=$2
 model=$3
@@ -11,10 +11,10 @@ if [ ${train} == 'train' ]
 then
     if [ ${dataset} == 'clevr' ]
     then
-        # Train VCN_img on CLEVR
-        config='train_clevr_vcn_img'
-        output_file="out/VCN_img/""$config""-%j.out"
-        echo "Train VCN_img CLEVR: ${config}"
+        # Train Slot_VCN_img on CLEVR
+        config='train_clevr_slot1d_vcn_img'
+        output_file="out/Slot_VCN_img/""$config""-%j.out"
+        echo "Train Slot_VCN_img CLEVR: ${config}"
     else
         echo "Not implemented dataset ${dataset}" 
     fi

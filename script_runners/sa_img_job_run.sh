@@ -22,7 +22,7 @@ else
     echo "Not implemented dataset ${train}" 
 fi
 
-command="sbatch --job-name ${config} --output ${output_file} --time ${time} scripts/run_sa_img.sh ${config}"      
+command="sbatch --job-name ${config} --output ${output_file} --time ${time} scripts/run_job.sh ${config}"      
 echo ""
 echo ${command}
 echo ""
