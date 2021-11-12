@@ -90,24 +90,13 @@ class BGe(torch.nn.Module):
 		+ 0.5 * (self.alpha_lambd - self.d + 2 * all_l + 1) * \
 		np.log(small_t)).to(self.device) # size: (num_nodes)
 
-
 	def precompute_matrices_numerical(self, data):
 		small_t = self.small_t
 		T = self.T
-
-		print("T")
-		print(small_t, T)
-		print()
-
 		x_bar = data.mean(axis=0, keepdims=True)
-		print("x_bar", x_bar.shape, x_bar)
-
 		x_center = data - x_bar
 		s_N = torch.matmul(x_center.t(), x_center)  # [d, d]
-		print("Covariance: ", s_N.size())
-		print()
 		gamma_var = torch.matmul((x_bar - self.mean_obs).t(), x_bar - self.mean_obs)
-		print("gamma_var", gamma_var)
 
 		# Kuipers (2014) states R wrongly in the paper, using alpha_lambd rather than alpha_mu;
 		# the supplementary contains the correct term
@@ -124,8 +113,6 @@ class BGe(torch.nn.Module):
 		# log det(T_JJ)^(..) / det(T_II)^(..) for default T
 		+ 0.5 * (self.alpha_lambd - self.d + 2 * all_l + 1) * \
 		np.log(small_t)).to(self.device)
-
-		print("gammaln terms", self.log_gamma_terms.size())
 
 	def slogdet_pytorch(self, parents, R = None):
 		"""
