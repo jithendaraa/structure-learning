@@ -114,6 +114,7 @@ def all_combinations(num_nodes, num_classes=2, return_adj = False):
 def full_kl_and_hellinger(model, bge_train, g_dist, device):
     """Compute the KL Divergence and Hellinger distance in lower dimensional settings (d<=4)"""
     bs = 100000
+
     all_adj = all_combinations(model.num_nodes, return_adj = True).astype(np.float32)
     all_adj_vec = all_combinations(model.num_nodes, return_adj = False).astype(np.float32)
     log_posterior_graph = torch.zeros(len(all_adj))
@@ -187,3 +188,4 @@ def auroc(model, ground_truth, num_samples = 1000):
         tnr[i] = float(tn)/(tn + fp)
     auroc = metrics.auc(fpr, tpr)
     return auroc
+

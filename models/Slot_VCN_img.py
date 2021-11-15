@@ -1,10 +1,14 @@
 import sys
 sys.path.append('..')
+from os.path import join
 
+import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+import matplotlib.pyplot as plt
+import networkx as nx
 
 from modules.SoftPosnEmbed import SoftPositionEmbed
 from modules.SlotAttention import SlotAttention
@@ -29,6 +33,10 @@ class Slot_VCN_img(nn.Module):
         self.opt = opt
         self.device = device
         self.baseline = 0.
+        self.adjacency_lists, self.pres_graph = [], {}
+        self.dag_adj_matrices = []
+        self.dag_graph_log_likelihoods = []
+        self.get_all_digraphs()
 
         if self.opt.anneal:	self.gibbs_update = self._gibbs_update
         else:				self.gibbs_update = None
@@ -58,6 +66,53 @@ class Slot_VCN_img(nn.Module):
 
         print("Initialised model: Slot_VCN_img")
 
+    def get_all_digraphs(self, only_dags=True):
+        self.directed_graphs, self.dags, self.dag_adj_matrices = [], [], []
+        self.adjacency_lists, self.pres_graph = [], {}
+        num_nodes = self.num_nodes
+        all_possible_edges = num_nodes * (num_nodes - 1)
+        for num_edges in range(all_possible_edges+1):
+            adj_list = np.zeros((all_possible_edges), dtype=int).tolist()
+            self.solve(adj_list.copy(), num_edges, 0, len(adj_list)-1)	# Get all adjacecny lists for directed graphs
+        
+        self.adjacency_lists = np.array(self.adjacency_lists)
+        self.directed_adj_matrices = vcn_utils.vec_to_adj_mat_np(self.adjacency_lists, num_nodes)
+        
+        for matrix_num in range(len(self.directed_adj_matrices)):
+            DG = nx.DiGraph()
+            DG.add_nodes_from(np.arange(0, num_nodes).tolist())
+            adj_matrix = self.directed_adj_matrices[matrix_num]
+			
+            for i in range(num_nodes):
+                for j in range(num_nodes):
+                    if adj_matrix[i][j] == 1.:
+                        DG.add_edge(i, j)
+            self.directed_graphs.append(DG)
+            is_acyclic = vcn_utils.expm_np(nx.to_numpy_matrix(DG), num_nodes) == 0
+            if is_acyclic:	
+                self.dags.append(DG)
+                self.dag_adj_matrices.append(torch.from_numpy(adj_matrix).to(self.device))
+                
+    
+    def solve(self, adj_list, edges_left, start, end):
+        """ Gets all adjacency lists for directed graph with n node and p edges and saves into self.adjacency lists
+        Each element in self.adjacency lists has num_edges*(num_edges - 1) edges from which we can get adj matrices
+        """
+        if edges_left == 0:
+            key = "".join(str(adj_list))
+            if key not in self.pres_graph.keys():
+                self.pres_graph[key] = True
+                self.adjacency_lists.append(adj_list)
+            return
+		
+        if start > end or edges_left < 0: return
+		
+        self.solve(adj_list.copy(), edges_left, start + 1, end)
+        modif_adj_list = adj_list.copy()
+        modif_adj_list[start] = 1
+        self.solve(modif_adj_list.copy(), edges_left - 1, start + 1, end)
+        return
+
     def init_gibbs_dist(self):
         if self.opt.num_nodes <= 4:
             self.gibbs_dist = distributions.GibbsDAGDistributionFull(self.opt.num_nodes, self.opt.gibbs_temp, self.opt.sparsity_factor)
@@ -70,12 +125,58 @@ class Slot_VCN_img(nn.Module):
         else:
             return self.opt.gibbs_temp_init + (self.opt.gibbs_temp - self.opt.gibbs_temp_init)*(10**(-2 * max(0, (self.opt.steps - 1.1*epoch)/self.opt.steps)))
 
+    def get_enumerated_dags(self, n_samples, bge_model, interv_targets=None):
+            """
+                For all the enumerated DAGs, get likelihood scores and save it
+            """
+            dag_file = join((utils.set_tb_logdir(self.opt)), 'enumerated_dags.png')
+            self.dag_graph_log_likelihoods = []
+            best_ll = -1e5
+            print()
+            print(f'{len(self.dag_adj_matrices)} DAGs found!')
+            nrows, ncols = int(math.ceil(len(self.dag_adj_matrices) / 5.0)), 5
+
+            with torch.no_grad():
+                for graph in self.dag_adj_matrices:
+                    graph_log_likelihood = bge_model.log_marginal_likelihood_given_g(w = graph.unsqueeze(0).repeat(n_samples, 1, 1), interv_targets=interv_targets).mean().item()
+                    self.dag_graph_log_likelihoods.append(graph_log_likelihood)
+                    if graph_log_likelihood > best_ll:
+                        best_ll = graph_log_likelihood
+            
+            idxs = np.flip(np.argsort(self.dag_graph_log_likelihoods))
+            fig = plt.figure()
+            fig.set_size_inches(ncols * 4, nrows * 4)
+            count = 0
+            for idx in idxs:
+                graph = self.dags[idx]
+                ax = plt.subplot(nrows, ncols, count+1)
+                count += 1
+                if round(best_ll, 2) == round(self.dag_graph_log_likelihoods[idx], 2): color = '#00FF00' # neon green
+                else: color = '#FFFF00' # yellow
+                nx.draw(graph, with_labels=True, font_weight='bold', node_size=1000, font_size=25, arrowsize=30, node_color=color)
+                ax.set_xticks([])
+                ax.set_yticks([])
+                ax.spines['right'].set_visible(False)
+                ax.spines['top'].set_visible(False)
+                ax.spines['left'].set_visible(False)
+                ax.spines['bottom'].set_visible(False)
+                ax.set_title(f'LL: {self.dag_graph_log_likelihoods[idx]:.2f} \n Ground truth', fontsize=23)
+            
+            plt.tight_layout()
+            plt.savefig(dag_file, dpi=50)
+            print( f'Saved enumarate DAG at {dag_file}' )
+            plt.show()
+
+
     def forward(self, bge_model, step, interv_targets = None):
 
-        if self.opt.slot_space != '1d':
-            NotImplementedError(f'Have not implemented slot_space {self.opt.slot_space}')
-
         assert self.opt.num_nodes == self.opt.num_slots
+        assert self.opt.slot_space in ['1d'] 
+
+        n_samples = self.opt.batch_size
+
+        if step == 1:
+            self.get_enumerated_dags(n_samples, bge_model, interv_targets)
 
         # 1. Encode image to lower dims, position encode and flatten it and pass through slot attention 
         # (get z1...zk | x) k == num_slots == num_nodes
@@ -88,7 +189,6 @@ class Slot_VCN_img(nn.Module):
         slots = self.slot_attention(x.permute(0, 2, 1)) # pass as b, spatial_dims, c; `slots` has shape: [batch_size, num_slots, slot_size].
 
         # 2. Autoregressively sample G1..GL from approximate posterior q_phi(G) and get adj matrices
-        n_samples = self.opt.batch_size
         samples = self.graph_dist.sample([n_samples]) 
         G = vcn_utils.vec_to_adj_mat(samples, self.num_nodes)
         dagness = vcn_utils.expm(G, self.num_nodes)
@@ -109,7 +209,7 @@ class Slot_VCN_img(nn.Module):
         x = self.pos_decoder(x)
         x = self.cnn_decoder(x)     # [b*num_slots, c+1, h, w].
 
-        # # 7. Get slotwise recons x_hat_1..x_hat_k and masks m1..mk
+        # 7. Get slotwise recons x_hat_1..x_hat_k and masks m1..mk
         recons, masks = utils.unstack_and_split(x, batch_size=b)
 
         # 8. Normalize alpha masks over slots and combine per slots reconstructions. 
@@ -118,7 +218,6 @@ class Slot_VCN_img(nn.Module):
         x_hat = torch.sum(recons * masks, dim=1)  # Recombine image.
 
         return x_hat, recons, masks, slots, log_likelihood, kl_graph, posterior_log_probs
-
 
     def get_prediction(self, batch_dict, bge_model, step):
         np_clip_convert = lambda x: np.clip(((x + 1) / 2) * 255.0, 0. , 255.).astype(np.uint8)
@@ -136,6 +235,31 @@ class Slot_VCN_img(nn.Module):
 
         return torch_clamp_convert(self.pred), np_clip_convert(slot_recons), slot_masks, np_clip_convert(weighted_recon), slots
 
+    def modify_edges(self, bge_model, interv_targets=None):
+        nrows, ncols = int(math.ceil(len(self.dag_adj_matrices) / 5.0)), 5
+        idxs = np.flip(np.argsort(self.dag_graph_log_likelihoods))
+        ncols, nrows = 5, 
+        fig = plt.figure()
+        fig.set_size_inches(ncols * 4, nrows * 4)
+
+        with torch.no_grad():
+
+            for idx in idxs:
+                dag_adj_mat = self.dag_adj_matrices[idx]
+                x = self.input_images
+                b = x.size()[0]
+                x = self.cnn_encoder(x)
+                x = self.pos_encoder(x) # b, c, h, w
+                x = spatial_flatten(x)    # FLatten spatial dimension
+                x = self.mlp(self.layer_norm(x.permute(0, 2, 1))).permute(0, 2, 1)
+                slots = self.slot_attention(x.permute(0, 2, 1))
+                x = spatial_broadcast(slots, self.decoder_initial_size) # b*num_slots, c, h, w
+                x = self.pos_decoder(x)
+                x = self.cnn_decoder(x)     
+                recons, masks = utils.unstack_and_split(x, batch_size=b)
+                masks = F.softmax(masks, dim=1)
+                x_hat = torch.sum(recons * masks, dim=1)
+                print(x_hat)
 
     def get_loss(self):
         # ELBO loss for graph
@@ -147,7 +271,6 @@ class Slot_VCN_img(nn.Module):
 
         # Image reconstruction loss
         recon_loss = F.mse_loss(self.pred, self.ground_truth) 
-        print(self.pred.shape, self.ground_truth.shape)
 
         # Graph loss + image loss
         total_loss = graph_loss + recon_loss
@@ -163,7 +286,6 @@ class Slot_VCN_img(nn.Module):
 
         print()
         print(f'Neg. log likelihood (G): {round(loss_dict["Neg. log likelihood (G)"], 2)} | KL loss (G): {round(loss_dict["KL loss (G)"], 2)} | Graph loss (G): {round(loss_dict["Graph loss (G)"], 2)} | Per sample ELBO loss (G): {round(loss_dict["Per sample ELBO loss (G)"], 2)} | Reconstruction loss: {round(loss_dict["Reconstruction loss"], 2)} | Total loss (G + image): {round(loss_dict["Total loss (G + image)"], 2)} ')
-
         return total_loss, loss_dict
 
     def update_gibbs_temp(self, e): 

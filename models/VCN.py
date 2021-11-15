@@ -29,7 +29,6 @@ class VCN(nn.Module):
 		self.adjacency_lists, self.pres_graph = [], {}
 		self.dag_adj_matrices = []
 		self.dag_graph_log_likelihoods = []
-
 		self.get_all_digraphs()
 
 		if not opt.no_autoreg_base:
@@ -47,9 +46,7 @@ class VCN(nn.Module):
 	def get_all_digraphs(self, only_dags=True):
 		self.directed_graphs, self.dags, self.dag_adj_matrices = [], [], []
 		self.adjacency_lists, self.pres_graph = [], {}
-
-		num_nodes = self.num_nodes
-		all_possible_edges = num_nodes * (num_nodes - 1)
+		all_possible_edges = self.num_nodes * (self.num_nodes - 1)
 
 		for num_edges in range(all_possible_edges+1):
 			adj_list = np.zeros((all_possible_edges), dtype=int).tolist()
@@ -57,20 +54,21 @@ class VCN(nn.Module):
 			self.solve(adj_list.copy(), num_edges, 0, len(adj_list)-1)
 
 		self.adjacency_lists = np.array(self.adjacency_lists)
-		self.directed_adj_matrices = vcn_utils.vec_to_adj_mat_np(self.adjacency_lists, num_nodes)
+		self.directed_adj_matrices = vcn_utils.vec_to_adj_mat_np(self.adjacency_lists, self.num_nodes)
 
-		for matrix_num in range(len(self.directed_adj_matrices)):
+		print(f'Got all ({len(self.directed_adj_matrices)}) DiGraphs for {self.num_nodes} nodes')
+
+		for adj_matrix in self.directed_adj_matrices:
 			DG = nx.DiGraph()
-			DG.add_nodes_from(np.arange(0, num_nodes).tolist())
-			adj_matrix = self.directed_adj_matrices[matrix_num]
+			DG.add_nodes_from(np.arange(0, self.num_nodes).tolist())
 			
-			for i in range(num_nodes):
-				for j in range(num_nodes):
+			for i in range(self.num_nodes):
+				for j in range(self.num_nodes):
 					if adj_matrix[i][j] == 1.:
 						DG.add_edge(i, j)
 			self.directed_graphs.append(DG)
-			is_acyclic = vcn_utils.expm_np(nx.to_numpy_matrix(DG), num_nodes) == 0
-			if is_acyclic:	
+			is_acyclic = vcn_utils.expm_np(nx.to_numpy_matrix(DG), self.num_nodes)
+			if is_acyclic == 0:	
 				self.dags.append(DG)
 				self.dag_adj_matrices.append(torch.from_numpy(adj_matrix).to(self.device))
 
@@ -97,8 +95,6 @@ class VCN(nn.Module):
 			self.gibbs_dist = distributions.GibbsDAGDistributionFull(self.opt.num_nodes, self.opt.gibbs_temp, self.opt.sparsity_factor)
 		else:
 			self.gibbs_dist = distributions.GibbsUniformDAGDistribution(self.opt.num_nodes, self.opt.gibbs_temp, self.opt.sparsity_factor)
-		
-		print("Got Gibbs distribution", self.gibbs_dist)
 
 	def _gibbs_update(self, curr, epoch):
 		if epoch < self.opt.steps*0.05:
@@ -117,22 +113,22 @@ class VCN(nn.Module):
 		print(f'{len(self.dag_adj_matrices)} DAGs found!')
 		nrows, ncols = int(math.ceil(len(self.dag_adj_matrices) / 5.0)), 5
 
-		for graph in self.dag_adj_matrices:
-			graph_log_likelihood = bge_model.log_marginal_likelihood_given_g(w = graph.unsqueeze(0).repeat(n_samples, 1, 1), interv_targets=interv_targets).mean().item()
-			self.dag_graph_log_likelihoods.append(graph_log_likelihood)
-			if graph_log_likelihood > best_ll:
-				best_ll = graph_log_likelihood
+		with torch.no_grad():
+			for graph in self.dag_adj_matrices:
+				graph_log_likelihood = bge_model.log_marginal_likelihood_given_g(w = graph.unsqueeze(0).repeat(n_samples, 1, 1), interv_targets=interv_targets).mean().item()
+				self.dag_graph_log_likelihoods.append(graph_log_likelihood)
+				if graph_log_likelihood > best_ll:
+					best_ll = graph_log_likelihood
 		
 		idxs = np.flip(np.argsort(self.dag_graph_log_likelihoods))
 		fig = plt.figure()
 		fig.set_size_inches(ncols * 4, nrows * 4)
 		count = 0
 		for idx in idxs:
-			
 			graph = self.dags[idx]
 			ax = plt.subplot(nrows, ncols, count+1)
 			count += 1
-			if best_ll == self.dag_graph_log_likelihoods[idx]: color = '#00FF00' # neon green
+			if round(best_ll, 2) == round(self.dag_graph_log_likelihoods[idx], 2): color = '#00FF00' # neon green
 			else: color = '#FFFF00' # yellow
 			nx.draw(graph, with_labels=True, font_weight='bold', node_size=1000, font_size=25, arrowsize=30, node_color=color)
 			ax.set_xticks([])
@@ -141,37 +137,38 @@ class VCN(nn.Module):
 			ax.spines['top'].set_visible(False)
 			ax.spines['left'].set_visible(False)
 			ax.spines['bottom'].set_visible(False)
+			same_graph = (list(graph.edges()) == list(gt_graph.edges()))
 			mec = utils.is_mec(graph, gt_graph)
-			
-			if mec is True: color='red'
+
+			if same_graph is True: color='blue'
+			elif mec is True: color='red'
 			else: color='black'
-			ax.set_title(f'LL: {self.dag_graph_log_likelihoods[idx]:.2f} \n MEC: {mec}', fontsize=23, color=color)
+
+			if same_graph is True: 
+				ax.set_title(f'LL: {self.dag_graph_log_likelihoods[idx]:.2f} \n Ground truth', fontsize=23, color=color)
+			else:
+				ax.set_title(f'LL: {self.dag_graph_log_likelihoods[idx]:.2f} \n MEC: {mec}', fontsize=23, color=color)
 		
 		plt.tight_layout()
-		plt.savefig(dag_file, dpi=40)
+		plt.savefig(dag_file, dpi=50)
 		print( f'Saved enumarate DAG at {dag_file}' )
 		plt.show()
 
 	def forward(self, bge_model, e, gt_graph, interv_targets = None):
-
 		n_samples = self.opt.batch_size
 		if e == 0:
 			self.get_enumerated_dags(n_samples, bge_model, gt_graph, interv_targets)
-
 		# graph_dist is of class AutoregressiveBase()
 		# Use init_input & init_state (learnable params) -> embed, rnn, project to get logits and state 
 		# State used for further RNN iters; logits used to sample from Bernoulli(.)
 		# Return all the saved samples of len T = n*(n-1) where n is number of edges
 		samples = self.graph_dist.sample([n_samples]) # all 0 or 1s after sampling from Bern(.)
-		# print("samples", samples.size())	
 
 		# get init state and input; input -> RNN inputs: values=cat(samples, init_input) and init_state
 		# feed x through Autoregressive base (embed + RNN + project);
 		# get logits and get log_probs of posterior as Bern(logits).log_prob(value)
 		# posterior_log_probs = approx. P(G | D) = q_phi_(G)
 		posterior_log_probs = self.graph_dist.log_prob(samples)
-		# print("posterior lp", posterior_log_probs.shape)
-
 		predicted_G = vcn_utils.vec_to_adj_mat(samples, self.num_nodes)
 		# print()
 
@@ -193,14 +190,15 @@ class VCN(nn.Module):
 		# D_KL = KL (approx posterior || prior)
 		kl_graph = posterior_log_probs - log_prior_graph 
 		# print("kl_graph", kl_graph.size())
-		
 		return log_likelihood, kl_graph, posterior_log_probs
 
 	def get_sampled_graph_frequency_plot(self, bge_model, gt_graph, n_samples=1000, interv_targets = None):
 		log_likelihoods, unique_graph_edge_list, graph_counts, mecs = [], [], [], []
-		samples = self.graph_dist.sample([n_samples])
-		sampled_G_adj_mat = vcn_utils.vec_to_adj_mat(samples, self.num_nodes)
-		log_likelihood = bge_model.log_marginal_likelihood_given_g(w = sampled_G_adj_mat, interv_targets=interv_targets)
+
+		with torch.no_grad():
+			samples = self.graph_dist.sample([n_samples])
+			sampled_G_adj_mat = vcn_utils.vec_to_adj_mat(samples, self.num_nodes)
+			log_likelihood = bge_model.log_marginal_likelihood_given_g(w = sampled_G_adj_mat, interv_targets=interv_targets)
 
 		for adj_mat, ll in zip(sampled_G_adj_mat.cpu().numpy(), log_likelihood):
 			graph_edges = list(nx.from_numpy_matrix(adj_mat).edges())
@@ -238,9 +236,17 @@ class VCN(nn.Module):
 			ax.spines['top'].set_visible(False)
 			ax.spines['left'].set_visible(False)
 			ax.spines['bottom'].set_visible(False)
-			if mecs[idx] is True: color='red'
+
+			same_graph = (list(graph.edges()) == list(gt_graph.edges()))
+			
+			if same_graph is True: color='blue'
+			elif mecs[idx] is True: color='red'
 			else: color='black'
-			ax.set_title(f'Freq: {graph_counts[idx]} | MEC: {mecs[idx]} \n LL: {log_likelihoods[idx]:.2f}', fontsize=23, color=color)
+
+			if same_graph is True:
+				ax.set_title(f'Freq: {graph_counts[idx]} | Ground truth \n LL: {log_likelihoods[idx]:.2f}', fontsize=23, color=color)
+			else:
+				ax.set_title(f'Freq: {graph_counts[idx]} | MEC: {mecs[idx]} \n LL: {log_likelihoods[idx]:.2f}', fontsize=23, color=color)
 		
 		plt.tight_layout()
 		plt.savefig(dag_file, dpi=60)

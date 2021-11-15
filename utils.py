@@ -18,6 +18,9 @@ def set_opts(opt):
     os.makedirs(opt.logdir, exist_ok=True)
     print("logdir:", opt.logdir)
 
+    tb_logdir = set_tb_logdir(opt)
+    os.makedirs(tb_logdir, exist_ok=True)
+
     if opt.dataset == 'clevr':
       opt.data_dir = 'datasets/CLEVR_v1.0/images'
     elif opt.dataset == 'mnist':
@@ -75,6 +78,7 @@ def inf_generator(iterable):
 
 def get_data_dict(opt, dataloader):
   data_dict = dataloader.__next__()
+  
   if opt.model in ['GraphVAE']: 
     res = {"observed_data": data_dict[0]}
     if opt.dataset in ['mnist']:
@@ -82,6 +86,7 @@ def get_data_dict(opt, dataloader):
       res['train_len'] = 60000
       res['test_len'] = 10000
     return res
+  
   return data_dict
 
 def get_dict_template(opt):
@@ -93,8 +98,6 @@ def set_batch_dict(opt, data_dict, batch_dict):
     # Image reconstruction task
     batch_dict["observed_data"] = data_dict["observed_data"]
     batch_dict["data_to_predict"] = data_dict["observed_data"]
-    batch_dict["train_len"] = data_dict["train_len"]
-    batch_dict["test_len"] = data_dict["test_len"]
 
 
   return batch_dict
@@ -142,10 +145,6 @@ def save_model_params(model, optimizer, opt, step, ckpt_save_freq):
       with open(ckpt_filename, 'wb') as handle:
           pickle.dump(model_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
           print(f"Saved model parameters at step {step} -> {ckpt_filename}")
-
-
-
-
 
 def get_grad_norm(model_params):
   total_norm = 0
@@ -206,12 +205,14 @@ def set_tb_logdir(opt):
 
   logdir = os.path.join(opt.logdir, opt.ckpt_id + '_' + str(opt.batch_size) + '_' + str(opt.lr) + '_' + str(opt.steps) + '_' + str(opt.resolution))
 
-  if opt.model in ['VCN']:
-    logdir += '_(' + str(opt.num_nodes) + ')_seed' + str(opt.seed) + '_' + str(opt.data_seed)
+  if opt.model in ['VCN', 'VAEVCN']:
+    logdir += f'_({opt.num_nodes})_seed{opt.seed}_{opt.data_seed}_factorised{opt.factorised}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}'
   elif opt.model in ['VCN_img']:
-    logdir += '_(' + str(opt.num_nodes) + '-' + str(opt.chan_per_node) + ')_seed' + str(opt.seed) + '_' + str(opt.data_seed)
+    logdir += f'_({opt.num_nodes}-{opt.chan_per_node})_seed{opt.seed}_{opt.data_seed}_factorised{opt.factorised}_proj{opt.proj}{opt.proj_dims}'
   elif opt.model in ['Slot_VCN_img']:
-    logdir += '_(' + str(opt.num_nodes) + '-' + str(opt.slot_size) + ')_seed' + str(opt.seed) + '_' + str(opt.data_seed)
+    logdir += f'_({opt.num_nodes}-{opt.slot_size})_seed{opt.seed}_{opt.data_seed}_factorised{opt.factorised}_proj{opt.proj}{opt.proj_dims}'
+  
+  print("logdir:", logdir)
   return logdir
 
 def log_enumerated_dags_to_tb(writer, logdir, opt):
