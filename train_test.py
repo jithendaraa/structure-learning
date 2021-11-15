@@ -161,13 +161,13 @@ def train_graph_vae(opt, loader_objs, model, writer, step, start_time):
 def train_vae_vcn(opt, loader_objs, model, writer, step, start_time):
     bge_model = loader_objs['bge_train']
     model.get_prediction(loader_objs, step)
-    # train_loss, loss_dict, _ = model.get_loss()
-    # if step == 0:   
-    #     logdir = utils.set_tb_logdir(opt)
-    #     utils.log_enumerated_dags_to_tb(writer, logdir, opt)
-    # if step % 100 == 0: 
-    #     tqdm.write(f"[Step {step}/{opt.steps}] | Step loss {train_loss.item():.5f} | Time: {round((time.time() - start_time) / 60, 3)}m")
-    # return train_loss, loss_dict
+    train_loss, total_loss, loss_dict, _ = model.get_loss()
+    if step == 0:   
+        logdir = utils.set_tb_logdir(opt)
+        # utils.log_enumerated_dags_to_tb(writer, logdir, opt)
+    if step % 100 == 0: 
+        tqdm.write(f"[Step {step}/{opt.steps}] | Step loss {total_loss.item():.5f} | Time: {round((time.time() - start_time) / 60, 3)}m")
+    return train_loss, loss_dict
 
 def evaluate_vcn(opt, writer, model, bge_test, step, vae_elbo, device, loss_dict, time_epoch, train_data):
     

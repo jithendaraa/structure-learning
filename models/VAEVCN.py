@@ -18,7 +18,7 @@ class VAEVCN(nn.Module):
         self.gibbs_temp = gibbs_temp_init
         self.d = opt.proj_dims
         self.device = device
-		self.baseline = 0.
+        self.baseline = 0.
 
         # Initialise Autoregresive VCN or factorised VCN
         if not opt.no_autoreg_base:
@@ -82,7 +82,7 @@ class VAEVCN(nn.Module):
         vcn_log_likelihood = bge_model.log_marginal_likelihood_given_g(w = predicted_G, interv_targets=interv_targets)
         
         # Calculate log posterior and log prior for VCN
-        vcn_log_posterior = self.graph_dist.log_prob(samples)
+        self.vcn_log_posterior = self.graph_dist.log_prob(samples)
         dagness = vcn_utils.expm(predicted_G, self.num_nodes)
         vcn_log_prior = - (self.gibbs_temp*dagness + self.sparsity_factor*torch.sum(predicted_G, axis = [-1, -2]))
 
@@ -103,7 +103,7 @@ class VAEVCN(nn.Module):
 
         self.vcn_terms = {
             'll': vcn_log_likelihood,
-            'kl': vcn_log_posterior - vcn_log_prior
+            'kl': self.vcn_log_posterior - vcn_log_prior
         }
 
     def get_prediction(self, loader_objs, step, interv_targets = None):
@@ -111,7 +111,7 @@ class VAEVCN(nn.Module):
         self.inputs = loader_objs['projected_data'].to(self.device)
         self(bge_model, step)
 
-    def loss(self, step):
+    def get_loss(self, step):
         """ VAE VCN can be trained by either opt.opti == 'simult' or 'alt' 
             When set to 'alt', we alternate between taking 1 step to optimize the latent variables z (VAE loss)
             and 1 step to optimize the graph structure G (VCN loss), and iterate in this manner.
@@ -126,16 +126,47 @@ class VAEVCN(nn.Module):
             combined ELBO: - log p(x|z) + D_KL( q(z|x) || p(z|G) ) + D_KL( q_phi(G) || p(G) ) .... (3)
         """
 
-        vcn_elbo_loss = - self.vcn_terms['ll'] + self.vcn_terms['kl']
-        vae_elbo_loss = F.mse_loss(self.x_hat, self.inputs)
+        if self.opt.opti == 'alt':
+            # VCN
+            vcn_elbo_loss = - self.vcn_terms['ll'] + self.vcn_terms['kl']
+            score_val = vcn_elbo_loss.detach()
+            per_sample_elbo = self.vcn_log_posterior * (score_val-self.baseline)
+            vcn_loss = (per_sample_elbo).mean()
+            # VAE
+            mse_loss = F.mse_loss(self.x_hat, self.inputs)
+            vae_kl = torch.distributions.kl_divergence(self.z_posterior, self.z_prior)
+            vae_elbo_loss = mse_loss + vae_kl
 
-        score_val = ( - self.log_likelihood + kl_loss ).detach()
-		per_sample_elbo = self.posterior_log_probs*(score_val-self.baseline)
-		self.baseline = 0.95 * self.baseline + 0.05 * score_val.mean() 
-		loss = (per_sample_elbo).mean()
+            if step % 2 == 0: # calculate vcn loss
+                self.baseline = 0.95 * self.baseline + 0.05 * score_val.mean() 
+                reqd_loss = per_sample_elbo.mean()
+
+            else: # calculate vae loss
+                reqd_loss = vae_elbo_loss.mean()
+        
+        elif self.opt.opti == 'simult':
+            raise NotImplementedError("Simultaneous optimization not implemented yet")
+
+        total_loss = vcn_elbo_loss.mean().item() + vae_elbo_loss.mean().item()
+
+        loss_dict = {
+            'graph_losses/Neg. log likelihood': - self.log_likelihood.mean().item(),
+			'graph_losses/KL loss':	self.vcn_terms['kl'].mean().item(),
+			'graph_losses/Total loss': vcn_elbo_loss.mean().item(),
+			'graph_losses/Per sample loss': per_sample_elbo.mean().item(),
+            'vae_losses/Neg. log likelihood': mse_loss.mean().item(),
+            'vae_losses/KL loss': vae_kl.mean().item(),
+            'vae_losses/Total loss': vae_elbo_loss.mean().item(),
+			'total_losses/Total loss': total_loss,
+        }
 
 
-        pass 
+        return reqd_loss, total_loss, loss_dict
+
+
+
+
+         
 
 class LinearED(nn.Module):
     def __init__(self, in_dims, out_dims, device):
