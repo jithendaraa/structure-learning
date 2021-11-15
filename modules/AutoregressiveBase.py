@@ -22,11 +22,11 @@ class AutoregressiveBase(torch.nn.Module):
         self.proj = torch.nn.Linear(self.hidden_dim, self.n_classes)
         self.embed = torch.nn.Linear(self.n_classes, self.hidden_dim)
 
+        # create variable for the initial input and state of the LSTM
         self.h0 = torch.nn.Parameter(1e-3*torch.randn(1, self.n_layers, self.hidden_dim))
         self.c0 = torch.nn.Parameter(1e-3*torch.randn(1, self.n_layers, self.hidden_dim))
-
-        # create variable for the initial input of the LSTM
         self._init_input_param = torch.nn.Parameter(torch.zeros(1, 1, self.n_classes))
+
 
     def forward(self, inputs, state):
         inputs = self.embed(inputs)

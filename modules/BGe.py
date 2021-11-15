@@ -50,15 +50,14 @@ class BGe(torch.nn.Module):
 
 		self.T = self.small_t * torch.eye(self.d)
 
-		if opt.model in ['VCN']:
+		if opt.model in ['VCN', 'VAEVCN']:
 			if not isinstance(data, torch.DoubleTensor):	data = torch.tensor(data).to(torch.float64)
 			assert data.shape[-1] == self.opt.num_nodes
-			self.N, self.d = data.shape 
+			self.N, _ = data.shape 
 			self.precompute_matrices_numerical(data) 
 
 		elif opt.model in ['VCN_img', 'Slot_VCN_img']:
-			# print("<BGe.py> calculate likelihood P(D | G)")
-			self.N, self.d, self.h, self.w = self.opt.batch_size, self.opt.num_nodes, self.opt.resolution, self.opt.resolution
+			self.N, _, self.h, self.w = self.opt.batch_size, self.opt.num_nodes, self.opt.resolution, self.opt.resolution
 
 	def precompute_matrices_images(self, data):
 		# data is of size: b, num_nodes, chan_per_node, h', w'; h', w' -> resolution after conv encoding input images
@@ -96,6 +95,7 @@ class BGe(torch.nn.Module):
 		x_bar = data.mean(axis=0, keepdims=True)
 		x_center = data - x_bar
 		s_N = torch.matmul(x_center.t(), x_center)  # [d, d]
+
 		gamma_var = torch.matmul((x_bar - self.mean_obs).t(), x_bar - self.mean_obs)
 
 		# Kuipers (2014) states R wrongly in the paper, using alpha_lambd rather than alpha_mu;
