@@ -67,8 +67,10 @@ defaults:
   # For synthetic Erdos-Renyi data
   noise_sigma: 1.0
   noise_type: 'isotropic-gaussian'
-  proj: 'no'   # [False, 'linear', 'nonlinear']
+  proj: 'no'        # [False, 'linear', 'nonlinear']
   proj_dims: 10
+  known_ED: False   # if known_ED is true, projection matrix W is used as decoder W
+  noise_ED: False   # if known_ED and noise_ED is true, encoder and decoder becomes (W+noise) and (W+noise).T
 
   # Graph VAE
   M: 80 # M - total dims per node
@@ -154,11 +156,25 @@ train_vaevcn_linearproj:
   batch_size: 1000
   seed: 10
   data_seed: 1
-  lr: 1e-2
+  lr: 1e-3
   steps: 30000
   model: 'VAEVCN'
   num_nodes: 3
   proj: 'linear'
+
+train_vaevcn_linearproj_knownED:
+  ckpt_id: 'train_vaevcn_linearproj_knownED'
+  dataset: 'er'
+  datatype: 'er'
+  batch_size: 1000
+  seed: 10
+  data_seed: 1
+  lr: 1e-3
+  steps: 30000
+  model: 'VAEVCN'
+  num_nodes: 3
+  proj: 'linear'
+  known_ED: True
 
 # 2c Vanilla VCN: nonlinear projection to higher dims (numerical)
 train_vcn_nonlinearproj:

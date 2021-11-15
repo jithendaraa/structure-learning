@@ -1,7 +1,8 @@
-*__pycache__*
+__pycache__/
 wandb/
 slot_attention/
 *.out
 logs/
 out/
 vcn_pytorch/
+core*

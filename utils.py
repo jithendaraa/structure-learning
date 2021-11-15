@@ -121,7 +121,7 @@ def get_next_batch(data_dict, opt):
 
 # Save model params
 # Save model params every `ckpt_save_freq` steps as model_params_logdir/ID_00000xxxxx.pickle
-def save_model_params(model, optimizer, opt, step, ckpt_save_freq):
+def save_model_params(model, optimizers, opt, step, ckpt_save_freq):
   if step > 0 and ((step+1) % ckpt_save_freq == 0):
       padded_zeros = '0' * (10 - len(str(step)))
       padded_step = padded_zeros + str(step)
@@ -140,17 +140,19 @@ def save_model_params(model, optimizer, opt, step, ckpt_save_freq):
       model_dict = {
           'step': step,
           'state_dict': model.state_dict(),
-          'optimizer': optimizer.state_dict()}
+          'optimizer': [optimizer.state_dict() for optimizer in optimizers]}
 
       with open(ckpt_filename, 'wb') as handle:
           pickle.dump(model_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
           print(f"Saved model parameters at step {step} -> {ckpt_filename}")
 
-def get_grad_norm(model_params):
+def get_grad_norm(model_params, alt=False):
   total_norm = 0
   for p in model_params:
-      param_norm = p.grad.detach().data.norm(2)
-      total_norm += param_norm.item() ** 2
+    if alt is False and p.grad is None:
+      raise NotImplementedError("")
+    param_norm = p.grad.detach().data.norm(2)
+    total_norm += param_norm.item() ** 2
   total_norm = total_norm ** 0.5
   return total_norm
 
@@ -222,6 +224,7 @@ def log_enumerated_dags_to_tb(writer, logdir, opt):
     raise NotImplemented('Not implemented yet')
   enumerated_dag = np.asarray(imageio.imread(dag_file))
   writer.add_image('graph_structure(GT-pred)/All DAGs', enumerated_dag, 0, dataformats='HWC')
+
 
 def is_mec(g1, g2):
   """

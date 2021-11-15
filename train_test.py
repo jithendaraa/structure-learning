@@ -1,3 +1,4 @@
+import enum
 import torch
 import torch.optim as optim
 import torch.nn as nn
@@ -15,11 +16,15 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 import vcn_utils
 
+def set_optimizers(model, opt):
+    if opt.opti == 'alt': 
+        return [optim.Adam(model.vcn_params, lr=1e-2), optim.Adam(model.vae_params, lr=opt.lr)]
+    
+    return [optim.Adam(model.parameters(), lr=opt.lr)]
 
 def train_model(model, loader_objs, exp_config_dict, opt, device):
     pred_gt, time_epoch, likelihood, kl_graph, elbo_train, vae_elbo = None, [], [], [], [], []
-
-    optimizer = optim.Adam(model.parameters(), lr=opt.lr)
+    optimizers = set_optimizers(model, opt)
     logdir = utils.set_tb_logdir(opt)
     writer = SummaryWriter(logdir)
     
@@ -35,7 +40,7 @@ def train_model(model, loader_objs, exp_config_dict, opt, device):
     
     for step in tqdm(range(opt.steps)):
         start_step_time = time.time()
-        pred, gt, loss, loss_dict, media_dict = train_batch(model, loader_objs, optimizer, opt, writer, step, start_time)
+        pred, gt, loss, loss_dict, media_dict = train_batch(model, loader_objs, optimizers, opt, writer, step, start_time)
         time_epoch.append(time.time() - start_step_time)
 
         if opt.model in ['SlotAttention_img', 'VCN_img', 'Slot_VCN_img', 'GraphVAE']:
@@ -48,7 +53,7 @@ def train_model(model, loader_objs, exp_config_dict, opt, device):
         # logging to tensorboard and wandb
         utils.log_to_tb(opt, writer, loss_dict, step, pred_gt)
         utils.log_to_wandb(opt, step, loss_dict, media_dict, pred_gt)
-        utils.save_model_params(model, optimizer, opt, step, opt.ckpt_save_freq) # Save model params
+        utils.save_model_params(model, optimizers, opt, step, opt.ckpt_save_freq) # Save model params
 
     if opt.model in ['Slot_VCN_img']:
         utils.log_enumerated_dags_to_tb(writer, logdir, opt)
@@ -69,10 +74,12 @@ def train_model(model, loader_objs, exp_config_dict, opt, device):
     writer.close()
 
 
-def train_batch(model, loader_objs, optimizer, opt, writer, step, start_time):
+def train_batch(model, loader_objs, optimizers, opt, writer, step, start_time):
     loss_dict, media_dict = {}, {}
     prediction, gt = None, None
-    optimizer.zero_grad()
+    
+    # Zero out gradients
+    for optimizer in optimizers: optimizer.zero_grad()
     model.train()
 
     if opt.model in ['SlotAttention_img', 'Slot_VCN_img']: 
@@ -92,8 +99,19 @@ def train_batch(model, loader_objs, optimizer, opt, writer, step, start_time):
 
     if opt.clip != -1:  torch.nn.utils.clip_grad_norm_(model.parameters(), float(opt.clip))
     train_loss.backward()
-    optimizer.step()
-    grad_norm = utils.get_grad_norm(model.parameters())
+
+    if opt.opti == 'alt':
+        assert len(optimizers) == 2
+        if (step % 2 == 0): 
+            optimizers[0].step()
+        else: 
+            optimizers[1].step()
+    else:
+        # In this case we always have only one optimizer
+        assert len(optimizers) == 1
+        optimizers[0].step()
+
+    grad_norm = utils.get_grad_norm(model.parameters(), opt.opti == 'alt')
     loss_dict['Gradient Norm'] = grad_norm
     return prediction, gt, train_loss, loss_dict, media_dict
 
@@ -161,12 +179,12 @@ def train_graph_vae(opt, loader_objs, model, writer, step, start_time):
 def train_vae_vcn(opt, loader_objs, model, writer, step, start_time):
     bge_model = loader_objs['bge_train']
     model.get_prediction(loader_objs, step)
-    train_loss, total_loss, loss_dict, _ = model.get_loss()
+    train_loss, total_loss, loss_dict = model.get_loss(step)
     if step == 0:   
         logdir = utils.set_tb_logdir(opt)
         # utils.log_enumerated_dags_to_tb(writer, logdir, opt)
     if step % 100 == 0: 
-        tqdm.write(f"[Step {step}/{opt.steps}] | Step loss {total_loss.item():.5f} | Time: {round((time.time() - start_time) / 60, 3)}m")
+        tqdm.write(f"[Step {step}/{opt.steps}] | Step loss {total_loss:.5f} | Time: {round((time.time() - start_time) / 60, 3)}m")
     return train_loss, loss_dict
 
 def evaluate_vcn(opt, writer, model, bge_test, step, vae_elbo, device, loss_dict, time_epoch, train_data):

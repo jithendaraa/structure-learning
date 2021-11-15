@@ -11,7 +11,7 @@ import networkx as nx
 
 class VAEVCN(nn.Module):
     def __init__(self, opt, num_nodes, sparsity_factor, gibbs_temp_init=10., device=None):
-        super().__init__()
+        super(VAEVCN, self).__init__()
         self.opt = opt
         self.num_nodes = num_nodes
         self.sparsity_factor = sparsity_factor
@@ -19,6 +19,9 @@ class VAEVCN(nn.Module):
         self.d = opt.proj_dims
         self.device = device
         self.baseline = 0.
+
+        self.vae_params = []
+        self.vcn_params = []
 
         # Initialise Autoregresive VCN or factorised VCN
         if not opt.no_autoreg_base:
@@ -31,23 +34,32 @@ class VAEVCN(nn.Module):
         self.build_encoder_decoder()
 
         # Learnable params for the gaussian prior on z
-        self.prior_mean = torch.nn.Parameter(torch.randn(self.opt.num_samples, num_nodes), requires_grad=True)
-        self.prior_logvar = torch.nn.Parameter(torch.randn(self.opt.num_samples, num_nodes), requires_grad=True)
+        self.prior_params = nn.ParameterList(
+            [ nn.Parameter( torch.randn((self.opt.num_samples, num_nodes)), requires_grad=True) ,
+              nn.Parameter( torch.randn((self.opt.num_samples, num_nodes)), requires_grad=True)]
+        ).to(device)
 
         # Nets to predict Gaussian params of the approximate posterior q(z|x) 
         self.mean_net = nn.Sequential(nn.Linear(num_nodes, num_nodes)).to(device)
         self.logvar_net = nn.Sequential(nn.Linear(num_nodes, num_nodes)).to(device)
 
+        self.vae_params += list(self.prior_params.parameters())
+        self.vae_params += list(self.mean_net.parameters())
+        self.vae_params += list(self.logvar_net.parameters())
+        self.vcn_params += list(self.graph_dist.parameters())
+
         if self.opt.anneal:	self.gibbs_update = self._gibbs_update
         else:				self.gibbs_update = None
         self.init_gibbs_dist()
-
         print(f'Initialised VAEVCN with data projected from {opt.num_nodes} dims to {opt.proj_dims} dims')
 
     def build_encoder_decoder(self):
         if self.opt.proj in ['linear']:
             self.encoder = LinearED(self.d, self.opt.num_nodes, self.device)
-            self.decoder = LinearED(self.opt.num_nodes, self.d, self.device)
+            self.vae_params += list(self.encoder.parameters())
+            if self.opt.known_ED is False:
+                self.decoder = LinearED(self.opt.num_nodes, self.d, self.device)
+                self.vae_params += list(self.decoder.parameters())
 
     def init_gibbs_dist(self):
         if self.opt.num_nodes <= 4:
@@ -87,7 +99,8 @@ class VAEVCN(nn.Module):
         vcn_log_prior = - (self.gibbs_temp*dagness + self.sparsity_factor*torch.sum(predicted_G, axis = [-1, -2]))
 
         # TODO get log prior
-        self.z_prior = torch.distributions.normal.Normal(self.prior_mean, torch.exp(0.5 * self.prior_logvar))
+        self.z_prior = torch.distributions.normal.Normal(self.prior_params[0], torch.exp(0.5 * self.prior_params[1]))
+        self.prior_sample = self.z_prior.rsample()
 
         # Sample z1...zN from posterior_zn_mean and posterior_zn_std
         z_mu_posterior, z_std_posterior  = self.mean_net(z), torch.exp(0.5 * self.logvar_net(z))
@@ -96,18 +109,16 @@ class VAEVCN(nn.Module):
         self.z_posterior = torch.distributions.normal.Normal(z_mu_posterior, z_std_posterior)
         
         # TODO FIX: zi should be function of parents, G, and mu_zi, std_zi. The next line will treat the latent vars z as if they were not connected. This not right, just writing this to run VAEVCN
-        z_sample = self.z_posterior.rsample()
-        self.x_hat = self.decoder(z_sample)
+        self.z_sample = self.z_posterior.rsample()
+        if self.opt.known_ED is False: self.x_hat = self.decoder(self.z_sample)
+        else: self.x_hat = torch.matmul(z, self.projection_matrix)
 
+        self.vcn_terms = { 'll': vcn_log_likelihood, 'kl': self.vcn_log_posterior - vcn_log_prior }
         self.update_gibbs_temp(step)
-
-        self.vcn_terms = {
-            'll': vcn_log_likelihood,
-            'kl': self.vcn_log_posterior - vcn_log_prior
-        }
 
     def get_prediction(self, loader_objs, step, interv_targets = None):
         bge_model = loader_objs['bge_train']
+        self.projection_matrix = loader_objs['projection_matrix'].to(self.device)
         self.inputs = loader_objs['projected_data'].to(self.device)
         self(bge_model, step)
 
@@ -132,25 +143,22 @@ class VAEVCN(nn.Module):
             score_val = vcn_elbo_loss.detach()
             per_sample_elbo = self.vcn_log_posterior * (score_val-self.baseline)
             vcn_loss = (per_sample_elbo).mean()
+            
             # VAE
             mse_loss = F.mse_loss(self.x_hat, self.inputs)
-            vae_kl = torch.distributions.kl_divergence(self.z_posterior, self.z_prior)
-            vae_elbo_loss = mse_loss + vae_kl
+            vae_kl = F.kl_div(self.z_posterior.log_prob(self.z_sample), self.z_prior.log_prob(self.prior_sample), log_target=True)
+            vae_elbo_loss = (mse_loss + vae_kl).mean()
 
-            if step % 2 == 0: # calculate vcn loss
-                self.baseline = 0.95 * self.baseline + 0.05 * score_val.mean() 
-                reqd_loss = per_sample_elbo.mean()
-
-            else: # calculate vae loss
-                reqd_loss = vae_elbo_loss.mean()
-        
+            if step % 2 == 0:   self.baseline = 0.95 * self.baseline + 0.05 * score_val.mean() 
+            reqd_loss = int(step % 2 == 0) * vcn_loss + int(step % 2 == 1) * vae_elbo_loss
+            
         elif self.opt.opti == 'simult':
             raise NotImplementedError("Simultaneous optimization not implemented yet")
 
         total_loss = vcn_elbo_loss.mean().item() + vae_elbo_loss.mean().item()
 
         loss_dict = {
-            'graph_losses/Neg. log likelihood': - self.log_likelihood.mean().item(),
+            'graph_losses/Neg. log likelihood': self.vcn_terms['ll'].mean().item(),
 			'graph_losses/KL loss':	self.vcn_terms['kl'].mean().item(),
 			'graph_losses/Total loss': vcn_elbo_loss.mean().item(),
 			'graph_losses/Per sample loss': per_sample_elbo.mean().item(),
@@ -160,20 +168,18 @@ class VAEVCN(nn.Module):
 			'total_losses/Total loss': total_loss,
         }
 
-
         return reqd_loss, total_loss, loss_dict
 
 
 
 
          
-
 class LinearED(nn.Module):
     def __init__(self, in_dims, out_dims, device):
         super(LinearED, self).__init__()
 
         self.layers = nn.Sequential(
-            nn.Linear(in_dims, 10), nn.Linear(10, out_dims)
+            nn.Linear(in_dims, out_dims),
         ).to(device)
     
     def forward(self, x):
