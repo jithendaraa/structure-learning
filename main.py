@@ -10,7 +10,6 @@ import utils
 from dataloader import *
 
 
-
 def get_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--configs', nargs='+', required=True)
@@ -42,7 +41,7 @@ def get_opt():
 
 def build_model(opt, device):
   resolution = (opt.resolution, opt.resolution) 
-  implemented_models = ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img', 'GraphVAE']
+  implemented_models = ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img', 'GraphVAE', 'VAEVCN']
   
   if opt.model in ['SlotAttention_img']:
     from models.SlotAttentionAutoEncoder import SlotAttentionAutoEncoder as Slot_Attention
@@ -57,8 +56,7 @@ def build_model(opt, device):
       from models.VCN_image import VCN_img as VCN
       model = VCN(opt, resolution, opt.num_slots, opt.num_iterations, opt.sparsity_factor, opt.gibbs_temp, device)
     
-    elif opt.datatype in ['video']: 
-      pass
+    elif opt.datatype in ['video']: pass
 
   elif opt.model in ['Slot_VCN_img']:
     from models.Slot_VCN_img import Slot_VCN_img
@@ -67,6 +65,10 @@ def build_model(opt, device):
   elif opt.model in ['GraphVAE']:
     from models.GraphVAE import GraphVAE
     model = GraphVAE(opt, opt.N, opt.M, device)
+  
+  elif opt.model in ['VAEVCN']:
+    from models.VAEVCN import VAEVCN
+    model = VAEVCN(opt, opt.num_nodes, opt.sparsity_factor, opt.gibbs_temp, device)
   
   else: 
     raise NotImplementedError(f'Model {opt.model} is not implemented. Try one of {implemented_models}')

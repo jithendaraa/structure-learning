@@ -22,12 +22,7 @@ def train_model(model, loader_objs, exp_config_dict, opt, device):
     optimizer = optim.Adam(model.parameters(), lr=opt.lr)
     logdir = utils.set_tb_logdir(opt)
     writer = SummaryWriter(logdir)
-
-    if opt.model in ['VCN']:
-        gt_graph = loader_objs['train_dataloader'].graph
-        gt_graph_image = np.asarray(imageio.imread(join(logdir, 'gt_graph.png')))
-        writer.add_image('graph_structure(GT-pred)/Ground truth', gt_graph_image, 0, dataformats='HWC')
-
+    
     if opt.offline_wandb is True: os.system('wandb offline')
     else:   os.system('wandb online')
 
@@ -48,14 +43,24 @@ def train_model(model, loader_objs, exp_config_dict, opt, device):
             pred_gt = np.moveaxis(pred_gt, -3, -1)
         
         elif opt.model in ['VCN']:
-            vae_elbo = evaluate_vcn(opt, writer, model, loader_objs['bge_train'], step, vae_elbo, device, loss_dict, time_epoch, loader_objs['train_dataloader'])
+            vae_elbo = evaluate_vcn(opt, writer, model, loader_objs['bge_train'], step+1, vae_elbo, device, loss_dict, time_epoch, loader_objs['train_dataloader'])
 
         # logging to tensorboard and wandb
         utils.log_to_tb(opt, writer, loss_dict, step, pred_gt)
         utils.log_to_wandb(opt, step, loss_dict, media_dict, pred_gt)
         utils.save_model_params(model, optimizer, opt, step, opt.ckpt_save_freq) # Save model params
 
-    if opt.model in ['VCN']:
+    if opt.model in ['Slot_VCN_img']:
+        utils.log_enumerated_dags_to_tb(writer, logdir, opt)
+
+    elif opt.model in ['VCN']:
+        # Log ground truth graph, enumerated DAGs and posterior sampled graphs
+        gt_graph = loader_objs['train_dataloader'].graph
+        gt_graph_image = np.asarray(imageio.imread(join(logdir, 'gt_graph.png')))
+        writer.add_image('graph_structure(GT-pred)/Ground truth', gt_graph_image, 0, dataformats='HWC')
+        
+        utils.log_enumerated_dags_to_tb(writer, logdir, opt)
+
         dag_file = model.get_sampled_graph_frequency_plot(loader_objs['bge_train'], gt_graph, 1000, None)
         sampled_graph = np.asarray(imageio.imread(dag_file))
         writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, 0, dataformats='HWC')
@@ -71,7 +76,7 @@ def train_batch(model, loader_objs, optimizer, opt, writer, step, start_time):
     model.train()
 
     if opt.model in ['SlotAttention_img', 'Slot_VCN_img']: 
-        prediction, gt, train_loss, loss_dict, media_dict = train_slot(opt, loader_objs, model, writer, step)
+        train_loss, loss_dict, prediction, gt, media_dict = train_slot(opt, loader_objs, model, writer, step, start_time)
 
     elif opt.model in ['VCN']: 
         train_loss, loss_dict = train_vcn(opt, loader_objs, model, writer, step, start_time)
@@ -79,8 +84,11 @@ def train_batch(model, loader_objs, optimizer, opt, writer, step, start_time):
     elif opt.model in ['VCN_img']:
         prediction, gt, train_loss, loss_dict = train_image_vcn(opt, loader_objs, model, writer, step)
 
-    if opt.model in ['GraphVAE']:
+    elif opt.model in ['GraphVAE']:
         prediction, gt, train_loss, loss_dict = train_graph_vae(opt, loader_objs, model, writer, step, start_time)
+
+    elif opt.model in ['VAEVCN']:
+        train_loss, loss_dict = train_vae_vcn(opt, loader_objs, model, writer, step, start_time)
 
     if opt.clip != -1:  torch.nn.utils.clip_grad_norm_(model.parameters(), float(opt.clip))
     train_loss.backward()
@@ -150,6 +158,16 @@ def train_graph_vae(opt, loader_objs, model, writer, step, start_time):
     tqdm.write(f"[Step {step}/{opt.steps}] | Step loss {round(train_loss.item(), 5)} | Time: {round((time.time() - start_time) / 60, 3)}m")
     return prediction, gt, train_loss, loss_dict
 
+def train_vae_vcn(opt, loader_objs, model, writer, step, start_time):
+    bge_model = loader_objs['bge_train']
+    model.get_prediction(loader_objs, step)
+    # train_loss, loss_dict, _ = model.get_loss()
+    # if step == 0:   
+    #     logdir = utils.set_tb_logdir(opt)
+    #     utils.log_enumerated_dags_to_tb(writer, logdir, opt)
+    # if step % 100 == 0: 
+    #     tqdm.write(f"[Step {step}/{opt.steps}] | Step loss {train_loss.item():.5f} | Time: {round((time.time() - start_time) / 60, 3)}m")
+    # return train_loss, loss_dict
 
 def evaluate_vcn(opt, writer, model, bge_test, step, vae_elbo, device, loss_dict, time_epoch, train_data):
     
@@ -179,9 +197,6 @@ def evaluate_vcn(opt, writer, model, bge_test, step, vae_elbo, device, loss_dict
         if opt.num_nodes <= 4:
             kl_full, hellinger_full = vcn_utils.full_kl_and_hellinger(model, bge_test, model.gibbs_dist, device)
             writer.add_scalar('Evaluations/Hellinger Full', hellinger_full, step)
-
-            print("kl_full", kl_full)
-            print("hellinger_full", hellinger_full)   
         else:
             auroc_score = vcn_utils.auroc(model, train_data.adjacency_matrix)
             writer.add_scalar('Evaluations/AUROC', auroc_score, step)
@@ -193,6 +208,7 @@ def evaluate_vcn(opt, writer, model, bge_test, step, vae_elbo, device, loss_dict
         print('Exp SHD:', shd,  'Exp Precision:', prc, 'Exp Recall:', rec, \
             'Kl_full:', kl_full, 'hellinger_full:', hellinger_full,\
         'auroc:', auroc_score)
+        print()
 
     return vae_elbo
 
