@@ -90,11 +90,11 @@ def get_data_dict(opt, dataloader):
   return data_dict
 
 def get_dict_template(opt):
-  if opt.model in ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img', 'GraphVAE']:
+  if opt.model in ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img', 'GraphVAE', 'DIBS']:
     return {"observed_data": None, 'train_len': None, 'test_len': None}
 
 def set_batch_dict(opt, data_dict, batch_dict):
-  if opt.model in ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img', 'GraphVAE']:
+  if opt.model in ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img', 'GraphVAE', 'DIBS']:
     # Image reconstruction task
     batch_dict["observed_data"] = data_dict["observed_data"]
     batch_dict["data_to_predict"] = data_dict["observed_data"]
@@ -208,12 +208,14 @@ def set_tb_logdir(opt):
   logdir = os.path.join(opt.logdir, opt.ckpt_id + '_' + str(opt.batch_size) + '_' + str(opt.lr) + '_' + str(opt.steps) + '_' + str(opt.resolution))
 
   if opt.model in ['VCN', 'VAEVCN']:
-    logdir += f'_({opt.num_nodes})_seed{opt.seed}_{opt.data_seed}_factorised{opt.factorised}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}'
+    logdir += f'_({opt.num_nodes})_seed{opt.seed}_{opt.data_seed}_factorised{opt.factorised}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}'
   elif opt.model in ['VCN_img']:
-    logdir += f'_({opt.num_nodes}-{opt.chan_per_node})_seed{opt.seed}_{opt.data_seed}_factorised{opt.factorised}_proj{opt.proj}{opt.proj_dims}'
+    logdir += f'_({opt.num_nodes}-{opt.chan_per_node})_seed{opt.seed}_{opt.data_seed}_factorised{opt.factorised}_proj{opt.proj}{opt.proj_dims}_expedges{opt.exp_edges}'
   elif opt.model in ['Slot_VCN_img']:
-    logdir += f'_({opt.num_nodes}-{opt.slot_size})_seed{opt.seed}_{opt.data_seed}_factorised{opt.factorised}_proj{opt.proj}{opt.proj_dims}'
-  
+    logdir += f'_({opt.num_nodes}-{opt.slot_size})_seed{opt.seed}_{opt.data_seed}_factorised{opt.factorised}_proj{opt.proj}{opt.proj_dims}_expedges{opt.exp_edges}'
+  elif opt.model in ['DIBS']:
+    logdir += f'_({opt.num_nodes})_seed{opt.seed}_{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}'
+
   print("logdir:", logdir)
   return logdir
 

@@ -21,21 +21,15 @@ class CLEVR(Dataset):
         param num_objects: a list of number of possible objects.
         '''
         super(CLEVR, self).__init__()
-
         self.root = root
         self.opt = opt
         self.is_train = is_train
         self.device = device
         self.channels = ch
         self.file_prefix = 'CLEVR_train_'
-
         self.files = os.listdir(self.root)
         random.shuffle(self.files)
-
         self.length = len(os.listdir(root))
-
-        # if opt.datatype in ['image'] and opt.model in ['VCN']:
-        #     self.samples
 
     def get_resized_torch_image(self, file_path, resolution):
         resolution = (resolution, resolution)
@@ -104,7 +98,7 @@ def parse_datasets(opt, device):
     else:
         raise NotImplementedError(f"There is no dataset named {opt.dataset}")
 
-    if opt.model in ['VCN', 'VCN_img', 'Slot_VCN_img', 'VAEVCN']:
+    if opt.model in ['VCN', 'VCN_img', 'Slot_VCN_img', 'VAEVCN', 'DIBS']:
         if data is None:    data = train_dataloader.samples
         print(data.shape)
 
@@ -116,11 +110,14 @@ def parse_datasets(opt, device):
                         device = device)
         
         data_objects["bge_train"] = bge_train
+        data_objects['data'] = data
+        data_objects['adj_matrix'] = train_dataloader.adjacency_matrix
+
         if opt.proj in ['linear', 'nonlinear']:
             data_objects['projected_data'] = train_dataloader.projected_samples
             data_objects['projection_matrix'] = train_dataloader.projection_matrix
 
-
+    
 
     print(f"Loaded dataset {opt.dataset}")
     print()

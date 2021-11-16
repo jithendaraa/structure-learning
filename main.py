@@ -40,8 +40,9 @@ def get_opt():
     return opt, exp_config
 
 def build_model(opt, device):
+  key = None
   resolution = (opt.resolution, opt.resolution) 
-  implemented_models = ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img', 'GraphVAE', 'VAEVCN']
+  implemented_models = ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img', 'GraphVAE', 'VAEVCN', 'DIBS']
   
   if opt.model in ['SlotAttention_img']:
     from models.SlotAttentionAutoEncoder import SlotAttentionAutoEncoder as Slot_Attention
@@ -69,20 +70,31 @@ def build_model(opt, device):
   elif opt.model in ['VAEVCN']:
     from models.VAEVCN import VAEVCN
     model = VAEVCN(opt, opt.num_nodes, opt.sparsity_factor, opt.gibbs_temp, device)
+
+  elif opt.model in ['DIBS']:
+    from jax import random
+    from models.dibs.eval.target import make_linear_gaussian_equivalent_model
+
+    key = random.PRNGKey(123)
+    target = make_linear_gaussian_equivalent_model(key =  key, n_vars = opt.num_nodes, graph_prior_str = opt.datatype,
+		                                              obs_noise = opt.noise_sigma, mean_edge = opt.theta_mu, sig_edge = opt.theta_sigma, 
+                                                  n_observations = opt.num_samples, n_ho_observations = opt.num_samples)
+
+    model = target
   
   else: 
     raise NotImplementedError(f'Model {opt.model} is not implemented. Try one of {implemented_models}')
 
-  return model
+  return model, key
     
 
 def main(opt, exp_config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = build_model(opt, device)
+    model, key = build_model(opt, device)
 
     # Dataloader
     loader_objs = parse_datasets(opt, device)
-    train_model(model, loader_objs, exp_config, opt, device)
+    train_model(model, loader_objs, exp_config, opt, device, key)
 
 if __name__ == '__main__':
     opt, exp_config = get_opt()

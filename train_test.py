@@ -1,4 +1,5 @@
 import enum
+from networkx.linalg.graphmatrix import adjacency_matrix
 import torch
 import torch.optim as optim
 import torch.nn as nn
@@ -19,10 +20,61 @@ import vcn_utils
 def set_optimizers(model, opt):
     if opt.opti == 'alt': 
         return [optim.Adam(model.vcn_params, lr=1e-2), optim.Adam(model.vae_params, lr=opt.lr)]
-    
     return [optim.Adam(model.parameters(), lr=opt.lr)]
 
-def train_model(model, loader_objs, exp_config_dict, opt, device):
+def train_dibs(target, loader_objs, opt, key):
+    import jax.numpy as jnp
+    from jax import vmap, random
+    from models.dibs.kernel import FrobeniusSquaredExponentialKernel
+    from models.dibs.inference import MarginalDiBS
+    from models.dibs.eval.metrics import expected_shd
+    from models.dibs.utils.func import particle_marginal_empirical, particle_marginal_mixture
+
+    model = target.inference_model
+    data = loader_objs['data'] 
+    adjacency_matrix = loader_objs['adj_matrix']
+
+    x = jnp.array(data) 
+    no_interv_targets = jnp.zeros(opt.num_nodes).astype(bool) # observational data
+
+    def log_prior(single_w_prob):
+        """log p(G) using edge probabilities as G"""    
+        return target.graph_model.unnormalized_log_prob_soft(soft_g=single_w_prob)
+
+    def log_likelihood(single_w):
+        log_lik = model.log_marginal_likelihood_given_g(w=single_w, data=x, interv_targets=no_interv_targets)
+        return log_lik
+
+    eltwise_log_prob = vmap(lambda g: log_likelihood(g), 0, 0)	
+    # ? SVGD + DiBS hyperparams
+    n_particles, n_steps = 20, opt.num_updates
+    
+	# ? initialize kernel and algorithm
+    kernel = FrobeniusSquaredExponentialKernel(h=opt.h_latent)
+    dibs = MarginalDiBS(kernel=kernel, target_log_prior=log_prior, target_log_marginal_prob=log_likelihood, alpha_linear=opt.alpha_linear)
+		
+	# ? initialize particles
+    key, subk = random.split(key)
+    init_particles_z = dibs.sample_initial_random_particles(key=subk, n_particles=n_particles, n_vars=opt.num_nodes)
+
+    key, subk = random.split(key)
+    particles_z = dibs.sample_particles(key=subk, n_steps=n_steps, init_particles_z=init_particles_z)
+    particles_g = dibs.particle_to_g_lim(particles_z)
+    print("particles_g:", particles_g, particles_g.shape)
+    dibs_empirical = particle_marginal_empirical(particles_g)
+    dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
+    eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
+    eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
+    print("ESHD (empirical):", eshd_e)
+    print("ESHD (marginal):", eshd_m)
+
+
+def train_model(model, loader_objs, exp_config_dict, opt, device, key=None):
+    # * DIBS, or a variant thereof, uses jax so train those in a separate function. This function trains only torch models
+    if opt.model in ['DIBS']: 
+        train_dibs(model, loader_objs, opt, key)
+        return
+
     pred_gt, time_epoch, likelihood, kl_graph, elbo_train, vae_elbo = None, [], [], [], [], []
     optimizers = set_optimizers(model, opt)
     logdir = utils.set_tb_logdir(opt)
@@ -37,7 +89,6 @@ def train_model(model, loader_objs, exp_config_dict, opt, device):
         wandb.watch(model)
 
     start_time = time.time()
-    
     for step in tqdm(range(opt.steps)):
         start_step_time = time.time()
         pred, gt, loss, loss_dict, media_dict = train_batch(model, loader_objs, optimizers, opt, writer, step, start_time)
@@ -140,7 +191,7 @@ def train_slot(opt, loader_objs, model, writer, step, start_time):
     tqdm.write(f"[Step {step}/{opt.steps}] | Step loss {round(train_loss.item(), 5)} | Time: {round((time.time() - start_time) / 60, 3)}m")
     return train_loss, loss_dict, prediction, gt, media_dict
 
-# Vanilla VCN
+# Train and evaluate Vanilla VCN
 def train_vcn(opt, loader_objs, model, writer, step, start_time):
     bge_model = loader_objs['bge_train']
     model.get_prediction(bge_model, step, loader_objs['train_dataloader'].graph)
@@ -152,43 +203,7 @@ def train_vcn(opt, loader_objs, model, writer, step, start_time):
         tqdm.write(f"[Step {step}/{opt.steps}] | Step loss {train_loss.item():.5f} | Time: {round((time.time() - start_time) / 60, 3)}m")
     return train_loss, loss_dict
 
-# Image-VCN
-def train_image_vcn(opt, loader_objs, model, writer, step, start_time):
-    bge_model = loader_objs['bge_train']
-    data_dict = utils.get_data_dict(opt, loader_objs['train_dataloader'])
-    batch_dict = utils.get_next_batch(data_dict, opt)
-    enc_inp, prediction = model.get_prediction(batch_dict, bge_model, step)
-    utils.log_encodings_per_node_to_tb(opt, writer, enc_inp, step)  # enc_inp has shape [num_nodes, chan_per_nodes, h, w]
-    train_loss, loss_dict, _ = model.get_loss()
-    gt = ((model.ground_truth + 1)/2) * 255.0
-    
-    tqdm.write(f"[Step {step}/{opt.steps}] | Step loss {round(train_loss.item(), 5)} | Time: {round((time.time() - start_time) / 60, 3)}m")
-    return prediction, gt, train_loss, loss_dict
-        
-# Graph VAE
-def train_graph_vae(opt, loader_objs, model, writer, step, start_time):
-    data_dict = utils.get_data_dict(opt, loader_objs['train_dataloader'])
-    batch_dict = utils.get_next_batch(data_dict, opt)
-    prediction = model.get_prediction(batch_dict, step)
-    train_loss, loss_dict = model.get_loss(step)
-    gt = ((model.ground_truth + 1)/2) * 255.0
-
-    tqdm.write(f"[Step {step}/{opt.steps}] | Step loss {round(train_loss.item(), 5)} | Time: {round((time.time() - start_time) / 60, 3)}m")
-    return prediction, gt, train_loss, loss_dict
-
-def train_vae_vcn(opt, loader_objs, model, writer, step, start_time):
-    bge_model = loader_objs['bge_train']
-    model.get_prediction(loader_objs, step)
-    train_loss, total_loss, loss_dict = model.get_loss(step)
-    if step == 0:   
-        logdir = utils.set_tb_logdir(opt)
-        # utils.log_enumerated_dags_to_tb(writer, logdir, opt)
-    if step % 100 == 0: 
-        tqdm.write(f"[Step {step}/{opt.steps}] | Step loss {total_loss:.5f} | Time: {round((time.time() - start_time) / 60, 3)}m")
-    return train_loss, loss_dict
-
 def evaluate_vcn(opt, writer, model, bge_test, step, vae_elbo, device, loss_dict, time_epoch, train_data):
-    
     gt_graph = train_data.graph
     model.eval()
     with torch.no_grad():
@@ -231,3 +246,42 @@ def evaluate_vcn(opt, writer, model, bge_test, step, vae_elbo, device, loss_dict
     return vae_elbo
 
         
+
+# Image-VCN
+def train_image_vcn(opt, loader_objs, model, writer, step, start_time):
+    bge_model = loader_objs['bge_train']
+    data_dict = utils.get_data_dict(opt, loader_objs['train_dataloader'])
+    batch_dict = utils.get_next_batch(data_dict, opt)
+    enc_inp, prediction = model.get_prediction(batch_dict, bge_model, step)
+    utils.log_encodings_per_node_to_tb(opt, writer, enc_inp, step)  # enc_inp has shape [num_nodes, chan_per_nodes, h, w]
+    train_loss, loss_dict, _ = model.get_loss()
+    gt = ((model.ground_truth + 1)/2) * 255.0
+    
+    tqdm.write(f"[Step {step}/{opt.steps}] | Step loss {round(train_loss.item(), 5)} | Time: {round((time.time() - start_time) / 60, 3)}m")
+    return prediction, gt, train_loss, loss_dict
+        
+# Graph VAE
+def train_graph_vae(opt, loader_objs, model, writer, step, start_time):
+    data_dict = utils.get_data_dict(opt, loader_objs['train_dataloader'])
+    batch_dict = utils.get_next_batch(data_dict, opt)
+    prediction = model.get_prediction(batch_dict, step)
+    train_loss, loss_dict = model.get_loss(step)
+    gt = ((model.ground_truth + 1)/2) * 255.0
+
+    tqdm.write(f"[Step {step}/{opt.steps}] | Step loss {round(train_loss.item(), 5)} | Time: {round((time.time() - start_time) / 60, 3)}m")
+    return prediction, gt, train_loss, loss_dict
+
+# VAE VCN
+def train_vae_vcn(opt, loader_objs, model, writer, step, start_time):
+    bge_model = loader_objs['bge_train']
+    model.get_prediction(loader_objs, step)
+    train_loss, total_loss, loss_dict = model.get_loss(step)
+    if step == 0:   
+        logdir = utils.set_tb_logdir(opt)
+        # utils.log_enumerated_dags_to_tb(writer, logdir, opt)
+    if step % 100 == 0: 
+        tqdm.write(f"[Step {step}/{opt.steps}] | Step loss {total_loss:.5f} | Time: {round((time.time() - start_time) / 60, 3)}m")
+    return train_loss, loss_dict
+
+
+

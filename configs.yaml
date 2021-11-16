@@ -4,38 +4,38 @@ defaults:
   dataset: 'clevr'
   ckpt_id: 'train_clevr_sa_img'
 
-  # Directories
+  # ? Directories
   logdir: "logs"
   user_dir: "/home/jithen"            
   storage_dir: "/home/jithen/scratch"
   data_dir: 'datasets/CLEVR_v1.0/images'      # user_dir/storage_dir/data_dir
   model_params_logdir: "model_params"         # has the form logs/<model_name>/model_params/<id>_00000xxxxx.pickle
 
-  # wandb
+  # ? wandb
   offline_wandb: True
   off_wandb: False
   wandb_project: 'structure-learning'
   wandb_entity: 'jithendaraa'
   log_batches: 4
 
-  # Logging and checkpoint frequencies (steps)
+  # ? Logging and checkpoint frequencies (steps)
   loss_log_freq: 100
   media_log_freq: 500
   ckpt_save_freq: 5000
 
-  # Dataset details
+  # ? Dataset details
   resolution: 64
   channels: 3
 
-  # Slot attention params
+  # ? Slot attention params
   num_slots: 7
   slot_size: 64
   num_iterations: 3
 
-  # model architecture sizes
+  # ? model architecture sizes
   encoder_out_ch: 64
 
-  # hyperparams
+  # ? hyperparams
   lr: 4e-4
   decay_rate: 0.5
   # decay_steps: 
@@ -45,7 +45,7 @@ defaults:
   # misc
   phase: 'train'
 
-  # VCN params
+  # ? VCN params
   num_nodes: 2
   seed: 10
   data_seed: 2
@@ -72,22 +72,28 @@ defaults:
   known_ED: False   # if known_ED is true, projection matrix W is used as decoder W
   noise_ED: False   # if known_ED and noise_ED is true, encoder and decoder becomes (W+noise) and (W+noise).T
 
-  # Graph VAE
+  # ? Graph VAE
   M: 80 # M - total dims per node
   N: 5 # num nodes
   dims_per_node: 16 
 
-  # VAE_VCN
+  # ? VAE-VCN
   opti: 'alt' # ['simult', 'alt'] for optimizing latent variable params and graph structure params
 
-# 1. Vanilla Slot attention
+  # ? DIBS
+  h_latent: 5.0
+  alpha_linear: 0.1
+  num_updates: 1000
+
+
+# ? 1. Vanilla Slot attention
 train_clevr_sa_img:
   ckpt_id: 'train_clevr_sa_img'
   model: 'SlotAttention_img'
   dataset: 'clevr'
   steps: 100000
 
-# 2a Vanilla VCN (numerical)
+# ? 2a Vanilla VCN (numerical)
 train_vcn:
   ckpt_id: 'train_vcn' 
   dataset: 'er'
@@ -100,7 +106,7 @@ train_vcn:
   model: 'VCN'
   num_nodes: 4
 
-# 3. Image VCN
+# ? 3. Image VCN
 train_clevr_vcn_img:
   ckpt_id: 'train_clevr_vcn_img' 
   model: 'VCN_img'
@@ -115,7 +121,7 @@ train_clevr_vcn_img:
   chan_per_node: 6
   num_nodes: 3
 
-# 4. Slot-Image VCN
+# ? 4. Slot-Image VCN
 train_clevr_slot1d_vcn_img:
   ckpt_id: 'train_clevr_slot1d_vcn_img' 
   model: 'Slot_VCN_img'
@@ -132,7 +138,7 @@ train_clevr_slot1d_vcn_img:
   num_nodes: 3
   slot_space: '1d' # can be 1d or 2d
 
-# 5. Graph VAE
+# ? 5. Graph VAE
 train_graph_vae:
   ckpt_id: 'train_graph_vae' 
   model: 'GraphVAE'
@@ -148,7 +154,7 @@ train_graph_vae:
   dims_per_node: 16 # N': dims per node
   
 
-# 6a VAE_VCN: linear projection to higher dims (numerical)
+# ? 6a VAE_VCN: linear projection to higher dims (numerical)
 train_vaevcn_linearproj:
   ckpt_id: 'train_vaevcn_linearproj' 
   dataset: 'er'
@@ -162,6 +168,7 @@ train_vaevcn_linearproj:
   num_nodes: 3
   proj: 'linear'
 
+# ? 6b VAE_VCN: linear projection to higher dims (numerical) with known decoder == projection matrix
 train_vaevcn_linearproj_knownED:
   ckpt_id: 'train_vaevcn_linearproj_knownED'
   dataset: 'er'
@@ -176,7 +183,7 @@ train_vaevcn_linearproj_knownED:
   proj: 'linear'
   known_ED: True
 
-# 2c Vanilla VCN: nonlinear projection to higher dims (numerical)
+# ? 6c Vanilla VCN: nonlinear projection to higher dims (numerical)
 train_vcn_nonlinearproj:
   ckpt_id: 'train_vcn_nonlinearproj' 
   dataset: 'er'
@@ -192,6 +199,27 @@ train_vcn_nonlinearproj:
   ckpt_save_freq: 5000
   num_nodes: 3
   proj: 'nonlinear'
+
+# ? 7. DIBS
+train_dibs_er:
+  ckpt_id: 'train_dibs_er'
+  model: 'DIBS'
+  dataset: 'er'
+  datatype: 'er'
+  batch_size: 1000
+  seed: 10
+  data_seed: 1
+  lr: 1e-2
+  num_nodes: 5
+  exp_edges: 0.95
+  proj: 'no'
+
+train_vaedibs_er_linearproj:
+  ckpt_id: 'train_vaedibs_er_linearproj' 
+
+train_vaedibs_er_nonlinearproj:
+  ckpt_id: 'train_vaedibs_er_nonlinearproj' 
+
 
 experimental:
   off_wandb: True
