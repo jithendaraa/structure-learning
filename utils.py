@@ -205,7 +205,10 @@ def log_encodings_per_node_to_tb(opt, writer, enc_inp, step):
 
 def set_tb_logdir(opt):
 
-  logdir = os.path.join(opt.logdir, opt.ckpt_id + '_' + str(opt.batch_size) + '_' + str(opt.lr) + '_' + str(opt.steps) + '_' + str(opt.resolution))
+  if opt.model not in ['DIBS']:
+    logdir = os.path.join(opt.logdir, opt.ckpt_id + '_' + str(opt.batch_size) + '_' + str(opt.lr) + '_' + str(opt.steps) + '_' + str(opt.resolution))
+  else:
+    logdir = os.path.join(opt.logdir, opt.ckpt_id)
 
   if opt.model in ['VCN', 'VAEVCN']:
     logdir += f'_({opt.num_nodes})_seed{opt.seed}_{opt.data_seed}_factorised{opt.factorised}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}'

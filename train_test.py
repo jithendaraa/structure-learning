@@ -1,4 +1,8 @@
-import enum
+import sys
+from jax._src.random import multivariate_normal
+from networkx.readwrite.json_graph import adjacency
+sys.path.append('models')
+
 from networkx.linalg.graphmatrix import adjacency_matrix
 import torch
 import torch.optim as optim
@@ -17,23 +21,38 @@ from tqdm import tqdm
 from torch.utils.tensorboard import SummaryWriter
 import vcn_utils
 
+import jax.numpy as jnp
+from jax import vmap, random
+from dibs.kernel import FrobeniusSquaredExponentialKernel
+from dibs.inference import MarginalDiBS
+from dibs.eval.metrics import expected_shd
+from dibs.utils.func import particle_marginal_empirical, particle_marginal_mixture
+import networkx as nx
+import math
+import matplotlib.pyplot as plt
+import optax
+import jax
+from time import time
+import jax.scipy.stats as dist
+
+
 def set_optimizers(model, opt):
     if opt.opti == 'alt': 
         return [optim.Adam(model.vcn_params, lr=1e-2), optim.Adam(model.vae_params, lr=opt.lr)]
     return [optim.Adam(model.parameters(), lr=opt.lr)]
 
 def train_dibs(target, loader_objs, opt, key):
-    import jax.numpy as jnp
-    from jax import vmap, random
-    from models.dibs.kernel import FrobeniusSquaredExponentialKernel
-    from models.dibs.inference import MarginalDiBS
-    from models.dibs.eval.metrics import expected_shd
-    from models.dibs.utils.func import particle_marginal_empirical, particle_marginal_mixture
+    # ! Tensorboard setup and log ground truth causal graph
+    logdir = utils.set_tb_logdir(opt)
+    writer = SummaryWriter(logdir)
+    gt_graph_image = np.asarray(imageio.imread(join(logdir, 'gt_graph.png')))
+    writer.add_image('graph_structure(GT-pred)/Ground truth', gt_graph_image, 0, dataformats='HWC')
 
     model = target.inference_model
-    data = loader_objs['data'] 
+    gt_graph = loader_objs['train_dataloader'].graph
     adjacency_matrix = loader_objs['adj_matrix']
 
+    data = loader_objs['data'] 
     x = jnp.array(data) 
     no_interv_targets = jnp.zeros(opt.num_nodes).astype(bool) # observational data
 
@@ -47,11 +66,13 @@ def train_dibs(target, loader_objs, opt, key):
 
     eltwise_log_prob = vmap(lambda g: log_likelihood(g), 0, 0)	
     # ? SVGD + DiBS hyperparams
-    n_particles, n_steps = 20, opt.num_updates
+    n_particles, n_steps = opt.n_particles, opt.num_updates
     
 	# ? initialize kernel and algorithm
     kernel = FrobeniusSquaredExponentialKernel(h=opt.h_latent)
-    dibs = MarginalDiBS(kernel=kernel, target_log_prior=log_prior, target_log_marginal_prob=log_likelihood, alpha_linear=opt.alpha_linear)
+    dibs = MarginalDiBS(kernel=kernel, target_log_prior=log_prior, 
+                        target_log_marginal_prob=log_likelihood, 
+                        alpha_linear=opt.alpha_linear)
 		
 	# ? initialize particles
     key, subk = random.split(key)
@@ -60,19 +81,155 @@ def train_dibs(target, loader_objs, opt, key):
     key, subk = random.split(key)
     particles_z = dibs.sample_particles(key=subk, n_steps=n_steps, init_particles_z=init_particles_z)
     particles_g = dibs.particle_to_g_lim(particles_z)
-    print("particles_g:", particles_g, particles_g.shape)
+
     dibs_empirical = particle_marginal_empirical(particles_g)
     dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
     eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
     eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
-    print("ESHD (empirical):", eshd_e)
-    print("ESHD (marginal):", eshd_m)
+    
+    predicted_adj_mat = np.array(particles_g)
+    unique_graph_edge_list, graph_counts, mecs = [], [], []
 
+    for adj_mat in predicted_adj_mat:
+        graph_edges = list(nx.from_numpy_matrix(adj_mat).edges())
+        if graph_edges in unique_graph_edge_list:
+            graph_counts[unique_graph_edge_list.index(graph_edges)] += 1
+        else:
+            unique_graph_edge_list.append(graph_edges)
+            graph_counts.append(1)
+
+    sampled_graphs = [nx.DiGraph() for _ in range(len(graph_counts))]
+    for i in range(len(graph_counts)):
+        graph = sampled_graphs[i]
+        graph.add_nodes_from([0, opt.num_nodes-1])
+        for edge in unique_graph_edge_list[i]:  graph.add_edge(*edge)
+        sampled_graphs[i] = graph
+        mecs.append(utils.is_mec(graph, gt_graph))
+
+    dag_file = join((utils.set_tb_logdir(opt)), 'sampled_dags.png')
+    print(f'DiBS Predicted {len(graph_counts)} unique graphs from {n_particles} modes')
+
+    nrows, ncols = int(math.ceil(len(sampled_graphs) / 5.0)), 5
+    fig = plt.figure()
+    fig.set_size_inches(ncols * 5, nrows * 5)
+    count = 0
+    for idx in range(len(sampled_graphs)):
+        graph = sampled_graphs[idx]
+        ax = plt.subplot(nrows, ncols, count+1)
+        count += 1
+        nx.draw(graph, with_labels=True, font_weight='bold', node_size=1000, font_size=25, arrowsize=30, node_color='#FFFF00')
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.spines['right'].set_visible(False)
+        ax.spines['top'].set_visible(False)
+        ax.spines['left'].set_visible(False)
+        ax.spines['bottom'].set_visible(False)
+
+        same_graph = (list(graph.edges()) == list(gt_graph.edges()))
+        
+        if same_graph is True: color='blue'
+        elif mecs[idx] is True: color='red'
+        else: color='black'
+
+        if same_graph is True:
+            ax.set_title(f'Freq: {graph_counts[idx]} | Ground truth', fontsize=23, color=color)
+        else:
+            ax.set_title(f'Freq: {graph_counts[idx]} | MEC: {mecs[idx]}', fontsize=23, color=color)
+
+    plt.suptitle(f'Exp. SHD (empirical): {eshd_e:.3f} Exp. SHD (marginal mixture): {eshd_m:.3f}', fontsize=20)
+    plt.tight_layout()
+    plt.savefig(dag_file, dpi=60)
+    print( f'Saved sampled DAGs at {dag_file}' )
+    plt.show()
+
+    sampled_graph = np.asarray(imageio.imread(dag_file))
+    writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, 0, dataformats='HWC')
+
+    print("ESHD (empirical):", eshd_e)
+    print("ESHD (marginal mixture):", eshd_m)
+
+def train_vae_dibs(model, loader_objs, opt, key):
+    from flax.training import train_state
+
+    # ! Tensorboard setup and log ground truth causal graph
+    logdir = utils.set_tb_logdir(opt)
+    writer = SummaryWriter(logdir)
+    gt_graph_image = np.asarray(imageio.imread(join(logdir, 'gt_graph.png')))
+    writer.add_image('graph_structure(GT-pred)/Ground truth', gt_graph_image, 0, dataformats='HWC')
+
+    gt_graph = loader_objs['train_dataloader'].graph
+    adjacency_matrix = loader_objs['adj_matrix']
+    data = loader_objs['projected_data']
+
+    x = jnp.array(data) 
+
+    key, rng = random.split(key)
+    m = model()
+
+    state = train_state.TrainState.create(
+        apply_fn=m.apply,
+        params=m.init(rng, x, key, adjacency_matrix)['params'],
+        tx=optax.adam(opt.lr),
+    )
+
+    particles_g, eltwise_log_prob = None, None
+
+    @jax.jit
+    def train_step(state, batch, z_rng):
+        def loss_fn(params):
+            recons, log_p_z_given_g, q_zs, q_z_mus, q_z_logvars, particles_g, eltwise_log_prob = m.apply({'params': params}, batch, z_rng, adjacency_matrix)
+
+            mse_loss = 0.
+            for recon in recons:
+                err = recon - x
+                mse_loss += jnp.mean(jnp.square(err))
+
+            kl_z_loss = 0.
+            # ? get KL( q(z | G) || P(z|G_i) )
+            for i in range(len(log_p_z_given_g)):
+                cov = jnp.diag(jnp.exp(0.5 * q_z_logvars[i]))
+                q_z = dist.multivariate_normal.pdf(q_zs[i], q_z_mus[i], cov)
+                log_q_z = dist.multivariate_normal.logpdf(q_zs[i], q_z_mus[i], cov)
+                kl_z_loss += q_z * (log_q_z - log_p_z_given_g[i])
+
+            soft_constraint = 0.
+            if opt.soft_constraint is True:
+                for g in particles_g:
+                    soft_constraint += jnp.linalg.det(jnp.identity(opt.num_nodes) - g)
+
+            loss = mse_loss + kl_z_loss - soft_constraint
+            return loss
+
+        loss = loss_fn(state.params)
+        grads = jax.grad(loss_fn)(state.params)
+        res = state.apply_gradients(grads=grads)
+        return res, loss
+
+    for step in range(opt.steps):
+        key, rng = random.split(key)
+        state, loss = train_step(state, x, rng)
+
+        if step % 1 == 0:
+            s = time()
+
+            _, _, _, _, _, particles_g, eltwise_log_prob = m.apply({'params': state.params}, x, rng, adjacency_matrix)
+            dibs_empirical = particle_marginal_empirical(particles_g)
+            dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
+            eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
+            eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
+            
+            print(f'Calc SHD took {time() - s}s')
+            print(f'Step {step} | Loss {loss}')
+            print(f'Expected SHD Marginal: {eshd_m} | Empirical: {eshd_e}')
+            print()
 
 def train_model(model, loader_objs, exp_config_dict, opt, device, key=None):
     # * DIBS, or a variant thereof, uses jax so train those in a separate function. This function trains only torch models
     if opt.model in ['DIBS']: 
         train_dibs(model, loader_objs, opt, key)
+        return
+    elif opt.model in ['VAE_DIBS']:
+        train_vae_dibs(model, loader_objs, opt, key)
         return
 
     pred_gt, time_epoch, likelihood, kl_graph, elbo_train, vae_elbo = None, [], [], [], [], []
@@ -245,7 +402,6 @@ def evaluate_vcn(opt, writer, model, bge_test, step, vae_elbo, device, loss_dict
 
     return vae_elbo
 
-        
 
 # Image-VCN
 def train_image_vcn(opt, loader_objs, model, writer, step, start_time):
@@ -282,6 +438,3 @@ def train_vae_vcn(opt, loader_objs, model, writer, step, start_time):
     if step % 100 == 0: 
         tqdm.write(f"[Step {step}/{opt.steps}] | Step loss {total_loss:.5f} | Time: {round((time.time() - start_time) / 60, 3)}m")
     return train_loss, loss_dict
-
-
-
