@@ -6,3 +6,4 @@ logs/
 out/
 vcn_pytorch/
 core*
+jax_setup/tmp/
