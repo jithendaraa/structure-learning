@@ -1,5 +1,5 @@
 #!/bin/bash
-exp_id=$1   # [0, 1, 2, 3]
+exp_id=$1   # [0, 1, 2, 3, 4]
 dataset=${2:-'clevr'}  # ['clevr', 'er']
 train=${3:-'train'}
 def_time='23:00:00'
@@ -23,4 +23,13 @@ elif [ ${exp_id} == '3' ]
 then
     # Run Slot_VCN_img (1d; using just ELBO graph + MSE loss)
     bash script_runners/slot_vcn_img_job_run.sh ${dataset} ${train} 'Slot_VCN_img' ${time}
+
+elif [ ${exp_id} == '4' ]
+then
+    # Run DIBS
+    bash script_runners/dibs_job_run.sh ${dataset} ${train} 'DIBS' ${time}
+elif [ ${exp_id} == '5' ]
+then
+    # Run DIBS
+    bash script_runners/vae_dibs_job_run.sh ${dataset} ${train} 'VAE_DIBS' ${time}
 fi
