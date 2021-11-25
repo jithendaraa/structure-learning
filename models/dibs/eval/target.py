@@ -62,7 +62,7 @@ def hparam_dict_to_str(d):
 
 
 def make_synthetic_bayes_net(*,
-    key,
+    key1,
     n_vars,
     graph_model,
     generative_model,
@@ -95,7 +95,7 @@ def make_synthetic_bayes_net(*,
     """
 
     # remember random key
-    passed_key = key.copy()
+    key, rng = random.split(key1)
 
     # generate ground truth observations
     key, subk = random.split(key)
@@ -131,8 +131,9 @@ def make_synthetic_bayes_net(*,
         print(f'Sampled BN with {jnp.sum(g_gt_mat).item()}-edge DAG :\t {adjmat_to_str(g_gt_mat)}')
 
     # return and save generated target object
+    print("Calling target", key1)
     obj = Target(
-        passed_key=passed_key,
+        passed_key=key1,
         graph_model=graph_model,
         generative_model=generative_model,
         inference_model=inference_model,
@@ -214,7 +215,7 @@ def make_linear_gaussian_equivalent_model(*, key, n_vars=20, graph_prior_str='sf
     # sample synthetic BN and observations
     key, subk = random.split(key)
     target = make_synthetic_bayes_net(
-        key=subk, n_vars=n_vars,
+        key1=subk, n_vars=n_vars,
         graph_model=graph_model,
         generative_model=generative_model,
         inference_model=inference_model,

@@ -173,7 +173,6 @@ class MarginalDiBS(DiBS):
         return vmap(self.z_update, (0, 1, None, None, None, None), 0)(*args)
 
 
-
     # this is the crucial @jit
     @functools.partial(jit, static_argnums=(0,))
     def svgd_step(self, opt_state_z, key, t, sf_baseline):
@@ -196,13 +195,13 @@ class MarginalDiBS(DiBS):
         # make sure same bandwith is used for all calls to k(x, x') (in case e.g. the median heuristic is applied)
         h = self.kernel.h
 
-        # d/dz log p(D | z)
+        # ? d/dz log p(D | z) grad log likelihood
         key, *batch_subk = random.split(key, n_particles + 1) 
         dz_log_likelihood, sf_baseline = self.eltwise_grad_z_likelihood(z, None, sf_baseline, t, jnp.array(batch_subk))
         # here `None` is a placeholder for theta (in the joint inference case) 
         # since this is an inherited function from the general `DiBS` class
 
-        # d/dz log p(z) (acyclicity)
+        # ? d/dz log p(z) (acyclicity) grad log PRIOR
         key, *batch_subk = random.split(key, n_particles + 1)
         dz_log_prior = self.eltwise_grad_latent_prior(z, jnp.array(batch_subk), t)
 
@@ -283,7 +282,6 @@ class MarginalDiBS(DiBS):
                     t=t,
                     zs=z,
                 )
-
 
         # return transported particles
         z_final = self.get_params(opt_state_z)
