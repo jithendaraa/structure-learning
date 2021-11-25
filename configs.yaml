@@ -218,6 +218,7 @@ train_dibs_er:
   proj: 'no'
 
 # ? 8. VAE_DIBS
+# python main.py --config defaults experimental linear_vaedibs_er
 linear_vaedibs_er:
   ckpt_id: 'linear_vaedibs_er'
   model: 'VAE_DIBS'
@@ -227,22 +228,15 @@ linear_vaedibs_er:
   data_seed: 10
   lr: 1e-3
   num_nodes: 4
-  exp_edges: 0.95
+  exp_edges: 0.7
   proj: 'linear'
   known_ED: False
-  steps: 200      # updates for VAE part of VAE DIBS
-  num_updates: 400 # updates for DIBS
+  steps: 30000      # updates for VAE part of VAE DIBS
+  num_updates: 1000    # updates for DIBS
   proj_dims: 10
-  soft_constraint: True
+  num_samples: 3000
+  soft_constraint: False
 
-
-
-
-train_vaedibs_er_linearproj:
-  ckpt_id: 'train_vaedibs_er_linearproj' 
-
-train_vaedibs_er_nonlinearproj:
-  ckpt_id: 'train_vaedibs_er_nonlinearproj' 
 
 
 experimental:

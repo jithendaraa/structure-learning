@@ -87,62 +87,7 @@ def train_dibs(target, loader_objs, opt, key):
     eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
     eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
     
-    predicted_adj_mat = np.array(particles_g)
-    unique_graph_edge_list, graph_counts, mecs = [], [], []
-
-    for adj_mat in predicted_adj_mat:
-        graph_edges = list(nx.from_numpy_matrix(adj_mat).edges())
-        if graph_edges in unique_graph_edge_list:
-            graph_counts[unique_graph_edge_list.index(graph_edges)] += 1
-        else:
-            unique_graph_edge_list.append(graph_edges)
-            graph_counts.append(1)
-
-    sampled_graphs = [nx.DiGraph() for _ in range(len(graph_counts))]
-    for i in range(len(graph_counts)):
-        graph = sampled_graphs[i]
-        graph.add_nodes_from([0, opt.num_nodes-1])
-        for edge in unique_graph_edge_list[i]:  graph.add_edge(*edge)
-        sampled_graphs[i] = graph
-        mecs.append(utils.is_mec(graph, gt_graph))
-
-    dag_file = join((utils.set_tb_logdir(opt)), 'sampled_dags.png')
-    print(f'DiBS Predicted {len(graph_counts)} unique graphs from {n_particles} modes')
-
-    nrows, ncols = int(math.ceil(len(sampled_graphs) / 5.0)), 5
-    fig = plt.figure()
-    fig.set_size_inches(ncols * 5, nrows * 5)
-    count = 0
-    for idx in range(len(sampled_graphs)):
-        graph = sampled_graphs[idx]
-        ax = plt.subplot(nrows, ncols, count+1)
-        count += 1
-        nx.draw(graph, with_labels=True, font_weight='bold', node_size=1000, font_size=25, arrowsize=30, node_color='#FFFF00')
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.spines['right'].set_visible(False)
-        ax.spines['top'].set_visible(False)
-        ax.spines['left'].set_visible(False)
-        ax.spines['bottom'].set_visible(False)
-
-        same_graph = (list(graph.edges()) == list(gt_graph.edges()))
-        
-        if same_graph is True: color='blue'
-        elif mecs[idx] is True: color='red'
-        else: color='black'
-
-        if same_graph is True:
-            ax.set_title(f'Freq: {graph_counts[idx]} | Ground truth', fontsize=23, color=color)
-        else:
-            ax.set_title(f'Freq: {graph_counts[idx]} | MEC: {mecs[idx]}', fontsize=23, color=color)
-
-    plt.suptitle(f'Exp. SHD (empirical): {eshd_e:.3f} Exp. SHD (marginal mixture): {eshd_m:.3f}', fontsize=20)
-    plt.tight_layout()
-    plt.savefig(dag_file, dpi=60)
-    print( f'Saved sampled DAGs at {dag_file}' )
-    plt.show()
-
-    sampled_graph = np.asarray(imageio.imread(dag_file))
+    sampled_graph = utils.log_dags(particles_g, gt_graph, opt, eshd_e, eshd_m)
     writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, 0, dataformats='HWC')
 
     print("ESHD (empirical):", eshd_e)
@@ -160,12 +105,10 @@ def train_vae_dibs(model, loader_objs, opt, key):
     gt_graph = loader_objs['train_dataloader'].graph
     adjacency_matrix = loader_objs['adj_matrix']
     data = loader_objs['projected_data']
-
     x = jnp.array(data) 
 
     key, rng = random.split(key)
     m = model()
-
     state = train_state.TrainState.create(
         apply_fn=m.apply,
         params=m.init(rng, x, key, adjacency_matrix)['params'],
@@ -209,14 +152,19 @@ def train_vae_dibs(model, loader_objs, opt, key):
         key, rng = random.split(key)
         state, loss = train_step(state, x, rng)
 
-        if step % 1 == 0:
+        if step % 50 == 0:
             s = time()
-
             _, _, _, _, _, particles_g, eltwise_log_prob = m.apply({'params': state.params}, x, rng, adjacency_matrix)
             dibs_empirical = particle_marginal_empirical(particles_g)
             dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
             eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
             eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
+            
+            sampled_graph = utils.log_dags(particles_g, gt_graph, opt, eshd_e, eshd_m)
+            writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
+            # writer.add_scalar('Evaluations/Exp. SHD Empirical', eshd_e, step)
+            # writer.add_scalar('Evaluations/Exp. SHD Marginal', eshd_m, step)
+            # writer.add_scalar('total_losses/Total loss', loss, step)
             
             print(f'Calc SHD took {time() - s}s')
             print(f'Step {step} | Loss {loss}')
@@ -394,6 +342,7 @@ def evaluate_vcn(opt, writer, model, bge_test, step, vae_elbo, device, loss_dict
         writer.add_scalar('Evaluations/Exp. SHD', shd, step)
         writer.add_scalar('Evaluations/Exp. Precision', prc, step)
         writer.add_scalar('Evaluations/Exp. Recall', rec, step)
+        
 
         print('Exp SHD:', shd,  'Exp Precision:', prc, 'Exp Recall:', rec, \
             'Kl_full:', kl_full, 'hellinger_full:', hellinger_full,\
