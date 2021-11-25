@@ -1,4 +1,16 @@
 import os, sys
+from os.path import join
+# sys.path.append(os.path.join(os.getcwd()))
+# sys.path.append(os.path.join(os.getcwd(), 'models'))
+# sys.path.append(os.path.join(os.getcwd(), 'data'))
+
+sys.path.append(join(os.getcwd()))
+sys.path.append(join(os.getcwd(), 'data'))
+sys.path.append(join(os.getcwd(), 'models'))
+
+from models import vcn, autoreg_base, factorised_base, bge_model
+from data import erdos_renyi, distributions
+
 import os.path as osp
 import numpy as np
 import torch
@@ -10,8 +22,6 @@ import time
 
 import utils
 import matplotlib.pyplot as plt
-from models import vcn, autoreg_base, factorised_base, bge_model
-from data import erdos_renyi, distributions
 from sklearn import metrics
 
 def parse_args():
@@ -57,8 +67,6 @@ def parse_args():
 
     args = parser.parse_args()
     args.data_size = args.num_nodes * (args.num_nodes-1)
-    root = args.save_path
-    list_dir = os.listdir(args.save_path)
     args.save_path = os.path.join(args.save_path, args.data_type + '_' + str(int(args.exp_edges)), str(args.num_nodes) + '_' + str(args.seed) + '_' + str(args.data_seed) + '_' + str(args.num_samples) + '_' + \
       str(args.sparsity_factor) +'_' + str(args.gibbs_temp) + '_' + str(args.no_autoreg_base)) 
     if not os.path.exists(args.save_path):
@@ -71,7 +79,6 @@ def parse_args():
     
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
-
     return args
 
 def auroc(model, ground_truth, num_samples = 1000):
@@ -193,6 +200,12 @@ def load_model(args):
     return model
 
 def load_data(args):
+    data_map = {'er': erdos_renyi.ER}
+    if args.num_nodes <=4:
+        args.alpha_lambd = 10.
+    else:
+        args.alpha_lambd = 1000.
+        
     if args.data_type == 'd4':
         train_data = data_map[args.data_type](file_name = int(args.exp_edges))
     else:
@@ -264,6 +277,7 @@ def main(args):
             pkl.dump({'likelihood':likelihood, 'kl_graph':kl_graph, 'elbo_train': elbo_train,\
             'elbo_val':val_elbo, 'kl_best_full': kl_full, 'hellinger_best_full': hellinger_full, 'time': time_epoch\
             , 'baseline': baseline, 'exp_shd': shd, 'exp_prc': prc, 'exp_rec': rec, 'auroc': auroc_score}, bb)
+
 
 if __name__ == '__main__':
     args = parse_args()

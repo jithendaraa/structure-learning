@@ -22,7 +22,7 @@ from dibs.eval.target import make_linear_gaussian_equivalent_model
 from dibs.inference import MarginalDiBS
 from dibs.kernel import FrobeniusSquaredExponentialKernel
 from dibs.eval.metrics import expected_shd
-from dibs.utils.func import particle_marginal_empirical
+from dibs.utils.func import particle_marginal_empirical, particle_marginal_mixture
 
 def parse_args():
 	parser = argparse.ArgumentParser(description='Variational Causal Networks')
@@ -44,7 +44,7 @@ def parse_args():
 					help='Hyperparameter for sparsity regularizer')
 	parser.add_argument('--epochs', type=int, default=30000,
 					help='Number of iterations to train')
-	parser.add_argument('--num_nodes', type=int, default=3,
+	parser.add_argument('--num_nodes', type=int, default=5,
 					help='Number of nodes in the causal model')
 	parser.add_argument('--num_samples', type=int, default=100,
 					help='Total number of samples in the synthetic data')
@@ -58,7 +58,7 @@ def parse_args():
 					help='Std of Parameter Variables')
 	parser.add_argument('--data_type', type=str, default='er',
 					help='Type of data')
-	parser.add_argument('--exp_edges', type=float, default=1.0,
+	parser.add_argument('--exp_edges', type=float, default=0.8,
 					help='Expected number of edges in the random graph')
 	parser.add_argument('--eval_only', action='store_true', default=False,
 					help='Perform Just Evaluation')
@@ -113,7 +113,7 @@ def main_dibs(args):
 		log_lik = model.log_marginal_likelihood_given_g(w=single_w, data=x, interv_targets=no_interv_targets)
 		return log_lik
 
-	eltwise_log_prob = vmap(lambda g: log_likelihood(g, None), 0, 0)	
+	eltwise_log_prob = vmap(lambda g: log_likelihood(g), 0, 0)	
     # SVGD + DiBS hyperparams
 	n_particles = 20
 	n_steps = args.num_updates
@@ -129,18 +129,19 @@ def main_dibs(args):
 		
 	# initialize particles
 	key, subk = random.split(key)
-	init_particles_z = dibs.sample_initial_random_particles(
-	key=subk, n_particles=n_particles, n_vars=args.num_nodes)
+	init_particles_z = dibs.sample_initial_random_particles(key=subk, n_particles=n_particles, n_vars=args.num_nodes)
 
 	key, subk = random.split(key)
-	particles_z = dibs.sample_particles(key=subk, n_steps=n_steps, 
-	init_particles_z=init_particles_z)
+	particles_z = dibs.sample_particles(key=subk, n_steps=n_steps, init_particles_z=init_particles_z)
 
 	particles_g = dibs.particle_to_g_lim(particles_z)
-	import pdb; pdb.set_trace()
 	dibs_empirical = particle_marginal_empirical(particles_g)
-	eshd = expected_shd(dist=dibs_empirical, g=train_data.adjacency_matrix)
-	print("ESHD:", eshd)
+	dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
+	eshd_e = expected_shd(dist=dibs_empirical, g=train_data.adjacency_matrix)
+	eshd_m = expected_shd(dist=dibs_mixture, g=train_data.adjacency_matrix)
+	print("ESHD (empirical):", eshd_e)
+	print("ESHD (marginal):", eshd_m)
+
 
 if __name__ == "__main__":
 	args = parse_args()

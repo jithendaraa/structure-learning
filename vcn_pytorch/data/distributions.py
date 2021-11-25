@@ -5,8 +5,12 @@ import scipy
 from scipy.stats import multivariate_normal
 import itertools
 import networkx as nx
+import os
+from os.path import join
+import sys
+# sys.path.append(join(os.getcwd(), 'vcn_pytorch'))
+from vcn_pytorch.utils import expm_np, all_combinations
 
-from utils import expm_np, all_combinations
 import torch
 
 class GraphDistribution:
