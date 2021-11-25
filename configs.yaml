@@ -49,7 +49,7 @@ defaults:
   num_nodes: 2
   seed: 10
   data_seed: 2
-  num_samples: 100
+  num_samples: 200
   no_autoreg_base: False
   sparsity_factor: 1e-3
   gibbs_temp_init: 10
@@ -84,7 +84,10 @@ defaults:
   h_latent: 5.0
   alpha_linear: 0.1
   num_updates: 1000
+  n_particles: 20
 
+  # ? VAE DIBS
+  soft_constraint: True
 
 # ? 1. Vanilla Slot attention
 train_clevr_sa_img:
@@ -208,11 +211,32 @@ train_dibs_er:
   datatype: 'er'
   batch_size: 1000
   seed: 10
-  data_seed: 1
+  data_seed: 10
   lr: 1e-2
-  num_nodes: 5
+  num_nodes: 4
   exp_edges: 0.95
   proj: 'no'
+
+# ? 8. VAE_DIBS
+linear_vaedibs_er:
+  ckpt_id: 'linear_vaedibs_er'
+  model: 'VAE_DIBS'
+  dataset: 'er'
+  datatype: 'er'
+  batch_size: 1000
+  data_seed: 10
+  lr: 1e-3
+  num_nodes: 4
+  exp_edges: 0.95
+  proj: 'linear'
+  known_ED: False
+  steps: 200      # updates for VAE part of VAE DIBS
+  num_updates: 400 # updates for DIBS
+  proj_dims: 10
+  soft_constraint: True
+
+
+
 
 train_vaedibs_er_linearproj:
   ckpt_id: 'train_vaedibs_er_linearproj' 
