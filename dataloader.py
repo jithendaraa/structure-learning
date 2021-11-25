@@ -98,7 +98,7 @@ def parse_datasets(opt, device):
     else:
         raise NotImplementedError(f"There is no dataset named {opt.dataset}")
 
-    if opt.model in ['VCN', 'VCN_img', 'Slot_VCN_img', 'VAEVCN', 'DIBS']:
+    if opt.model in ['VCN', 'VCN_img', 'Slot_VCN_img', 'VAEVCN', 'DIBS', 'VAE_DIBS']:
         if data is None:    data = train_dataloader.samples
         print(data.shape)
 
