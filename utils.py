@@ -12,6 +12,8 @@ import graphical_models
 import networkx as nx
 import matplotlib.pyplot as plt
 import math
+from jax import numpy as jnp
+from jax import random
 
 def set_opts(opt):
     print()
@@ -19,7 +21,6 @@ def set_opts(opt):
     path_logdir = Path(opt.logdir)
     opt.logdir = path_logdir / opt.dataset / opt.phase / opt.model
     os.makedirs(opt.logdir, exist_ok=True)
-    print("logdir:", opt.logdir)
 
     tb_logdir = set_tb_logdir(opt)
     os.makedirs(tb_logdir, exist_ok=True)
@@ -31,7 +32,6 @@ def set_opts(opt):
       opt.resolution, opt.channels = 28, 1
 
     opt.data_dir = os.path.join(opt.storage_dir, opt.data_dir)
-    print("data_dir:", opt.data_dir)
 
     # Set model_params_logdir and create dirs along the way
     opt.model_params_logdir = opt.logdir / opt.model_params_logdir
@@ -302,7 +302,16 @@ def log_dags(particles_g, gt_graph, opt, eshd_e, eshd_m):
   plt.suptitle(f'Exp. SHD (empirical): {eshd_e:.3f} Exp. SHD (marginal mixture): {eshd_m:.3f}', fontsize=20)
   plt.tight_layout()
   plt.savefig(dag_file, dpi=60)
-  print( f'Saved sampled DAGs at {dag_file}' )
+  # print( f'Saved sampled DAGs at {dag_file}' )
   plt.show()
   sampled_graph = np.asarray(imageio.imread(dag_file))
   return sampled_graph
+
+
+def sample_initial_random_particles(key, n_particles, n_vars, n_dim=None, latent_prior_std=None):
+    print('Sampling random z_particles....')
+    if n_dim is None:   n_dim = n_vars 
+    std = latent_prior_std or (1.0 / jnp.sqrt(n_dim))
+    key, subk = random.split(key)
+    z = random.normal(subk, shape=(n_particles, n_vars, n_dim, 2)) * std        
+    return z

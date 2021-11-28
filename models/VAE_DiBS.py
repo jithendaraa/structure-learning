@@ -4,6 +4,7 @@ from jax import random, vmap
 from flax import linen as nn
 from jax import device_put
 from jax.ops import index, index_mul
+import numpy as np
 
 
 from dibs.eval.target import make_graph_model
@@ -16,7 +17,6 @@ from dibs.eval.metrics import expected_shd
 from time import time
 
 class VAE_DIBS(nn.Module):
-  key: int
   noise_sigma: float
   theta_mu: float
   num_samples: float
@@ -32,25 +32,35 @@ class VAE_DIBS(nn.Module):
   alpha_mu: float
   alpha_lambd: float
   proj_dims: int
+  true_encoder: np.ndarray
+  true_decoder: np.ndarray
   latent_prior_std: float = None
 
   def setup(self):
-    key, rng = random.split(self.key)
+    self.use_true_encoder = False
+    self.use_true_decoder = False
 
     self.graph_model = make_graph_model(n_vars=self.num_nodes, graph_prior_str = self.datatype)
     self.inference_model = BGeJAX(mean_obs=jnp.zeros(self.num_nodes), alpha_mu=1.0, alpha_lambd=self.num_nodes + 2)
-
     self.kernel = FrobeniusSquaredExponentialKernel(h=self.h_latent)
+
     self.bge_jax = BGeJAX(mean_obs=jnp.array([self.theta_mu]*self.num_nodes),
                           alpha_mu=self.alpha_mu,
                           alpha_lambd=self.alpha_lambd)
 
+    self.mean_logvar_net = MeanLogvarNet(self.num_nodes)
 
     if self.projection == 'linear':
-      self.encoder = LinearEncoder(self.num_nodes)
-      if self.known_ED is False:  self.decoder = LinearDecoder(self.proj_dims)
-    
-
+      if self.known_ED is False:  
+        self.encoder = LinearEncoder(self.num_nodes)
+        self.decoder = LinearDecoder(self.proj_dims)
+      
+      else:
+        # * encoder will be E = ((P.P_T)^-1 PX_T )_T and decoder = P
+        self.use_true_encoder, self.use_true_decoder = eval(self.known_ED)
+        if self.use_true_encoder is False:  self.encoder = LinearEncoder(self.num_nodes)
+        if self.use_true_decoder is False:  self.decoder = LinearDecoder(self.proj_dims)
+      
     self.z_post_mean_logvar_net = z_mu_logvar_net(128, self.num_nodes)
     print("Initialised VAE-DIBS")
 
@@ -58,9 +68,16 @@ class VAE_DIBS(nn.Module):
   def __call__(self, x, z_rng, adjacency_matrix):
     x = device_put(x, jax.devices()[0])
     no_interv_targets = jnp.zeros(self.num_nodes).astype(bool)
+    E = jnp.array(self.true_encoder)
+    E = device_put(E, jax.devices()[0])
+    D = jnp.array(self.true_decoder)
+    D = device_put(D, jax.devices()[0])
 
     # ? 1. Get P(z | X) ~ N(z_mu_post, z_std_post)
-    z_mean_post, z_logvar_post = self.encoder(x)
+    if self.use_true_encoder:   z = jnp.matmul(x, E)
+    else:                       z = self.encoder(x)
+
+    z_mean_post, z_logvar_post = self.mean_logvar_net(z)
     z = reparameterize(z_rng, z_mean_post, z_logvar_post)
 
     def log_prior(single_w_prob):
@@ -83,9 +100,7 @@ class VAE_DIBS(nn.Module):
     init_particles_z = dibs.sample_initial_random_particles(key=subk, n_particles=self.n_particles, n_vars=self.num_nodes)
     
     key, subk = random.split(key)
-    s = time()
     particles_z = dibs.sample_particles(key=subk, n_steps=self.n_steps, init_particles_z=init_particles_z)
-    print(f'DiBS took {time() - s}s')
     particles_g = dibs.particle_to_g_lim(particles_z)
 
     log_p_z_given_g = []
@@ -109,90 +124,32 @@ class VAE_DIBS(nn.Module):
 
     recons = [] 
     for q_zi in q_zs:
-      recon_xi = self.decoder(q_zi)
+      if self.use_true_decoder is False: recon_xi = self.decoder(q_zi)
+      else: recon_xi = jnp.matmul(q_zi, D)
       recons.append(recon_xi)
 
     return recons, log_p_z_given_g, q_zs, q_z_mus, q_z_logvars, particles_g, eltwise_log_prob
 
 
-
-  def sample_initial_random_particles(self, *, key, n_particles, n_vars, n_dim=None):
-    """
-    Samples random particles to initialize SVGD
-
-    Args:
-        key: rng key
-        n_particles: number of particles for SVGD
-        n_particles: number of variables `d` in inferred BN 
-        n_dim: size of latent dimension `k`. Defaults to `n_vars`, s.t. k == d
-
-    Returns:
-        z: batch of latent tensors [n_particles, d, k, 2]    
-    """
-    # default full rank
-    if n_dim is None: n_dim = n_vars 
-    std = self.latent_prior_std or (1.0 / jnp.sqrt(n_dim)) # like prior
-
-    # sample
-    key, subk = random.split(key)
-    z = random.normal(subk, shape=(n_particles, n_vars, n_dim, 2)) * std        
-    return z
-
-  def sample_particles(self, *, n_steps, init_particles_z, key, callback=None, callback_every=0):
-    """
-    Deterministically transforms particles to minimize KL to target using SVGD
-
-    Arguments:
-        n_steps (int): number of SVGD steps performed
-        init_particles_z: batch of initialized latent tensor particles [n_particles, d, k, 2]
-        key: prng key
-        callback: function to be called every `callback_every` steps of SVGD.
-        callback_every: if == 0, `callback` is never called. 
-
-    Returns: 
-        `n_particles` samples that approximate the DiBS target density
-        particles_z: [n_particles, d, k, 2]
-    """
-    z = init_particles_z
-    # initialize score function baseline (one for each particle)
-    n_particles, _, n_dim, _ = z.shape
-    sf_baseline = jnp.zeros(n_particles)
-
-    if self.latent_prior_std is None: 
-      self.latent_prior_std = 1.0 / jnp.sqrt(n_dim)
-
-  def particle_to_g_lim(self, z):
-        """
-        Returns g corresponding to alpha = infinity for particles `z`
-
-        Args:
-            z: latent variables [..., d, k, 2]
-
-        Returns:
-            graph adjacency matrices of shape [..., d, d]
-        """
-        u, v = z[..., 0], z[..., 1]
-        scores = jnp.einsum('...ik,...jk->...ij', u, v)
-        g_samples = (scores > 0).astype(jnp.int32)
-
-        # zero diagonal
-        g_samples = index_mul(g_samples, index[..., jnp.arange(scores.shape[-1]), jnp.arange(scores.shape[-1])], 0)
-        return g_samples
+class MeanLogvarNet(nn.Module):
+  latent_dims: int
+  
+  @nn.compact
+  def __call__(self, z):
+    # ? 1. Get P(z | X) ~ N(z_mu_post, z_std_post)
+    # ? 2. Calculate posterior z_mu and posterior z_logvar and 
+    post_z_mean = nn.Dense(self.latent_dims, name='z_post_mean')(z)
+    post_z_logvar = nn.Dense(self.latent_dims, name='z_post_logvar')(z)
+    return post_z_mean, post_z_logvar
 
 class LinearEncoder(nn.Module):
   latent_dims: int
 
   @nn.compact
   def __call__(self, x):
-    x = nn.Dense(10, name='fc1')(x)
-    
-    # ? 1. Get P(z | X) ~ N(z_mu_post, z_std_post)
-    # ? 2. Calculate posterior z_mu and posterior z_logvar and 
+    x = nn.Dense(15, name='fc1')(x)
     z = nn.Dense(self.latent_dims, name='fc2')(x)
-    post_z_mean = nn.Dense(self.latent_dims, name='z_post_mean')(z)
-    post_z_logvar = nn.Dense(self.latent_dims, name='z_post_logvar')(z)
-    return post_z_mean, post_z_logvar
-
+    return z
 
 class LinearDecoder(nn.Module):
     dims: int
@@ -202,7 +159,6 @@ class LinearDecoder(nn.Module):
         z = nn.Dense(10, name='decoder_fc1')(z)
         z = nn.Dense(self.dims, name='decoder_fc2')(z)
         return z
-
 
 class z_mu_logvar_net(nn.Module):
   latents: int
@@ -218,35 +174,7 @@ class z_mu_logvar_net(nn.Module):
     logvar_x = nn.Dense(self.num_nodes)(x)
     return mean_x, logvar_x
 
-
 def reparameterize(rng, mean, logvar):
   std = jnp.exp(0.5 * logvar)
   eps = random.normal(rng, logvar.shape)
   return mean + eps * std
-
-# @jax.jit
-# def train_step(state, batch, z_rng):
-#   def loss_fn(params):
-#     recon_x, mean, logvar = model().apply({'params': params}, batch, z_rng)
-
-#     kld_loss = kl_divergence(mean, logvar).mean()
-#     loss = bce_loss + kld_loss
-#     return loss
-#   grads = jax.grad(loss_fn)(state.params)
-#   return state.apply_gradients(grads=grads)
-
-# @jax.vmap
-# def kl_divergence(mean, logvar):
-#   return -0.5 * jnp.sum(1 + logvar - jnp.square(mean) - jnp.exp(logvar))
-
-
-# def compute_metrics(recon_x, x, mean, logvar):
-#   kld_loss = kl_divergence(mean, logvar).mean()
-#   return {
-#       'kld': kld_loss,
-#       'loss': bce_loss + kld_loss
-#   }
-
-
-# def model():
-#   return VAE(latents=FLAGS.latents)

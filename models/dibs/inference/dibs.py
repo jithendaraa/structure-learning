@@ -263,7 +263,7 @@ class DiBS:
     Estimators for scores of log p(theta, D | Z) 
     """
 
-    def eltwise_log_joint_prob(self, gs, single_theta, rng):
+    def eltwise_log_joint_prob(self, gs, single_theta, rng, data=None):
         """
         log p(data | G, theta) batched over samples of G
 
@@ -276,7 +276,7 @@ class DiBS:
             batch of logprobs [n_graphs, ]
         """
 
-        return vmap(self.target_log_joint_prob, (0, None, None), 0)(gs, single_theta, rng)
+        return vmap(self.target_log_joint_prob, (0, None, None, None), 0)(gs, single_theta, rng, data)
 
     
 
@@ -307,7 +307,7 @@ class DiBS:
     # (i.e. w.r.t the latent embeddings Z for graph G)
     #
 
-    def eltwise_grad_z_likelihood(self,  zs, thetas, baselines, t, subkeys):
+    def eltwise_grad_z_likelihood(self,  zs, thetas, baselines, t, subkeys, data=None):
         """
         Computes batch of estimators for score
             
@@ -336,11 +336,11 @@ class DiBS:
             raise ValueError(f'Unknown gradient estimator `{self.grad_estimator_z}`')
 
         # vmap
-        return vmap(grad_z_likelihood, (0, 0, 0, None, 0), (0, 0))(zs, thetas, baselines, t, subkeys)
+        return vmap(grad_z_likelihood, (0, 0, 0, None, 0, None), (0, 0))(zs, thetas, baselines, t, subkeys, data)
 
 
 
-    def grad_z_likelihood_score_function(self, single_z, single_theta, single_sf_baseline, t, subk):
+    def grad_z_likelihood_score_function(self, single_z, single_theta, single_sf_baseline, t, subk, data=None):
         """
         Score function estimator (aka REINFORCE) for the score
 
@@ -375,9 +375,8 @@ class DiBS:
 
         # [n_grad_mc_samples, ] 
         subk, subk_ = random.split(subk)
-        logprobs_numerator = self.eltwise_log_joint_prob(g_samples, single_theta, subk_)
+        logprobs_numerator = self.eltwise_log_joint_prob(g_samples, single_theta, subk_, data)
         logprobs_denominator = logprobs_numerator
-
         # variance_reduction
         logprobs_numerator_adjusted = lax.cond(
             self.score_function_baseline <= 0.0,

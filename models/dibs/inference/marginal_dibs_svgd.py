@@ -44,7 +44,7 @@ class MarginalDiBS(DiBS):
         we define a marginal log likelihood variant with dummy parameter inputs. This will allow using the same 
         gradient estimator functions for both inference cases.
         """
-        target_log_marginal_prob_extra_args = lambda single_z, single_theta, rng: target_log_marginal_prob(single_z)
+        target_log_marginal_prob_extra_args = lambda single_z, single_theta, rng, data: target_log_marginal_prob(single_z, data)
 
         super(MarginalDiBS, self).__init__(
             target_log_prior=target_log_prior,
@@ -175,7 +175,7 @@ class MarginalDiBS(DiBS):
 
     # this is the crucial @jit
     @functools.partial(jit, static_argnums=(0,))
-    def svgd_step(self, opt_state_z, key, t, sf_baseline):
+    def svgd_step(self, opt_state_z, key, t, sf_baseline, data=None):
         """
         Performs a single SVGD step in the DiBS framework, updating all Z particles jointly.
 
@@ -197,7 +197,7 @@ class MarginalDiBS(DiBS):
 
         # ? d/dz log p(D | z) grad log likelihood
         key, *batch_subk = random.split(key, n_particles + 1) 
-        dz_log_likelihood, sf_baseline = self.eltwise_grad_z_likelihood(z, None, sf_baseline, t, jnp.array(batch_subk))
+        dz_log_likelihood, sf_baseline = self.eltwise_grad_z_likelihood(z, None, sf_baseline, t, jnp.array(batch_subk), data)
         # here `None` is a placeholder for theta (in the joint inference case) 
         # since this is an inherited function from the general `DiBS` class
 
@@ -222,7 +222,7 @@ class MarginalDiBS(DiBS):
     
     
 
-    def sample_particles(self, *, n_steps, init_particles_z, key, callback=None, callback_every=0):
+    def sample_particles(self, *, n_steps, init_particles_z, key, callback=None, callback_every=0, data=None):
         """
         Deterministically transforms particles to minimize KL to target using SVGD
 
@@ -272,7 +272,7 @@ class MarginalDiBS(DiBS):
 
             # perform one SVGD step (compiled with @jit)
             opt_state_z, key, sf_baseline  = self.svgd_step(
-                opt_state_z, key, t, sf_baseline)
+                opt_state_z, key, t, sf_baseline, data)
 
             # callback
             if callback and callback_every and (((t+1) % callback_every == 0) or (t == (n_steps - 1))):

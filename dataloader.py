@@ -99,8 +99,6 @@ def parse_datasets(opt, device):
 
     if opt.model in ['VCN', 'VCN_img', 'Slot_VCN_img', 'VAEVCN', 'DIBS', 'VAE_DIBS', 'Decoder_DIBS']:
         if data is None:    data = train_dataloader.samples
-        print(data.shape)
-
         bge_train = BGe(opt,
                         mean_obs = [opt.theta_mu]*opt.num_nodes, 
                         alpha_mu = opt.alpha_mu, 

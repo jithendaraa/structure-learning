@@ -1,4 +1,6 @@
 import warnings
+import sys
+sys.path.append('models')
 
 from models.Decoder_DIBS import Decoder_DIBS
 warnings.filterwarnings("ignore")
@@ -105,7 +107,7 @@ def build_model(opt, device, loader_objs):
     def model():
       return Decoder_DIBS(key, opt.num_nodes, opt.data_type, opt.h_latent,
                           opt.theta_mu, opt.alpha_mu, opt.alpha_lambd,
-                          opt.alpha_linear, opt.n_particles)
+                          opt.alpha_linear, opt.n_particles, opt.proj_dims)
 
   else: 
     raise NotImplementedError(f'Model {opt.model} is not implemented. Try one of {implemented_models}')
