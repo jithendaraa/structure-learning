@@ -1,4 +1,6 @@
 import warnings
+
+from models.Decoder_DIBS import Decoder_DIBS
 warnings.filterwarnings("ignore")
 import argparse
 import ruamel.yaml as yaml
@@ -39,10 +41,12 @@ def get_opt():
       
     return opt, exp_config
 
-def build_model(opt, device):
+def build_model(opt, device, loader_objs):
   key = None
   resolution = (opt.resolution, opt.resolution) 
-  implemented_models = ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img', 'GraphVAE', 'VAEVCN', 'DIBS']
+  implemented_models = ['SlotAttention_img', 'VCN', 'VCN_img', 
+                      'Slot_VCN_img', 'GraphVAE', 'VAEVCN', 
+                      'DIBS', 'VAE_DIBS', 'Decoder_DIBS']
   
   if opt.model in ['SlotAttention_img']:
     from models.SlotAttentionAutoEncoder import SlotAttentionAutoEncoder as Slot_Attention
@@ -85,13 +89,23 @@ def build_model(opt, device):
   elif opt.model in ['VAE_DIBS']:
     from models.VAE_DiBS import VAE_DIBS
     from jax import random
-
     key = random.PRNGKey(123)
     def model():
-      return VAE_DIBS(key, opt.noise_sigma, opt.theta_mu, opt.num_samples,
+      return VAE_DIBS(opt.noise_sigma, opt.theta_mu, opt.num_samples,
                         opt.theta_sigma, opt.proj, opt.num_nodes, opt.known_ED, opt.data_type,
                         opt.n_particles, opt.num_updates, opt.h_latent, opt.alpha_linear,
-                        opt.alpha_mu, opt.alpha_lambd, opt.proj_dims)
+                        opt.alpha_mu, opt.alpha_lambd, opt.proj_dims, 
+                        loader_objs['true_encoder'], loader_objs['true_decoder'])
+
+  elif opt.model in ['Decoder_DIBS']:
+    from models.Decoder_DIBS import Decoder_DIBS
+    from jax import random
+    key = random.PRNGKey(123)
+    
+    def model():
+      return Decoder_DIBS(key, opt.num_nodes, opt.data_type, opt.h_latent,
+                          opt.theta_mu, opt.alpha_mu, opt.alpha_lambd,
+                          opt.alpha_linear, opt.n_particles)
 
   else: 
     raise NotImplementedError(f'Model {opt.model} is not implemented. Try one of {implemented_models}')
@@ -101,10 +115,9 @@ def build_model(opt, device):
 
 def main(opt, exp_config):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model, key = build_model(opt, device)
+    loader_objs = parse_datasets(opt, device) # Dataloader
+    model, key = build_model(opt, device, loader_objs)
 
-    # Dataloader
-    loader_objs = parse_datasets(opt, device)
     train_model(model, loader_objs, exp_config, opt, device, key)
 
 if __name__ == '__main__':

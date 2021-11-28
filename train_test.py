@@ -34,6 +34,8 @@ import optax
 import jax
 from time import time
 import jax.scipy.stats as dist
+from flax.training import train_state
+
 
 
 def set_optimizers(model, opt):
@@ -94,7 +96,7 @@ def train_dibs(target, loader_objs, opt, key):
     print("ESHD (marginal mixture):", eshd_m)
 
 def train_vae_dibs(model, loader_objs, opt, key):
-    from flax.training import train_state
+    particles_g, eltwise_log_prob = None, None
 
     # ! Tensorboard setup and log ground truth causal graph
     logdir = utils.set_tb_logdir(opt)
@@ -115,45 +117,48 @@ def train_vae_dibs(model, loader_objs, opt, key):
         tx=optax.adam(opt.lr),
     )
 
-    particles_g, eltwise_log_prob = None, None
 
-    @jax.jit
     def train_step(state, batch, z_rng):
         def loss_fn(params):
             recons, log_p_z_given_g, q_zs, q_z_mus, q_z_logvars, particles_g, eltwise_log_prob = m.apply({'params': params}, batch, z_rng, adjacency_matrix)
-
+            n_particles = len(particles_g)
             mse_loss = 0.
             for recon in recons:
-                err = recon - x
-                mse_loss += jnp.mean(jnp.square(err))
+                err = (recon - x)
+                mse_loss += jnp.mean(jnp.square(err)) 
 
             kl_z_loss = 0.
             # ? get KL( q(z | G) || P(z|G_i) )
-            for i in range(len(log_p_z_given_g)):
+            for i in range(n_particles):
                 cov = jnp.diag(jnp.exp(0.5 * q_z_logvars[i]))
                 q_z = dist.multivariate_normal.pdf(q_zs[i], q_z_mus[i], cov)
                 log_q_z = dist.multivariate_normal.logpdf(q_zs[i], q_z_mus[i], cov)
-                kl_z_loss += q_z * (log_q_z - log_p_z_given_g[i])
+                kl_z_loss += (q_z * (log_q_z - log_p_z_given_g[i]))
 
             soft_constraint = 0.
             if opt.soft_constraint is True:
                 for g in particles_g:
                     soft_constraint += jnp.linalg.det(jnp.identity(opt.num_nodes) - g)
 
-            loss = mse_loss + kl_z_loss - soft_constraint
+            loss = (mse_loss + kl_z_loss - soft_constraint) * 1/n_particles
             return loss
 
         loss = loss_fn(state.params)
+    
+        # s = time()
         grads = jax.grad(loss_fn)(state.params)
+        # print(f'time to get grads {time() - s}s')
+        # s = time()
         res = state.apply_gradients(grads=grads)
+        # print(f'Time to apply grads {time() - s}s')
         return res, loss
 
-    for step in range(opt.steps):
+    for step in tqdm(range(opt.steps)):
         key, rng = random.split(key)
         state, loss = train_step(state, x, rng)
 
-        if step % 50 == 0:
-            s = time()
+
+        if step % 5 == 0:
             _, _, _, _, _, particles_g, eltwise_log_prob = m.apply({'params': state.params}, x, rng, adjacency_matrix)
             dibs_empirical = particle_marginal_empirical(particles_g)
             dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
@@ -166,10 +171,93 @@ def train_vae_dibs(model, loader_objs, opt, key):
             # writer.add_scalar('Evaluations/Exp. SHD Marginal', eshd_m, step)
             # writer.add_scalar('total_losses/Total loss', loss, step)
             
-            print(f'Calc SHD took {time() - s}s')
             print(f'Step {step} | Loss {loss}')
             print(f'Expected SHD Marginal: {eshd_m} | Empirical: {eshd_e}')
             print()
+
+def train_decoder_dibs(model, loader_objs, opt, key):
+    particles_g, eltwise_log_prob = None, None
+
+    # ! Tensorboard setup and log ground truth causal graph
+    logdir = utils.set_tb_logdir(opt)
+    writer = SummaryWriter(logdir)
+    gt_graph_image = np.asarray(imageio.imread(join(logdir, 'gt_graph.png')))
+    writer.add_image('graph_structure(GT-pred)/Ground truth', gt_graph_image, 0, dataformats='HWC')
+
+    gt_graph = loader_objs['train_dataloader'].graph
+    adjacency_matrix = loader_objs['adj_matrix']
+    gt_samples = loader_objs['data']
+    z_gt = jnp.array(gt_samples) 
+    no_interv_targets = jnp.zeros(opt.num_nodes).astype(bool)
+
+    key, rng = random.split(key)
+    m = model()
+    key, subk = random.split(key)
+
+    state = train_state.TrainState.create(
+        apply_fn=m.apply,
+        params=m.init(rng, z_gt, key)['params'],
+        tx=optax.adam(opt.lr),
+    )
+
+    def train_step(state, batch, z_rng):
+        def loss_fn(params):
+            recons, log_p_z_given_g, q_zs, q_z_mus, q_z_logvars, particles_g, eltwise_log_prob = m.apply({'params': params}, batch, z_rng, adjacency_matrix)
+            n_particles = len(particles_g)
+            mse_loss = 0.
+            for recon in recons:
+                err = (recon - x)
+                mse_loss += jnp.mean(jnp.square(err)) 
+
+            kl_z_loss = 0.
+            # ? get KL( q(z | G) || P(z|G_i) )
+            for i in range(n_particles):
+                cov = jnp.diag(jnp.exp(0.5 * q_z_logvars[i]))
+                q_z = dist.multivariate_normal.pdf(q_zs[i], q_z_mus[i], cov)
+                log_q_z = dist.multivariate_normal.logpdf(q_zs[i], q_z_mus[i], cov)
+                kl_z_loss += (q_z * (log_q_z - log_p_z_given_g[i]))
+
+            soft_constraint = 0.
+            if opt.soft_constraint is True:
+                for g in particles_g:
+                    soft_constraint += jnp.linalg.det(jnp.identity(opt.num_nodes) - g)
+
+            loss = (mse_loss + kl_z_loss - soft_constraint) * 1/n_particles
+            return loss
+
+        loss = loss_fn(state.params)
+    
+        # s = time()
+        grads = jax.grad(loss_fn)(state.params)
+        # print(f'time to get grads {time() - s}s')
+        # s = time()
+        res = state.apply_gradients(grads=grads)
+        # print(f'Time to apply grads {time() - s}s')
+        return res, loss
+
+    for step in tqdm(range(opt.steps)):
+        key, rng = random.split(key)
+        state, loss = train_step(state, x, rng)
+
+
+        if step % 5 == 0:
+            _, _, _, _, _, particles_g, eltwise_log_prob = m.apply({'params': state.params}, x, rng, adjacency_matrix)
+            dibs_empirical = particle_marginal_empirical(particles_g)
+            dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
+            eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
+            eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
+            
+            sampled_graph = utils.log_dags(particles_g, gt_graph, opt, eshd_e, eshd_m)
+            writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
+            # writer.add_scalar('Evaluations/Exp. SHD Empirical', eshd_e, step)
+            # writer.add_scalar('Evaluations/Exp. SHD Marginal', eshd_m, step)
+            # writer.add_scalar('total_losses/Total loss', loss, step)
+            
+            print(f'Step {step} | Loss {loss}')
+            print(f'Expected SHD Marginal: {eshd_m} | Empirical: {eshd_e}')
+            print()
+
+    pass
 
 def train_model(model, loader_objs, exp_config_dict, opt, device, key=None):
     # * DIBS, or a variant thereof, uses jax so train those in a separate function. This function trains only torch models
@@ -179,6 +267,8 @@ def train_model(model, loader_objs, exp_config_dict, opt, device, key=None):
     elif opt.model in ['VAE_DIBS']:
         train_vae_dibs(model, loader_objs, opt, key)
         return
+    elif opt.model in ['Decoder_DIBS']:
+        train_decoder_dibs(model, loader_objs, opt, key)
 
     pred_gt, time_epoch, likelihood, kl_graph, elbo_train, vae_elbo = None, [], [], [], [], []
     optimizers = set_optimizers(model, opt)
