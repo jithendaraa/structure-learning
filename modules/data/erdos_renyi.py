@@ -16,7 +16,7 @@ class ER(Generator):
 		sigma_prior - prior of weights sigma (gaussian)
 		seed - random seed for data
 	"""
-	def __init__(self, num_nodes, exp_edges = 1, noise_type='isotropic-gaussian', noise_sigma = 1.0, num_samples=1000, mu_prior = 2.0, sigma_prior = 1.0, seed = 10, project=None, proj_dims=10):
+	def __init__(self, num_nodes, exp_edges = 1, noise_type='isotropic-gaussian', noise_sigma = 1.0, num_samples=1000, mu_prior = 2.0, sigma_prior = 1.0, seed = 10, project=None, proj_dims=10, noise_mu=0.0):
 		self.noise_sigma = noise_sigma
 		self.proj_dims = proj_dims
 		p = float(exp_edges) / (num_nodes-1)
@@ -36,12 +36,24 @@ class ER(Generator):
 			if acyclic:	mmec = num_mec(self.graph) >=2
 			count += 1
 
-		super().__init__(num_nodes, len(self.graph.edges), noise_type, num_samples, mu_prior = mu_prior , sigma_prior = sigma_prior, seed = seed)
+		super().__init__(num_nodes, len(self.graph.edges), noise_type, num_samples, noise_mu=noise_mu, mu_prior = mu_prior , sigma_prior = sigma_prior, seed = seed)
 		self.init_sampler()
 		self.samples = self.sample(self.num_samples)
 
 		if project == 'linear': 
 			self.projection_matrix = torch.rand(self.num_nodes, self.proj_dims)
+
+			# * inv(PP_t) * PX_t
+			P = self.projection_matrix.numpy()
+			P_T = np.transpose(P)
+			PP_T = np.matmul(P, P_T)
+			PP_T_inv = np.linalg.inv(PP_T)
+			self.true_encoder = np.matmul(P_T, PP_T_inv)
+			self.true_decoder = P
+			
+			print(self.samples.shape, P.shape, self.true_encoder.shape)
+			# print(np.matmul(self.true_encoder, self.projection_samples.numpy()), "OG:",self.samples.numpy())
+
 			self.projected_samples = torch.matmul(self.samples, self.projection_matrix)
 			print(f'Data matrix after linear projection from {num_nodes} dims to {proj_dims} dims: {self.samples.size()}')
 

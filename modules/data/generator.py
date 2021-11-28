@@ -9,7 +9,7 @@ class Generator(torch.utils.data.Dataset):
 
 	""" Base class for generating different graphs and performing ancestral sampling"""
 
-	def __init__(self, num_nodes, num_edges, noise_type, num_samples, mu_prior = None, sigma_prior = None, seed = None):
+	def __init__(self, num_nodes, num_edges, noise_type, num_samples, noise_mu=0., mu_prior = None, sigma_prior = None, seed = None):
 		self.num_nodes = num_nodes
 		self.num_edges = num_edges
 		assert noise_type in NOISE_TYPES, 'Noise types must correspond to {} but got {}'.format(NOISE_TYPES, noise_type)
@@ -53,7 +53,7 @@ class Generator(torch.utils.data.Dataset):
 			elif self.noise_type == 'gaussian':
 				noise_std = np.linspace(0.1, 3., self.num_nodes)
 			for i in range(self.num_nodes):
-				self.graph.nodes[i]['sampler'] = torch.distributions.normal.Normal(0., noise_std[i])
+				self.graph.nodes[i]['sampler'] = torch.distributions.normal.Normal(self.noise_mu, noise_std[i])
 
 		elif self.noise_type == 'exponential':
 			noise_std= [self.noise_sigma]*self.num_nodes
