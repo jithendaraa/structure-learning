@@ -254,7 +254,7 @@ def log_dags(particles_g, gt_graph, opt, eshd_e, eshd_m):
   unique_graph_edge_list, graph_counts, mecs = [], [], []
 
   for adj_mat in predicted_adj_mat:
-      graph_edges = list(nx.from_numpy_matrix(adj_mat).edges())
+      graph_edges = list(nx.from_numpy_matrix(adj_mat, create_using=nx.DiGraph).edges())
       if graph_edges in unique_graph_edge_list:
           graph_counts[unique_graph_edge_list.index(graph_edges)] += 1
       else:
