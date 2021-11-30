@@ -12,6 +12,7 @@ class Generator(torch.utils.data.Dataset):
 	def __init__(self, num_nodes, num_edges, noise_type, num_samples, noise_mu=0., mu_prior = None, sigma_prior = None, seed = None):
 		self.num_nodes = num_nodes
 		self.num_edges = num_edges
+		self.noise_mu = noise_mu
 		assert noise_type in NOISE_TYPES, 'Noise types must correspond to {} but got {}'.format(NOISE_TYPES, noise_type)
 		self.noise_type = noise_type
 		self.num_samples = num_samples

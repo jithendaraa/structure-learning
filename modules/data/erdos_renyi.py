@@ -50,12 +50,9 @@ class ER(Generator):
 			PP_T_inv = np.linalg.inv(PP_T)
 			self.true_encoder = np.matmul(P_T, PP_T_inv)
 			self.true_decoder = P
-			
-			print(self.samples.shape, P.shape, self.true_encoder.shape)
-			# print(np.matmul(self.true_encoder, self.projection_samples.numpy()), "OG:",self.samples.numpy())
 
 			self.projected_samples = torch.matmul(self.samples, self.projection_matrix)
-			print(f'Data matrix after linear projection from {num_nodes} dims to {proj_dims} dims: {self.samples.size()}')
+			print(f'Data matrix after linear projection from {num_nodes} dims to {proj_dims} dims: {self.projected_samples.size()}')
 
 def matrix_poly_np(matrix, d):
 	x = np.eye(d) + matrix/d
