@@ -32,7 +32,7 @@ def parse_args():
 					help='Use factorisable disrtibution')
 	parser.add_argument('--seed', type=int, default=10,
 					help='random seed (default: 10)')
-	parser.add_argument('--data_seed', type=int, default=20,
+	parser.add_argument('--data_seed', type=int, default=12,
 					help='random seed for generating data(default: 20)')
 	parser.add_argument('--batch_size', type=int, default=1000,
 					help='Batch Size for training')
@@ -42,11 +42,11 @@ def parse_args():
 					help='Temperature for the Graph Gibbs Distribution')
 	parser.add_argument('--sparsity_factor', type=float, default=0.001,
 					help='Hyperparameter for sparsity regularizer')
-	parser.add_argument('--epochs', type=int, default=30000,
+	parser.add_argument('--epochs', type=int, default=500,
 					help='Number of iterations to train')
-	parser.add_argument('--num_nodes', type=int, default=5,
+	parser.add_argument('--num_nodes', type=int, default=4,
 					help='Number of nodes in the causal model')
-	parser.add_argument('--num_samples', type=int, default=100,
+	parser.add_argument('--num_samples', type=int, default=7000,
 					help='Total number of samples in the synthetic data')
 	parser.add_argument('--noise_type', type=str, default='isotropic-gaussian',
 					help='Type of noise of causal model')
@@ -58,7 +58,7 @@ def parse_args():
 					help='Std of Parameter Variables')
 	parser.add_argument('--data_type', type=str, default='er',
 					help='Type of data')
-	parser.add_argument('--exp_edges', type=float, default=0.8,
+	parser.add_argument('--exp_edges', type=float, default=0.7,
 					help='Expected number of edges in the random graph')
 	parser.add_argument('--eval_only', action='store_true', default=False,
 					help='Perform Just Evaluation')
@@ -66,7 +66,7 @@ def parse_args():
 					help='Perform gibbs temp annealing')
 	parser.add_argument('--budget', type=int, default=10,
 					help='Number of possible experiments')
-	parser.add_argument('--num_updates', type=int, default=1000,
+	parser.add_argument('--num_updates', type=int, default=500,
 					help='Number of update steps for each interventional update')
 	parser.add_argument('--acq', type=str, default='variance',
 					help='Type of acquisition function to use {variance, random}')
@@ -135,6 +135,7 @@ def main_dibs(args):
 	particles_z = dibs.sample_particles(key=subk, n_steps=n_steps, init_particles_z=init_particles_z)
 
 	particles_g = dibs.particle_to_g_lim(particles_z)
+	print(particles_g)
 	dibs_empirical = particle_marginal_empirical(particles_g)
 	dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
 	eshd_e = expected_shd(dist=dibs_empirical, g=train_data.adjacency_matrix)
