@@ -6,15 +6,11 @@ import jax
 from jax import random, vmap
 from flax import linen as nn
 from jax import device_put
-from jax.ops import index, index_mul
-import numpy as np
 
 from dibs.eval.target import make_graph_model
 from dibs.kernel import FrobeniusSquaredExponentialKernel
 from dibs.inference import MarginalDiBS
-from dibs.utils.func import particle_marginal_empirical, particle_marginal_mixture
 from dibs.models.linearGaussianEquivalent import BGeJAX
-from dibs.eval.metrics import expected_shd
 
 class Decoder_DIBS(nn.Module):
     key: int
@@ -27,6 +23,7 @@ class Decoder_DIBS(nn.Module):
     alpha_linear: float
     n_particles: int
     proj_dims: int
+    num_updates: int = 5
     latent_prior_std: float = None
 
     def setup(self):
@@ -34,11 +31,7 @@ class Decoder_DIBS(nn.Module):
         self.inference_model = BGeJAX(mean_obs=jnp.zeros(self.num_nodes), alpha_mu=1.0, alpha_lambd=self.num_nodes + 2)
         self.kernel = FrobeniusSquaredExponentialKernel(h=self.h_latent)
         self.bge_jax = BGeJAX(mean_obs=jnp.array([self.theta_mu]*self.num_nodes), alpha_mu=self.alpha_mu, alpha_lambd=self.alpha_lambd)
-
-        self.dibs = MarginalDiBS(kernel=self.kernel, 
-                        target_log_prior=self.log_prior, 
-                        target_log_marginal_prob=self.log_likelihood, 
-                        alpha_linear=self.alpha_linear)
+        self.dibs = MarginalDiBS(kernel=self.kernel, target_log_prior=self.log_prior, target_log_marginal_prob=self.log_likelihood, alpha_linear=self.alpha_linear)
 
         # Net to feed in G and predict a Z 
         self.z_net = Z_mu_logvar_Net(self.num_nodes)
@@ -57,19 +50,14 @@ class Decoder_DIBS(nn.Module):
         return log_lik
 
 
-    def __call__(self, z_gt, z_rng, init_particles_z):
-
-        print("inside forward")
-        z_gt = device_put(z_gt, jax.devices()[0])
-
-        # ? 1. Using init particles z, run one SVGD step on dibs and get updated particles and sample a Graph from it
-        key, subk = random.split(z_rng)
-        particles_z = self.dibs.sample_particles(key=key, n_steps=1, 
-                                            init_particles_z=init_particles_z,
-                                            data=z_gt)
+    def __call__(self, z_gt, z_rng, init_particles_z, opt_state_z, sf_baseline, step=0):
+        log_p_z_given_g, q_z_mus, q_z_logvars, q_zs, recons = [], [], [], [], []
+        
+        # ? 1. Using init particles z, run 'num_updates' SVGD step on dibs and get updated particles and sample a Graph from it
+        particles_z, opt_state_z, sf_baseline = self.dibs.sample_particles(n_steps=self.num_updates, init_particles_z=init_particles_z,
+                                                                key=self.key, opt_state_z=opt_state_z, sf_baseline=sf_baseline, 
+                                                                data=z_gt, start=self.num_updates*step)
         particles_g = self.dibs.particle_to_g_lim(particles_z)
-        log_p_z_given_g = []
-        q_z_mus, q_z_logvars, q_zs = [], [], []
         
         for g in particles_g:
             # ? 2. Get log P(z_gt|G) calculated as BGe Score ; G ~ q(G) 
@@ -83,24 +71,14 @@ class Decoder_DIBS(nn.Module):
             q_z_mus.append(q_z_mu)
             q_z_logvars.append(q_z_logvar)
 
-            key, z_rng = random.split(key)
+            key, z_rng = random.split(z_rng)
             q_z = reparameterize(z_rng, q_z_mu, q_z_logvar)
             q_zs.append(q_z)
 
         # ? 4. From q(z|G), decode to get reconstructed samples X in higher dimensions
-        recons = [] 
-        for q_zi in q_zs:
-            recon_xi = self.decoder(q_zi)
-            recons.append(recon_xi)
+        for q_zi in q_zs:   recons.append(self.decoder(q_zi))
 
-        def log_likelihood(single_w, no_interv_targets=None):
-            if no_interv_targets is None: no_interv_targets = jnp.zeros(self.num_nodes).astype(bool)
-            log_lik = self.inference_model.log_marginal_likelihood_given_g(w=single_w, data=z_gt, interv_targets=no_interv_targets)
-            return log_lik
-
-        eltwise_log_prob = vmap(lambda g: log_likelihood(g), 0, 0)
-
-        return recons, log_p_z_given_g, q_zs, q_z_mus, q_z_logvars, particles_g, particles_z, eltwise_log_prob
+        return jnp.array(recons), log_p_z_given_g, jnp.array(q_z_mus), jnp.array(q_z_logvars), particles_g, particles_z, opt_state_z, sf_baseline
 
 
 class Z_mu_logvar_Net(nn.Module):

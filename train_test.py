@@ -1,9 +1,8 @@
 import sys
 sys.path.append('models')
-from jax._src.random import multivariate_normal
-from networkx.readwrite.json_graph import adjacency
+sys.path.append('dibs/')
 
-from networkx.linalg.graphmatrix import adjacency_matrix
+
 import torch
 import torch.optim as optim
 import torch.nn as nn
@@ -17,24 +16,24 @@ import time
 import numpy as np
 import imageio
 from tqdm import tqdm
-
 from torch.utils.tensorboard import SummaryWriter
+from functools import partial
 import vcn_utils
 
+import optax
+import jax
+from jax import device_put
+import jax.scipy.stats as dist
+from flax.training import train_state
 import jax.numpy as jnp
-from jax import vmap, random
+from jax import vmap, random, jit, pmap
 from dibs.kernel import FrobeniusSquaredExponentialKernel
 from dibs.inference import MarginalDiBS
 from dibs.eval.metrics import expected_shd
 from dibs.utils.func import particle_marginal_empirical, particle_marginal_mixture
-import networkx as nx
-import math
-import matplotlib.pyplot as plt
-import optax
-import jax
+from dibs.eval.target import make_graph_model
+from dibs.models.linearGaussianEquivalent import BGeJAX
 from time import time
-import jax.scipy.stats as dist
-from flax.training import train_state
 
 
 
@@ -176,11 +175,13 @@ def train_vae_dibs(model, loader_objs, opt, key):
             print()
 
 def train_decoder_dibs(model, loader_objs, opt, key):
-    particles_g, eltwise_log_prob = None, None
+    particles_g, eltwise_log_prob, dibs_state_z = None, None, None
+    sf_baseline = jnp.zeros(opt.n_particles)
     no_interv_targets = jnp.zeros(opt.num_nodes).astype(bool)
 
     # ! Tensorboard setup and log ground truth causal graph
     logdir = utils.set_tb_logdir(opt)
+    dag_file = join(logdir, 'sampled_dags.png')
     writer = SummaryWriter(logdir)
     gt_graph_image = np.asarray(imageio.imread(join(logdir, 'gt_graph.png')))
     writer.add_image('graph_structure(GT-pred)/Ground truth', gt_graph_image, 0, dataformats='HWC')
@@ -191,61 +192,126 @@ def train_decoder_dibs(model, loader_objs, opt, key):
     x = loader_objs['projected_data']
     
     z_gt = jnp.array(gt_samples) 
+    z_gt = device_put(z_gt, jax.devices()[0])
     x = jnp.array(x)
+    s = time()
 
     key, rng = random.split(key)
     m = model()
-    key, subk = random.split(key)
 
     particles_z = utils.sample_initial_random_particles(key, opt.n_particles, opt.num_nodes)
+    inference_model = BGeJAX(mean_obs=jnp.zeros(opt.num_nodes), alpha_mu=1.0, alpha_lambd=opt.num_nodes + 2)
+
+    def log_likelihood(single_w):
+        log_lik = inference_model.log_marginal_likelihood_given_g(w=single_w, data=z_gt, interv_targets=no_interv_targets)
+        return log_lik
+    
+    eltwise_log_prob = vmap(lambda g: log_likelihood(g), 0, 0)
 
     state = train_state.TrainState.create(
         apply_fn=m.apply,
-        params=m.init(rng, z_gt, key, particles_z)['params'],
+        params=m.init(rng, z_gt, key, particles_z, dibs_state_z, sf_baseline)['params'],
         tx=optax.adam(opt.lr),
     )
 
-    @jax.jit
-    def train_step(state, batch, z_rng, particles):
+    @partial(jit, static_argnums=(6,))
+    def train_step(state, batch, z_rng, particles, dibs_state_z, sf_baseline, step):
         def loss_fn(params):
-            recons, _, _, _, _, particles_g, particles_z, eltwise_log_prob = m.apply({'params': params}, batch, z_rng, particles)
-            mse_loss = 0.
-            for recon in recons:
-                err = (recon - x)
-                mse_loss += jnp.mean(jnp.square(err)) 
+            recons, _, q_z_mus, q_z_logvars, _, _, _, _ = m.apply({'params': params}, batch, z_rng, particles, dibs_state_z, sf_baseline, step)
+            mse_loss, kl_z_loss = 0., 0.
+            
+            get_mse = lambda recon, x: jnp.mean(jnp.square(recon - x)) 
+            v_get_mse = vmap(get_mse, (0, None), 0)
+            mse_loss += jnp.sum(v_get_mse(recons, x))
 
-            loss = (mse_loss) 
+            p_std = jnp.array([2., 1., 1., jnp.sqrt(2.)])
+            get_kl = lambda q_z_mu, q_z_logvar, p_std: jnp.sum(-0.5 + (jnp.log(p_std) - 0.5 * q_z_logvar) + (jnp.exp(q_z_logvar) + (q_z_mu)**2)/(2*(p_std**2)))
+            v_get_kl = vmap(get_kl, (0, 0, None), 0)
+            kl_z_loss += jnp.sum(v_get_kl(q_z_mus, q_z_logvars, p_std))
+
+            loss = (mse_loss + kl_z_loss) / opt.n_particles
             return loss
 
-        _, _, _, _, _, particles_g, particles_z, eltwise_log_prob = m.apply({'params': state.params}, batch, z_rng, particles)
+        _, _, q_z_mus, q_z_logvars, particles_g, particles_z, dibs_state_z, sf_baseline = m.apply({'params': state.params}, batch, z_rng, particles, dibs_state_z, sf_baseline, step)
         loss = loss_fn(state.params)
-        grads = jax.grad(loss_fn)(state.params)
-        res = state.apply_gradients(grads=grads)
-        return res, loss, particles_g, particles_z
+        # grads = jax.grad(loss_fn)(state.params)
+        # res = state.apply_gradients(grads=grads)
+        return state, loss, particles_g, particles_z, q_z_mus, q_z_logvars, dibs_state_z, sf_baseline
+
 
     for step in range(opt.steps):
         key, rng = random.split(key)
-        state, loss, particles_g, particles_z = train_step(state, z_gt, rng, particles_z)
+        s = time()
+        state, loss, particles_g, particles_z, q_z_mus, q_z_logvars, dibs_state_z, sf_baseline = train_step(state, z_gt, rng, particles_z, dibs_state_z, sf_baseline, step)
+        print(f'Step {step} | Loss {loss}')
 
-        if step % 300 == 0:
+        if step > 0 and step % 20 == 0:
+            p_std = jnp.array([2., 1., 1., jnp.sqrt(2.)])
+            kl = 0.
+            for i in range(len(particles_g)):
+                kl += -0.5 + (jnp.log(p_std) - 0.5 * q_z_logvars[i]) + (jnp.exp(q_z_logvars[i]) + (q_z_mus[i])**2)/(2*(p_std**2))
+            print("Gaussian loss", jnp.sum(kl))
+
             dibs_empirical = particle_marginal_empirical(particles_g)
-        #     dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
+            dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
             eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
-        #     eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
+            eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
             
-            sampled_graph = utils.log_dags(particles_g, gt_graph, opt, eshd_e, -1.0)
-            writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
-        #     # writer.add_scalar('Evaluations/Exp. SHD Empirical', eshd_e, step)
-        #     # writer.add_scalar('Evaluations/Exp. SHD Marginal', eshd_m, step)
-        #     # writer.add_scalar('total_losses/Total loss', loss, step)
-            
-            print(f'Step {step} | Loss {loss}')
-            # print(f'Expected SHD Marginal: {eshd_m} | Empirical: {eshd_e}')
-            print(f'Expected SHD Empirical: {eshd_e}')
-            print(particles_g[0], particles_g.shape)
-            print()
+            print(f'Expected SHD Marginal: {eshd_m} | Empirical: {eshd_e}')
 
-    # pass
+            sampled_graph = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
+            writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
+
+    #     print()
+
+    print(time() - s)  
+
+
+
+
+# todo !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+    # graph_model = make_graph_model(n_vars=opt.num_nodes, graph_prior_str = opt.data_type)
+    # inference_model = BGeJAX(mean_obs=jnp.zeros(opt.num_nodes), alpha_mu=1.0, alpha_lambd=opt.num_nodes + 2)
+    # kernel = FrobeniusSquaredExponentialKernel(h=opt.h_latent)
+    # bge_jax = BGeJAX(mean_obs=jnp.array([opt.theta_mu]*opt.num_nodes), alpha_mu=opt.alpha_mu, alpha_lambd=opt.alpha_lambd)
+        
+    # def log_prior(single_w_prob):
+    #     """log p(G) using edge probabilities as G"""    
+    #     return graph_model.unnormalized_log_prob_soft(soft_g=single_w_prob)
+
+    # def log_likelihood(single_w, z, no_interv_targets=None):
+    #     if no_interv_targets is None:
+    #         no_interv_targets = jnp.zeros(opt.num_nodes).astype(bool)
+            
+    #     log_lik = inference_model.log_marginal_likelihood_given_g(w=single_w, data=z, interv_targets=no_interv_targets)
+    #     return log_lik
+
+
+    # # # ? 1. Using init particles z, run one SVGD step on dibs and get updated particles and sample a Graph from it
+    # # key, subk = random.split(key)
+    # dibs = MarginalDiBS(kernel=kernel, 
+    #                 target_log_prior=log_prior, 
+    #                 target_log_marginal_prob=log_likelihood, 
+    #                 alpha_linear=opt.alpha_linear)
+
+    # print("INIT", particles_z[0][0])
+    # for _ in range(20):
+    #     # key, subk = random.split(key)
+    #     particles_z = dibs.sample_particles(key=key, n_steps=10, 
+    #                                         init_particles_z=particles_z,
+    #                                         data=z_gt, start=10*_)
+    #     print(particles_z[0][0])
+
+    # particles_g = dibs.particle_to_g_lim(particles_z)
+    # print(particles_g)
+    # eltwise_log_prob = vmap(lambda g, d: log_likelihood(g, d), 0, 0)	
+    # dibs_empirical = particle_marginal_empirical(particles_g)
+    # # dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
+    # eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
+    # # eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
+    # print("ESHD (empirical):", eshd_e)
+    # print("ESHD (marginal):", eshd_m)
 
 def train_model(model, loader_objs, exp_config_dict, opt, device, key=None):
     # * DIBS, or a variant thereof, uses jax so train those in a separate function. This function trains only torch models
