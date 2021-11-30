@@ -32,4 +32,8 @@ elif [ ${exp_id} == '5' ]
 then
     # Run DIBS
     bash script_runners/vae_dibs_job_run.sh ${dataset} ${train} 'VAE_DIBS' ${time}
+elif [ ${exp_id} == '6' ]
+then
+    # Run DIBS
+    bash script_runners/decoder_dibs_job_run.sh ${dataset} ${train} 'Decoder_DIBS' ${time}
 fi
