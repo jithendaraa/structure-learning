@@ -220,8 +220,10 @@ def set_tb_logdir(opt):
   elif opt.model in ['Slot_VCN_img']:
     logdir += f'_({opt.num_nodes}-{opt.slot_size})_seed{opt.seed}_{opt.data_seed}_factorised{opt.factorised}_proj{opt.proj}{opt.proj_dims}_expedges{opt.exp_edges}'
   elif opt.model in ['DIBS']:
-    logdir += f'_({opt.num_nodes})_seed{opt.seed}_{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}'
+    logdir += f'_({opt.num_nodes})_seed{opt.seed}_{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_dibsupdates{opt.num_updates}'
   elif opt.model in ['VAE_DIBS']:
+    logdir += f'_({opt.num_nodes})_seed{opt.seed}_{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_sftcnstrnt_{opt.soft_constraint}_dibsupdates{opt.num_updates}_knownED{opt.known_ED}'
+  elif opt.model in ['Decoder_DIBS']:
     logdir += f'_({opt.num_nodes})_seed{opt.seed}_{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_sftcnstrnt_{opt.soft_constraint}_dibsupdates{opt.num_updates}_knownED{opt.known_ED}'
 
   print("logdir:", logdir)
@@ -248,7 +250,7 @@ def is_mec(g1, g2):
   all_g2_mecs = g2_skeleton.all_dags() #Find all DAGs in MEC
   return all_g1_mecs == all_g2_mecs
 
-def log_dags(particles_g, gt_graph, opt, eshd_e, eshd_m):
+def log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file):
   n_particles, num_nodes, _ = particles_g.shape
   predicted_adj_mat = np.array(particles_g)
   unique_graph_edge_list, graph_counts, mecs = [], [], []
@@ -262,6 +264,7 @@ def log_dags(particles_g, gt_graph, opt, eshd_e, eshd_m):
           graph_counts.append(1)
 
   sampled_graphs = [nx.DiGraph() for _ in range(len(graph_counts))]
+
   for i in range(len(graph_counts)):
       graph = sampled_graphs[i]
       graph.add_nodes_from([0, num_nodes-1])
@@ -269,13 +272,15 @@ def log_dags(particles_g, gt_graph, opt, eshd_e, eshd_m):
       sampled_graphs[i] = graph
       mecs.append(is_mec(graph, gt_graph))
 
-  dag_file = join((set_tb_logdir(opt)), 'sampled_dags.png')
   print(f'DiBS Predicted {len(graph_counts)} unique graphs from {n_particles} modes')
 
   nrows, ncols = int(math.ceil(len(sampled_graphs) / 5.0)), 5
   fig = plt.figure()
   fig.set_size_inches(ncols * 5, nrows * 5)
   count = 0
+  gt_graph_edges = list(gt_graph.edges())
+  gt_graph_edges.sort()
+
   for idx in range(len(sampled_graphs)):
       graph = sampled_graphs[idx]
       ax = plt.subplot(nrows, ncols, count+1)
@@ -288,21 +293,20 @@ def log_dags(particles_g, gt_graph, opt, eshd_e, eshd_m):
       ax.spines['left'].set_visible(False)
       ax.spines['bottom'].set_visible(False)
 
-      same_graph = (list(graph.edges()) == list(gt_graph.edges()))
+      pred_graph_edges = list(graph.edges())
+      pred_graph_edges.sort()
+      same_graph = (pred_graph_edges == gt_graph_edges)
       
       if same_graph is True: color='blue'
       elif mecs[idx] is True: color='red'
       else: color='black'
 
-      if same_graph is True:
-          ax.set_title(f'Freq: {graph_counts[idx]} | Ground truth', fontsize=23, color=color)
-      else:
-          ax.set_title(f'Freq: {graph_counts[idx]} | MEC: {mecs[idx]}', fontsize=23, color=color)
+      if same_graph is True:  ax.set_title(f'Freq: {graph_counts[idx]} | Ground truth', fontsize=23, color=color)
+      else:   ax.set_title(f'Freq: {graph_counts[idx]} | MEC: {mecs[idx]}', fontsize=23, color=color)
 
   plt.suptitle(f'Exp. SHD (empirical): {eshd_e:.3f} Exp. SHD (marginal mixture): {eshd_m:.3f}', fontsize=20)
   plt.tight_layout()
   plt.savefig(dag_file, dpi=60)
-  # print( f'Saved sampled DAGs at {dag_file}' )
   plt.show()
   sampled_graph = np.asarray(imageio.imread(dag_file))
   return sampled_graph

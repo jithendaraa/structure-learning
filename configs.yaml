@@ -98,17 +98,22 @@ train_clevr_sa_img:
   steps: 100000
 
 # ? 2a Vanilla VCN (numerical)
+# ! python main.py --config defaults experimental train_vcn
 train_vcn:
   ckpt_id: 'train_vcn' 
   dataset: 'er'
   datatype: 'er'
   batch_size: 1000
   seed: 10
-  data_seed: 8
+  data_seed: 10
   lr: 1e-2
   steps: 30000
   model: 'VCN'
   num_nodes: 4
+  opti: 'default'
+  num_samples: 500
+  exp_edges: 0.7
+
 
 # ? 3. Image VCN
 train_clevr_vcn_img:
@@ -215,8 +220,11 @@ train_dibs_er:
   data_seed: 10
   lr: 1e-2
   num_nodes: 4
-  exp_edges: 0.95
+  exp_edges: 0.7
   proj: 'no'
+  num_updates: 500
+  num_samples: 500
+
 
 # ? 8. VAE_DIBS
 # ! python main.py --config defaults experimental linear_vaedibs_er
@@ -232,7 +240,7 @@ linear_vaedibs_er:
   exp_edges: 0.7
   proj: 'linear'
   known_ED: (True,True)
-  steps: 5000      # updates for VAE part of VAE DIBS
+  steps: 1000      # updates for VAE part of VAE DIBS
   num_updates: 500    # updates for DIBS
   proj_dims: 10
   num_samples: 3000
@@ -246,18 +254,18 @@ linear_decoderdibs_er:
   dataset: 'er'
   datatype: 'er'
   batch_size: 1000
-  data_seed: 12
-  lr: 5e-4
+  data_seed: 10
+  lr: 8e-4
   num_nodes: 4
   exp_edges: 0.7
   proj: 'linear'
-  steps: 30000      # updates for VAE part of VAE DIBS
+  steps: 50      # updates for VAE part
+  num_updates: 10    # updates for DIBS
   proj_dims: 10
-  num_samples: 5000
+  num_samples: 500
   soft_constraint: False
   known_ED: False
 
-  
 experimental:
   off_wandb: True
 

@@ -156,7 +156,8 @@ class VCN(nn.Module):
 
 	def forward(self, bge_model, e, gt_graph, interv_targets = None):
 		n_samples = self.opt.batch_size
-		if e == 0:
+		
+		if e == 0 and self.num_nodes < 5:
 			self.get_enumerated_dags(n_samples, bge_model, gt_graph, interv_targets)
 		# graph_dist is of class AutoregressiveBase()
 		# Use init_input & init_state (learnable params) -> embed, rnn, project to get logits and state 
@@ -201,7 +202,7 @@ class VCN(nn.Module):
 			log_likelihood = bge_model.log_marginal_likelihood_given_g(w = sampled_G_adj_mat, interv_targets=interv_targets)
 
 		for adj_mat, ll in zip(sampled_G_adj_mat.cpu().numpy(), log_likelihood):
-			graph_edges = list(nx.from_numpy_matrix(adj_mat).edges())
+			graph_edges = list(nx.from_numpy_matrix(adj_mat, create_using=nx.DiGraph).edges())
 			if graph_edges in unique_graph_edge_list:
 				graph_counts[unique_graph_edge_list.index(graph_edges)] += 1
 			else:
@@ -225,6 +226,9 @@ class VCN(nn.Module):
 		fig = plt.figure()
 		fig.set_size_inches(ncols * 5, nrows * 5)
 		count = 0
+		gt_graph_edges = list(gt_graph.edges())
+		gt_graph_edges.sort()
+
 		for idx in range(len(sampled_graphs)):
 			graph = sampled_graphs[idx]
 			ax = plt.subplot(nrows, ncols, count+1)
@@ -237,7 +241,9 @@ class VCN(nn.Module):
 			ax.spines['left'].set_visible(False)
 			ax.spines['bottom'].set_visible(False)
 
-			same_graph = (list(graph.edges()) == list(gt_graph.edges()))
+			pred_graph_edges = list(graph.edges())
+			pred_graph_edges.sort()
+			same_graph = (pred_graph_edges == gt_graph_edges)
 			
 			if same_graph is True: color='blue'
 			elif mecs[idx] is True: color='red'

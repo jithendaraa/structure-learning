@@ -32,7 +32,7 @@ def parse_args():
 					help='Use factorisable disrtibution')
 	parser.add_argument('--seed', type=int, default=10,
 					help='random seed (default: 10)')
-	parser.add_argument('--data_seed', type=int, default=12,
+	parser.add_argument('--data_seed', type=int, default=1,
 					help='random seed for generating data(default: 20)')
 	parser.add_argument('--batch_size', type=int, default=1000,
 					help='Batch Size for training')
