@@ -267,8 +267,6 @@ class BGeJAX:
         """
         
         N, d = data.shape        
-
-        # intervention
         if interv_targets is None:
             interv_targets = jnp.zeros(d).astype(bool)
 
@@ -302,6 +300,8 @@ class BGeJAX:
         n_parents_all = w.sum(axis=0)
 
         # sum scores for all nodes
+        import pdb; pdb.set_trace()
+        
         return jnp.sum(
             jnp.where(
                 interv_targets,

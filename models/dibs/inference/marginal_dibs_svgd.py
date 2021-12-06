@@ -6,6 +6,7 @@ from jax import jit, vmap, random, grad
 from jax.experimental import optimizers
 
 from dibs.inference.dibs import DiBS
+from time import time
 
 
 class MarginalDiBS(DiBS):
@@ -33,10 +34,9 @@ class MarginalDiBS(DiBS):
         latent_prior_std (float): standard deviation of Gaussian prior over Z; defaults to 1/sqrt(k)
     """
 
-
     def __init__(self, *, kernel, target_log_prior, target_log_marginal_prob, alpha_linear, beta_linear=1.0, tau=1.0,
                  optimizer=dict(name='rmsprop', stepsize=0.005), n_grad_mc_samples=128, n_acyclicity_mc_samples=32, 
-                 grad_estimator_z='score', score_function_baseline=0.0,
+                 grad_estimator_z='reparam', score_function_baseline=0.0,
                  latent_prior_std=None, verbose=False):
 
         """
@@ -44,7 +44,7 @@ class MarginalDiBS(DiBS):
         we define a marginal log likelihood variant with dummy parameter inputs. This will allow using the same 
         gradient estimator functions for both inference cases.
         """
-        target_log_marginal_prob_extra_args = lambda single_z, single_theta, rng, data: target_log_marginal_prob(single_z, data)
+        target_log_marginal_prob_extra_args = lambda single_z, single_theta, subk, data: target_log_marginal_prob(single_z, data)
 
         super(MarginalDiBS, self).__init__(
             target_log_prior=target_log_prior,
@@ -81,8 +81,7 @@ class MarginalDiBS(DiBS):
             z: batch of latent tensors [n_particles, d, k, 2]    
         """
         # default full rank
-        if n_dim is None:
-            n_dim = n_vars 
+        if n_dim is None:   n_dim = n_vars 
         
         # like prior
         std = self.latent_prior_std or (1.0 / jnp.sqrt(n_dim))
@@ -192,22 +191,27 @@ class MarginalDiBS(DiBS):
             the updated inputs
         """
         z = self.get_params(opt_state_z) # [n_particles, d, k, 2]
+        print(z[0])
+        print(opt_state_z)
+        
         n_particles = z.shape[0]
         h = self.kernel.h   # make sure same bandwith is used for all calls to k(x, x') (in case e.g. the median heuristic is applied)
 
         # ? d/dz log p(D | z) grad log likelihood
         key, *batch_subk = random.split(key, n_particles + 1) 
         dz_log_likelihood, sf_baseline = self.eltwise_grad_z_likelihood(z, None, sf_baseline, t, jnp.array(batch_subk), data)
+        print("Got grads", dz_log_likelihood.shape, z.shape)
         # here `None` is a placeholder for theta (in the joint inference case) 
         # since this is an inherited function from the general `DiBS` class
+
         # ? d/dz log p(z) (acyclicity) grad log PRIOR
         key, *batch_subk = random.split(key, n_particles + 1)
         dz_log_prior = self.eltwise_grad_latent_prior(z, jnp.array(batch_subk), t)
         
-        # d/dz log p(z, D) = d/dz log p(z)  + log p(D | z) 
+        # ? d/dz log p(z, D) = d/dz log p(z)  + log p(D | z) 
         dz_log_prob = dz_log_prior + dz_log_likelihood
         
-        kxx = self.f_kernel_mat(z, z, h, t) # k(z, z) for all particles
+        kxx = self.f_kernel_mat(z, z, h, t) # ? k(z, z) for all particles
         # transformation phi() applied in batch to each particle individually
         phi_z = self.parallel_update_z(z, kxx, z, dz_log_prob, h, t)
 
@@ -235,7 +239,7 @@ class MarginalDiBS(DiBS):
         """
         z = init_particles_z
         n_particles, _, n_dim, _ = z.shape  
-           
+        if sf_baseline is None: sf_baseline = jnp.zeros(n_particles)
         if self.latent_prior_std is None: self.latent_prior_std = 1.0 / jnp.sqrt(n_dim)
 
         # init optimizer
@@ -249,6 +253,8 @@ class MarginalDiBS(DiBS):
             self.opt_init, self.opt_update, self.get_params = opt
             self.get_params = jit(self.get_params)
             opt_state_z = self.opt_init(z)
+            # import pdb; pdb.set_trace()
+            # print(opt_state_z.packed_state.shape, len(opt_state_z), type(opt_state_z[1]), type(opt_state_z[0]), len(opt_state_z[0][0]))
             self.opt = opt
 
         """Execute particle update steps for all particles in parallel using `vmap` functions"""

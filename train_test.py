@@ -179,7 +179,7 @@ def train_vae_dibs(model, loader_objs, opt, key):
             print()
 
 def train_decoder_dibs(model, loader_objs, opt, key):
-    particles_g, eltwise_log_prob, dibs_state_z = None, None, None
+    particles_g, eltwise_log_prob, opt_state_z = None, None, None
     sf_baseline = jnp.zeros(opt.n_particles)
     no_interv_targets = jnp.zeros(opt.num_nodes).astype(bool)
 
@@ -194,15 +194,13 @@ def train_decoder_dibs(model, loader_objs, opt, key):
     adjacency_matrix = loader_objs['adj_matrix']
     gt_samples = loader_objs['data']
     x = loader_objs['projected_data']
-    
     z_gt = jnp.array(gt_samples) 
     z_gt = device_put(z_gt, jax.devices()[0])
     x = jnp.array(x)
-    s = time()
 
-    key, rng = random.split(key)
     m = model()
 
+    key, rng = random.split(key)
     particles_z = utils.sample_initial_random_particles(key, opt.n_particles, opt.num_nodes)
     inference_model = BGeJAX(mean_obs=jnp.zeros(opt.num_nodes), alpha_mu=1.0, alpha_lambd=opt.num_nodes + 2)
 
@@ -213,13 +211,13 @@ def train_decoder_dibs(model, loader_objs, opt, key):
     eltwise_log_prob = vmap(lambda g: log_likelihood(g), 0, 0)
 
     optimizer = optax.adam(opt.lr)
-    # dibs_state_z = optimizer.init(particles_z)
+    # dibs_params = optimizer.init(particles_z)
     # print(len(dibs_state_z), dibs_state_z[0].mu.shape, dibs_state_z[1])
-
+    # print(particles_z)
     state = train_state.TrainState.create(
         apply_fn=m.apply,
-        params=m.init(rng, z_gt, key, particles_z, dibs_state_z, sf_baseline)['params'],
-        tx=optimizer,
+        params=m.init(rng, z_gt, key, particles_z, opt_state_z, sf_baseline)['params'],
+        tx=optimizer
     )
 
     # @partial(jit, static_argnums=(6,))

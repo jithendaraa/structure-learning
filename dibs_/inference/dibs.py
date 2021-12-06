@@ -342,10 +342,7 @@ class DiBS:
 
     def grad_z_likelihood_score_function(self, single_z, single_theta, single_sf_baseline, t, subk):
         """
-        Score function estimator (aka REINFORCE) for the score
-
-            d/dZ log p(theta, D | Z) 
-
+        Score function estimator (aka REINFORCE) for the score d/dZ log p(theta, D | Z) 
         This does not use d/dG log p(theta, D | G) and is hence applicable when not defined.
         Uses same G samples for expectations in numerator and denominator.
 
@@ -364,6 +361,7 @@ class DiBS:
         # [d, d]
         p = self.edge_probs(single_z, t)
         n_vars, n_dim = single_z.shape[0:2]
+        print(p, n_vars, n_dim, self.n_grad_mc_samples)
 
         # [n_grad_mc_samples, d, d]
         subk, subk_ = random.split(subk)
