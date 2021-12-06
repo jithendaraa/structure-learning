@@ -297,19 +297,12 @@ class BGeJAX:
         )
 
         # compute number of parents for each node
-        n_parents_all = w.sum(axis=0)
+        n_parents_all = w.sum(axis=0).astype(jnp.int32)
 
         # sum scores for all nodes
-        import pdb; pdb.set_trace()
-        
-        return jnp.sum(
-            jnp.where(
-                interv_targets,
-                0.0,
-                self.eltwise_log_marginal_likelihood_given_g_single(jnp.arange(
-                    d), n_parents_all, R, w, data, log_gamma_terms)
-            )
-        )
+        res = self.eltwise_log_marginal_likelihood_given_g_single(jnp.arange(d), n_parents_all, R, w, data, log_gamma_terms)
+
+        return jnp.sum(jnp.where(interv_targets, 0.0, res))
 
         # prev code without interventions
         # return jnp.sum(self.log_marginal_likelihood_given_g_j(jnp.arange(d), n_parents_all, R, w, data, log_gamma_terms))
