@@ -199,7 +199,6 @@ def train_decoder_dibs(model, loader_objs, opt, key):
     x = jnp.array(x)
 
     m = model()
-
     key, rng = random.split(key)
     particles_z = utils.sample_initial_random_particles(key, opt.n_particles, opt.num_nodes)
     inference_model = BGeJAX(mean_obs=jnp.zeros(opt.num_nodes), alpha_mu=1.0, alpha_lambd=opt.num_nodes + 2)
@@ -209,74 +208,70 @@ def train_decoder_dibs(model, loader_objs, opt, key):
         return log_lik
     
     eltwise_log_prob = vmap(lambda g: log_likelihood(g), 0, 0)
-
     optimizer = optax.adam(opt.lr)
-    # dibs_params = optimizer.init(particles_z)
-    # print(len(dibs_state_z), dibs_state_z[0].mu.shape, dibs_state_z[1])
-    # print(particles_z)
+
     state = train_state.TrainState.create(
         apply_fn=m.apply,
-        params=m.init(rng, z_gt, key, particles_z, opt_state_z, sf_baseline)['params'],
+        params=m.init(rng, z_gt, key, particles_z, sf_baseline)['params'],
         tx=optimizer
     )
 
-    # @partial(jit, static_argnums=(6,))
-    # def train_step(state, batch, z_rng, particles, dibs_state_z, sf_baseline, step):
-    #     def loss_fn(params):
-    #         recons, _, q_z_mus, q_z_logvars, _, _, _, _ = m.apply({'params': params}, batch, z_rng, particles, dibs_state_z, sf_baseline, step)
-    #         mse_loss, kl_z_loss = 0., 0.
+    # @partial(jit, static_argnums=(5,))
+    def train_step(state, batch, z_rng, particles, sf_baseline, step):
+        def loss_fn(params):
+            recons, q_z_mus, q_z_logvars, _, _, _, _ = m.apply({'params': params}, batch, z_rng, particles, sf_baseline, step)
+            mse_loss, kl_z_loss = 0., 0.
             
-    #         get_mse = lambda recon, x: jnp.mean(jnp.square(recon - x)) 
-    #         v_get_mse = vmap(get_mse, (0, None), 0)
-    #         mse_loss += jnp.sum(v_get_mse(recons, x))
+            get_mse = lambda recon, x: jnp.mean(jnp.square(recon - x)) 
+            v_get_mse = vmap(get_mse, (0, None), 0)
+            mse_loss += jnp.sum(v_get_mse(recons, x))
 
-    #         p_std = jnp.array([2., 1., 1., jnp.sqrt(2.)])
-    #         get_kl = lambda q_z_mu, q_z_logvar, p_std: jnp.sum(-0.5 + (jnp.log(p_std) - 0.5 * q_z_logvar) + (jnp.exp(q_z_logvar) + (q_z_mu)**2)/(2*(p_std**2)))
-    #         v_get_kl = vmap(get_kl, (0, 0, None), 0)
-    #         kl_z_loss += jnp.sum(v_get_kl(q_z_mus, q_z_logvars, p_std))
+            p_std = jnp.array([2., 1., 1., jnp.sqrt(2.)])
+            get_kl = lambda q_z_mu, q_z_logvar, p_std: jnp.sum(-0.5 + (jnp.log(p_std) - 0.5 * q_z_logvar) + (jnp.exp(q_z_logvar) + (q_z_mu)**2)/(2*(p_std**2)))
+            v_get_kl = vmap(get_kl, (0, 0, None), 0)
+            kl_z_loss += jnp.sum(v_get_kl(q_z_mus, q_z_logvars, p_std))
 
-    #         loss = (mse_loss + kl_z_loss) / opt.n_particles
-    #         return loss
+            loss = (mse_loss + kl_z_loss) / opt.n_particles
+            return loss
 
-    #     recons, _, q_z_mus, q_z_logvars, particles_g, particles_z, dibs_state_z, sf_baseline = m.apply({'params': state.params}, batch, z_rng, particles, dibs_state_z, sf_baseline, step)
-    #     grads = jax.grad(loss_fn)(state.params)
-    #     res = state.apply_gradients(grads=grads)
+        recons, q_z_mus, q_z_logvars, phi_z, soft_g, sf_baseline, z_rng = m.apply({'params': state.params}, batch, z_rng, particles, sf_baseline, step)
+        
+        # ? 6. Particles_z updated as SVGD transport step z(t+1)(particle m) = z(t)(m) + step_size * phi_z(t)(m)
+        particles = particles - (0.001 * phi_z)
+        
+        grads = jax.grad(loss_fn)(state.params)
+        res = state.apply_gradients(grads=grads)
 
-    #     mse_loss, kl_z_loss = 0., 0.
-    #     get_mse = lambda recon, x: jnp.mean(jnp.square(recon - x)) 
-    #     v_get_mse = vmap(get_mse, (0, None), 0)
-    #     mse_loss += jnp.sum(v_get_mse(recons, x))
+        mse_loss, kl_z_loss = 0., 0.
+        get_mse = lambda recon, x: jnp.mean(jnp.square(recon - x)) 
+        v_get_mse = vmap(get_mse, (0, None), 0)
+        mse_loss += jnp.sum(v_get_mse(recons, x))
 
-    #     p_std = jnp.array([2., 1., 1., jnp.sqrt(2.)])
-    #     get_kl = lambda q_z_mu, q_z_logvar, p_std: jnp.sum(-0.5 + (jnp.log(p_std) - 0.5 * q_z_logvar) + (jnp.exp(q_z_logvar) + (q_z_mu)**2)/(2*(p_std**2)))
-    #     v_get_kl = vmap(get_kl, (0, 0, None), 0)
-    #     kl_z_loss += jnp.sum(v_get_kl(q_z_mus, q_z_logvars, p_std))
+        p_std = jnp.array([2., 1., 1., jnp.sqrt(2.)])
+        get_kl = lambda q_z_mu, q_z_logvar, p_std: jnp.sum(-0.5 + (jnp.log(p_std) - 0.5 * q_z_logvar) + (jnp.exp(q_z_logvar) + (q_z_mu)**2)/(2*(p_std**2)))
+        v_get_kl = vmap(get_kl, (0, 0, None), 0)
+        kl_z_loss += jnp.sum(v_get_kl(q_z_mus, q_z_logvars, p_std))
+        loss = (mse_loss + kl_z_loss) / opt.n_particles
 
-    #     loss = (mse_loss + kl_z_loss) / opt.n_particles
+        return res, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, np.asarray(soft_g), particles, sf_baseline
 
-    #     return res, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, particles_g, particles_z, dibs_state_z, sf_baseline
+    for step in range(opt.steps):
+        key, rng = random.split(key)
+        s = time()
+        state, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, soft_g, particles_z, sf_baseline = train_step(state, z_gt, rng, particles_z, sf_baseline, step)
+        print(f'Step {step} | Loss {loss} | MSE: {mse_loss} | KL: {kl_z_loss} | Time per train step: {time() - s}s')
+        particles_g = np.random.binomial(1, soft_g, soft_g.shape)
 
-    # for step in range(opt.steps):
-    #     key, rng = random.split(key)
-    #     s = time()
-    #     state, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, particles_g, particles_z, dibs_state_z, sf_baseline = train_step(state, z_gt, rng, particles_z, dibs_state_z, sf_baseline, step)
-    #     print(f'Step {step} | Loss {loss} | MSE: {mse_loss} | KL: {kl_z_loss} | Time per train step: {time() - s}s')
-
-    #     if step >= 20 and step % 5 == 0:
-    #         # print()
-    #         # loss_str = eval_step(state, z_gt, rng, particles_z, dibs_state_z, sf_baseline, step)
-    #         dibs_empirical = particle_marginal_empirical(particles_g)
-    #         dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
-    #         eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
-    #         eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
-            
-    #         sampled_graph = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
-    #         writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
-            
-    #         print(f'Expected SHD Marginal: {eshd_m} | Empirical: {eshd_e}')
-
-
-    #     print()
+        if step >= 50 and step % 5 == 0:
+            dibs_empirical = particle_marginal_empirical(particles_g)
+            dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
+            eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
+            eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
+            sampled_graph = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
+            writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
+            print(f'Expected SHD Marginal: {eshd_m} | Empirical: {eshd_e}')
+            print(q_z_mus, q_z_logvars)
+        print()
 
         
 

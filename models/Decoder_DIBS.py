@@ -1,11 +1,11 @@
 import sys
 sys.path.append('dibs/')
 from time import time
-import tqdm
+import functools
 
 import jax.numpy as jnp
 import jax
-from jax import random, vmap, grad
+from jax import random, vmap, grad, device_put, jit
 from flax import linen as nn
 from jax.ops import index, index_mul
 from jax.nn import sigmoid, log_sigmoid
@@ -15,8 +15,53 @@ from jax.scipy.special import logsumexp
 
 from dibs.eval.target import make_graph_model
 from dibs.kernel import FrobeniusSquaredExponentialKernel
-from dibs.inference import MarginalDiBS, dibs
+# from dibs.inference import MarginalDiBS, dibs
 from dibs.models.linearGaussianEquivalent import BGeJAX
+from dibs.utils.graph import acyclic_constr_nograd
+
+class Z_mu_logvar_Net(nn.Module):
+    latent_dims: int
+
+    @nn.compact
+    def __call__(self, g):
+        z = nn.Dense(20, name='encoder_0')(g)
+        z = nn.relu(z)
+        z = nn.Dense(self.latent_dims, name='encoder_1')(z)
+        z = nn.relu(z)
+        z = nn.Dense(self.latent_dims, name='encoder_2')(z)
+        z = nn.relu(z)
+        
+        z_mu = nn.Dense(self.latent_dims, name='mu_encoder_0')(z)
+        z_mu = nn.relu(z_mu)
+        z_mu = nn.Dense(self.latent_dims, name='mu_encoder_1')(z_mu)
+
+        z_logvar = nn.Dense(self.latent_dims, name='logvar_encoder_0')(z)
+        z_logvar = nn.relu(z_logvar)
+        z_logvar = nn.Dense(self.latent_dims, name='logvar_encoder_1')(z_logvar)
+
+        return z_mu, z_logvar
+
+
+class Decoder(nn.Module):
+    dims: int
+
+    @nn.compact
+    def __call__(self, z):
+        z = nn.Dense(10, name='decoder_fc0')(z)
+        z = nn.relu(z)
+        z = nn.Dense(self.dims, name='decoder_fc1')(z)
+        z = nn.relu(z)
+        z = nn.Dense(self.dims, name='decoder_fc2')(z)
+        z = nn.relu(z)
+        z = nn.Dense(self.dims, name='decoder_fc3')(z)
+        return z
+        
+
+def reparameterize(rng, mean, logvar):
+  std = jnp.exp(0.5 * logvar)
+  eps = random.normal(rng, logvar.shape)
+  return mean + eps * std
+
 
 class Decoder_DIBS(nn.Module):
     key: int
@@ -35,20 +80,24 @@ class Decoder_DIBS(nn.Module):
     score_function_baseline: float = 0.0
     n_grad_mc_samples: int = 128
     tau: float = 1.0
+    beta_linear: float = 1.0
+    n_acyclicity_mc_samples: int = 32
 
     def setup(self):
         self.graph_model = make_graph_model(n_vars=self.num_nodes, graph_prior_str = self.datatype)
         self.inference_model = BGeJAX(mean_obs=jnp.zeros(self.num_nodes), alpha_mu=1.0, alpha_lambd=self.num_nodes + 2)
         self.kernel = FrobeniusSquaredExponentialKernel(h=self.h_latent)
         self.bge_jax = BGeJAX(mean_obs=jnp.array([self.theta_mu]*self.num_nodes), alpha_mu=self.alpha_mu, alpha_lambd=self.alpha_lambd)
-        self.dibs = MarginalDiBS(kernel=self.kernel, 
-                target_log_prior=self.log_prior, 
-                target_log_marginal_prob=self.log_likelihood, 
-                alpha_linear=self.alpha_linear,
-                grad_estimator_z=self.grad_estimator_z)
+        # self.dibs = MarginalDiBS(kernel=self.kernel, 
+        #         target_log_prior=self.log_prior, 
+        #         target_log_marginal_prob=self.log_likelihood, 
+        #         alpha_linear=self.alpha_linear,
+        #         grad_estimator_z=self.grad_estimator_z)
 
         self.alpha = lambda t: (self.alpha_linear * t)
+        self.beta = lambda t: (self.beta_linear * t)
         self.target_log_joint_prob = lambda single_z, single_theta, subk, data: self.log_likelihood(single_z, data)
+        self.target_log_prior = self.log_prior
 
         # Net to feed in G and predict a Z 
         self.z_net = Z_mu_logvar_Net(self.num_nodes)
@@ -61,9 +110,7 @@ class Decoder_DIBS(nn.Module):
 
     def log_likelihood(self, single_w, z, no_interv_targets=None):
         if no_interv_targets is None:   no_interv_targets = jnp.zeros(self.num_nodes).astype(bool)
-        print("getting log likelihood", self.grad_estimator_z, ":", single_w.shape, z.shape, no_interv_targets) 
         log_lik = self.inference_model.log_marginal_likelihood_given_g(w=single_w, data=z, interv_targets=no_interv_targets)
-        print("F")
         return log_lik
 
     def vec_to_mat(self, z, n_vars):
@@ -93,7 +140,99 @@ class Decoder_DIBS(nn.Module):
         n_vars = w.shape[-1]
         return w.reshape(*w.shape[:-2], n_vars * n_vars)
 
-    # * Generative graph model p(G | Z); Z is particles
+    def constraint_gumbel(self, single_z, single_eps, t):
+        """ 
+        Evaluates continuous acyclicity constraint using Gumbel-softmax instead of Bernoulli samples
+        Args:
+            single_z: single latent tensor [d, k, 2]
+            single_eps: i.i.d. Logistic noise of shape [d, d] for Gumbel-softmax
+            t: step
+        
+        Returns:
+            constraint value of shape [1,]
+        """
+        n_vars = single_z.shape[0]
+        G = self.particle_to_soft_graph(single_z, single_eps, t)
+        h = acyclic_constr_nograd(G, n_vars)
+        return h
+
+
+    def f_kernel(self, x_latent, y_latent, h, t):
+        """
+        Evaluates kernel
+
+        Args:
+            x_latent: latent tensor [d, k, 2]
+            y_latent: latent tensor [d, k, 2]
+            h (float): kernel bandwidth 
+            t: step
+
+        Returns:
+            [1, ] kernel value
+        """
+        return self.kernel.eval(x=x_latent, y=y_latent, h=h)
+    
+
+    def f_kernel_mat(self, x_latents, y_latents, h, t):
+        """
+        Computes pairwise kernel matrix
+
+        Args:
+            x_latents: latent tensor [A, d, k, 2]
+            y_latents: latent tensor [B, d, k, 2]
+            h (float): kernel bandwidth 
+            t: step
+
+        Returns:
+            [A, B] kernel values
+        """
+        return vmap(vmap(self.f_kernel, (None, 0, None, None), 0), (0, None, None, None), 0)(x_latents, y_latents, h, t)
+
+
+    # * Reparameterization estimator for the gradient d/dZ E_p(G|Z) [constraint(G)]
+    def grad_constraint_gumbel(self, single_z, key, t):
+        """
+        Using the Gumbel-softmax / concrete distribution reparameterization trick.
+        Args:
+            z: single latent tensor [d, k, 2]                
+            key: rng key [1,]    
+            t: step
+        Returns         
+            gradient of constraint [d, k, 2] 
+        """
+        n_vars = single_z.shape[0]
+        eps = random.logistic(key, shape=(self.n_acyclicity_mc_samples, n_vars, n_vars))    # [n_mc_samples, d, d]
+        # [n_mc_samples, d, k, 2]
+        mc_gradient_samples = vmap(grad(self.constraint_gumbel, 0), (None, 0, None), 0)(single_z, eps, t)
+        return mc_gradient_samples.mean(0) # [d, k, 2]
+
+
+    # * Graph samplers from z
+    def particle_to_soft_graph(self, z, eps, t):
+        """ 
+        Gumbel-softmax / concrete distribution using Logistic(0,1) samples `eps`
+
+        Args:
+            z: a single latent tensor Z of shape [d, k, 2]
+            eps: random iid Logistic(0,1) noise  of shape [d, d] 
+            t: step
+        
+        Returns:
+            Gumbel-softmax sample of adjacency matrix [d, d]
+        """
+        scores = jnp.einsum('...ik,...jk->...ij', z[..., 0], z[..., 1])
+
+        # soft reparameterization using gumbel-softmax/concrete distribution
+        # eps ~ Logistic(0,1)
+        soft_graph = sigmoid(self.tau * (eps + self.alpha(t) * scores))
+
+        # mask diagonal since it is explicitly not modeled
+        n_vars = soft_graph.shape[-1]
+        soft_graph = index_mul(soft_graph, index[..., jnp.arange(n_vars), jnp.arange(n_vars)], 0.0)
+        return soft_graph
+
+
+    # * Generative graph model p(G | particles Z)
     def edge_probs(self, z, t):
         """
         Edge probabilities encoded by latent representation 
@@ -112,6 +251,7 @@ class Decoder_DIBS(nn.Module):
         # mask diagonal since it is explicitly not modeled
         probs = index_mul(probs, index[..., jnp.arange(probs.shape[-1]), jnp.arange(probs.shape[-1])], 0.0)
         return probs
+
 
     def edge_log_probs(self, z, t):
         """
@@ -133,6 +273,7 @@ class Decoder_DIBS(nn.Module):
         log_probs = index_mul(log_probs, index[..., jnp.arange(log_probs.shape[-1]), jnp.arange(log_probs.shape[-1])], 0.0)
         log_probs_neg = index_mul(log_probs_neg, index[..., jnp.arange(log_probs_neg.shape[-1]), jnp.arange(log_probs_neg.shape[-1])], 0.0)
         return log_probs, log_probs_neg
+
 
     def latent_log_prob(self, single_g, single_z, t):
         """
@@ -157,6 +298,7 @@ class Decoder_DIBS(nn.Module):
 
         return log_prob_g
 
+
     def eltwise_grad_latent_log_prob(self, gs, single_z, t):
         """
         Gradient of log likelihood of generative graph model w.r.t. Z
@@ -174,7 +316,8 @@ class Decoder_DIBS(nn.Module):
         dz_latent_log_prob = grad(self.latent_log_prob, 1)
         return vmap(dz_latent_log_prob, (0, None, None), 0)(gs, single_z, t)
 
-    # * Estimators for scores of log p(theta, D | Z); Z is particles
+
+    # * Estimators for scores of log p(theta, D | particles Z)
     def eltwise_log_joint_prob(self, gs, single_theta, rng, data):
         """
         log p(data | G, theta) batched over samples of G
@@ -188,6 +331,7 @@ class Decoder_DIBS(nn.Module):
             batch of logprobs [n_graphs, ]
         """
         return vmap(self.target_log_joint_prob, (0, None, None, None), 0)(gs, single_theta, rng, data)
+
 
     def log_joint_prob_soft(self, single_z, single_theta, eps, t, subk, data):
         """
@@ -208,6 +352,7 @@ class Decoder_DIBS(nn.Module):
         """
         soft_g_sample = self.particle_to_soft_graph(single_z, eps, t)
         return self.target_log_joint_prob(soft_g_sample, single_theta, subk, data)
+
 
     def sample_g(self, p, subk, n_samples):
         """
@@ -230,12 +375,14 @@ class Decoder_DIBS(nn.Module):
 
         return g_samples
 
+
     # * Estimators for score d/dZ log p(theta, D | Z)  (i.e. w.r.t the latent embeddings Z for graph G)
     def eltwise_grad_z_likelihood(self, zs, thetas, baselines, t, subkeys, data=None):
         if self.grad_estimator_z == 'score':    grad_z_likelihood = self.grad_z_likelihood_score_function
         elif self.grad_estimator_z == 'reparam':    grad_z_likelihood = self.grad_z_likelihood_gumbel
         else:   raise ValueError(f'Unknown gradient estimator `{self.grad_estimator_z}`')
         return vmap(grad_z_likelihood, (0, 0, 0, None, 0, None), (0, 0))(zs, thetas, baselines, t, subkeys, data)
+
 
     def grad_z_likelihood_score_function(self, single_z, single_theta, single_sf_baseline, t, subk, data=None):
         """
@@ -289,7 +436,8 @@ class Decoder_DIBS(nn.Module):
 
         return stable_sf_grad_shaped, single_sf_baseline
 
-    # * reparametrized estimation of d/dZ log p(theta, D | Z)
+
+    # * reparametrized estimation of d/dZ log p(theta, D | Z) -> [grad_z_likelihood_gumbel]
     def grad_z_likelihood_gumbel(self, single_z, single_theta, single_sf_baseline, t, subk, data=None):
         """
         Reparameterization estimator for the score d/dZ log p(theta, D | Z) 
@@ -305,7 +453,6 @@ class Decoder_DIBS(nn.Module):
             tuple: gradient, baseline of shape [d, k, 2], [1, ]
 
         """   
-        print("IN")
         n_vars = single_z.shape[0]
         n_mc_numerator, n_mc_denominator = self.n_grad_mc_samples, self.n_grad_mc_samples
 
@@ -319,11 +466,8 @@ class Decoder_DIBS(nn.Module):
         subk, subk_ = random.split(subk)
        
         # [d, k, 2], [d, d], [n_grad_mc_samples, d, d], [1,], [1,] -> [n_grad_mc_samples]
-        print("HMM")
-        import pdb; pdb.set_trace()
         logprobs_numerator = vmap(self.log_joint_prob_soft, (None, None, 0, None, None, None), 0)(single_z, single_theta, eps, t, subk_, data) 
         logprobs_denominator = logprobs_numerator
-        print("HA")
         # [n_grad_mc_samples, d, k, 2]
         # d/dx log p(theta, D | G(x, eps)) for a batch of `eps` samples
         # use the same minibatch of data as for other log prob evaluation (if using minibatching)
@@ -339,123 +483,150 @@ class Decoder_DIBS(nn.Module):
         stable_grad = sign * jnp.exp(log_numerator - jnp.log(n_mc_numerator) - log_denominator + jnp.log(n_mc_denominator))
         return stable_grad, single_sf_baseline
 
-    def particle_to_soft_graph(self, z, eps, t):
-        """ 
-        Gumbel-softmax / concrete distribution using Logistic(0,1) samples `eps`
+
+    # * [target_log_prior_particle, eltwise_grad_latent_prior]
+    # * Computes gradient of the prior: d/dZ log p(Z) 
+    def target_log_prior_particle(self, single_z, t):
+        """
+        log p(Z) approx. log p(G) via edge probabilities
 
         Args:
-            z: a single latent tensor Z of shape [d, k, 2]
-            eps: random iid Logistic(0,1) noise  of shape [d, d] 
+            single_z: single latent tensor [d, k, 2]
             t: step
-        
+
         Returns:
-            Gumbel-softmax sample of adjacency matrix [d, d]
+            log prior graph probability [1,] log p(G) evaluated with G_\alpha(Z)
+                i.e. with the edge probabilities   
         """
-        scores = jnp.einsum('...ik,...jk->...ij', z[..., 0], z[..., 1])
+        # [d, d] # masking is done inside `edge_probs`
+        single_soft_g = self.edge_probs(single_z, t)
+        return self.target_log_prior(single_soft_g) # [1, ]
 
-        # soft reparameterization using gumbel-softmax/concrete distribution
-        # eps ~ Logistic(0,1)
-        soft_graph = sigmoid(self.tau * (eps + self.alpha(t) * scores))
 
-        # mask diagonal since it is explicitly not modeled
-        n_vars = soft_graph.shape[-1]
-        soft_graph = index_mul(soft_graph, index[..., jnp.arange(n_vars), jnp.arange(n_vars)], 0.0)
-        return soft_graph
+    def eltwise_grad_latent_prior(self, zs, subkeys, t):
+        """
+        where log p(Z) = - beta(t) E_p(G|Z) [constraint(G)] + log Gaussian(Z) + log f(Z) 
+        and f(Z) is an additional prior factor.
 
-    def sample_particles(self, start, z, dibs_params, key, sf_baseline, data=None):
-        n_steps = self.num_updates
-        it = tqdm.tqdm(jnp.arange(start, start+n_steps), desc='DiBS')
-        
-        for t in it:
-            dibs_params, key, sf_baseline = self.svgd_step(z, dibs_params, key, sf_baseline, t, data)     #
-            break
-    
+        Args:
+            zs: single latent tensor  [n_particles, d, k, 2]
+            subkeys: batch of rng keys [n_particles, ...]
 
-    def __call__(self, z_gt, z_rng, init_particles_z, dibs_params, sf_baseline, step=0):
-        log_p_z_given_g, q_z_mus, q_z_logvars, q_zs, recons = [], [], [], [], []
-        
-        # ? 1. Using init particles z, run 'num_updates' SVGD step on dibs; update particles; sample graphs
-        particles_z, dibs_params, sf_baseline = self.dibs.sample_particles(n_steps=self.num_updates, init_particles_z=init_particles_z, key=self.key, opt_state_z=dibs_params, sf_baseline=sf_baseline, data=z_gt, start=self.num_updates*step)
-        # self.sample_particles(self.num_updates*step, init_particles_z, dibs_params, self.key, sf_baseline, 
-        #                     data=z_gt)
-        
-        # print("GOTCHA")
-        # particles_g = self.dibs.particle_to_g_lim(particles_z) # ! dont do this; get soft G's
+        Returns:
+            batch of gradients of shape [n_particles, d, k, 2]
+        """
+        # log f(Z) term [d, k, 2], [1,] -> [d, k, 2]
+        grad_target_log_prior_particle = grad(self.target_log_prior_particle, 0)
 
-        # s = time()
-        # for g in particles_g:
-        #     # ? 2. Get log P(z_gt|G) calculated as BGe Score ; G ~ q(G) 
-        #     log_p_z_given_gi = self.bge_jax.log_marginal_likelihood_given_g(w=g, data=z_gt)
-        #     log_p_z_given_g.append(log_p_z_given_gi)
+        # [n_particles, d, k, 2], [1,] -> [n_particles, d, k, 2]
+        grad_prior_z = vmap(grad_target_log_prior_particle, (0, None), 0)(zs, t)
 
-        #     # ? 3. Get graph conditioned predictions on z: q(z|G)
-        #     flattened_g = jnp.array(g.reshape(-1))
-        #     flattened_g = device_put(flattened_g, jax.devices()[0])
-        #     q_z_mu, q_z_logvar = self.z_net(flattened_g)
-        #     q_z_mus.append(q_z_mu)
-        #     q_z_logvars.append(q_z_logvar)
+        # constraint term  [n_particles, d, k, 2], [n_particles,], [1,] -> [n_particles, d, k, 2]
+        eltwise_grad_constraint = vmap(self.grad_constraint_gumbel, (0, 0, None), 0)(zs, subkeys, t)
 
-        #     key, z_rng = random.split(z_rng)
-        #     q_z = reparameterize(z_rng, q_z_mu, q_z_logvar)
-        #     q_zs.append(q_z)
+        return - self.beta(t) * eltwise_grad_constraint \
+               - zs / (self.latent_prior_std ** 2.0) \
+               + grad_prior_z 
 
-        # # ? 4. From q(z|G), decode to get reconstructed samples X in higher dimensions
-        # for q_zi in q_zs:   recons.append(self.decoder(q_zi))
-        # print(f"Rest of Decoder_DIBS forward method took {time()-s}s")
 
-        # return jnp.array(recons), log_p_z_given_g, jnp.array(q_z_mus), jnp.array(q_z_logvars), particles_g, particles_z, dibs_params, sf_baseline
-        # return None, None, None, None, None, None, None, None
-
-    def svgd_step(self, z, dibs_params, key, sf_baseline, t, data=None):
+    # * [grad_z_joint_log_prob]
+    # * Calculate gradient of log joint prob log P(z, Data) wrt z, the particle
+    def grad_z_joint_log_prob(self, z, t, key, sf_baseline, data=None):
         h = self.kernel.h
 
         # ? d/dz log p(data | z) grad log likelihood
         key, *batch_subk = random.split(key, self.n_particles + 1) 
         dz_log_likelihood, sf_baseline = self.eltwise_grad_z_likelihood(z, None, sf_baseline, t, jnp.array(batch_subk), data)
-        print("Got log likelihood P(Data | G)")
 
-        return None, None, None
+        # ? d/dz log p(z) (acyclicity) grad log PRIOR
+        key, *batch_subk = random.split(key, self.n_particles + 1)
+        dz_log_prior = self.eltwise_grad_latent_prior(z, jnp.array(batch_subk), t)
 
-    
-
-    
-class Z_mu_logvar_Net(nn.Module):
-    latent_dims: int
-
-    @nn.compact
-    def __call__(self, g):
-        z = nn.Dense(20, name='encoder_0')(g)
-        z = nn.relu(z)
-        z = nn.Dense(self.latent_dims, name='encoder_1')(z)
-        z = nn.relu(z)
-        z = nn.Dense(self.latent_dims, name='encoder_2')(z)
-        z = nn.relu(z)
+        # ? d/dz log p(z, D) = d/dz log p(z)  + log p(D | z) 
+        dz_log_prob = dz_log_prior + dz_log_likelihood
         
-        z_mu = nn.Dense(self.latent_dims, name='mu_encoder_0')(z)
-        z_mu = nn.relu(z_mu)
-        z_mu = nn.Dense(self.latent_dims, name='mu_encoder_1')(z_mu)
+        kxx = self.f_kernel_mat(z, z, h, t) # ? k(z, z) for all particles
+        return dz_log_likelihood, dz_log_prior, dz_log_prob, kxx, sf_baseline, key
 
-        z_logvar = nn.Dense(self.latent_dims, name='logvar_encoder_0')(z)
-        z_logvar = nn.relu(z_logvar)
-        z_logvar = nn.Dense(self.latent_dims, name='logvar_encoder_1')(z_logvar)
+    # * [eltwise_grad_kernel_z, z_update, parallel_update_z] 
+    # * Calculating Calculate phi_z = Mean ( kxx * grad_log P(particles_z | z_gt) + grad kxx ) for updating particles_z
+    def eltwise_grad_kernel_z(self, x_latents, y_latent, h, t):
+        """
+        Computes gradient d/dz k(z, z') elementwise for each provided particle z
 
-        return z_mu, z_logvar
+        Args:
+            x_latents: batch of latent particles [n_particles, d, k, 2]
+            y_latent: single latent particle [d, k, 2] (z')
+            h (float): kernel bandwidth 
+            t: step
 
+        Returns:
+            batch of gradients for latent tensors Z [n_particles, d, k, 2]
+        """        
+        grad_kernel_z = jit(grad(self.f_kernel, 0))
+        return vmap(grad_kernel_z, (0, None, None, None), 0)(x_latents, y_latent, h, t)
 
-class Decoder(nn.Module):
-    dims: int
+    def z_update(self, single_z, kxx, z, grad_log_prob_z, h, t):
+        """
+        Computes SVGD update for `single_z` particlee given the kernel values 
+        `kxx` and the d/dz gradients of the target density for each of the available particles 
 
-    @nn.compact
-    def __call__(self, z):
-        z = nn.Dense(10, name='decoder_fc0')(z)
-        z = nn.relu(z)
-        z = nn.Dense(self.dims, name='decoder_fc1')(z)
-        z = nn.relu(z)
-        z = nn.Dense(self.dims, name='decoder_fc2')(z)
-        return z
+        Args:
+            single_z: single latent tensor Z [d, k, 2], which is the Z particle being updated
+            kxx: pairwise kernel values for all particles [n_particles, n_particles]  
+            z:  all latent tensor Z particles [n_particles, d, k, 2] 
+            grad_log_prob_z: gradients of all Z particles w.r.t target density  [n_particles, d, k, 2]  
+
+        Returns
+            transform vector of shape [d, k, 2] for the Z particle being updated        
+        """
+    
+        # compute terms in sum
+        weighted_gradient_ascent = kxx[..., None, None, None] * grad_log_prob_z
+        repulsion = self.eltwise_grad_kernel_z(z, single_z, h, t)
+
+        # average and negate (for optimizer)
+        return - (weighted_gradient_ascent + repulsion).mean(axis=0)
+
+    def parallel_update_z(self, *args):
+        """
+        Parallelizes `z_update` for all available particles
+        Otherwise, same inputs as `z_update`.
+        """
+        return vmap(self.z_update, (0, 1, None, None, None, None), 0)(*args)
+
+    def get_phi_z(self, particles_z, step, z_rng, sf_baseline, data=None):
+        _, _, dz_log_prob, kxx, sf_baseline, z_rng = self.grad_z_joint_log_prob(particles_z, step, z_rng, sf_baseline, data=data)
+        phi_z = self.parallel_update_z(particles_z, kxx, particles_z, dz_log_prob, self.kernel.h, step)
+        return phi_z, sf_baseline
+
+    def __call__(self, z_gt, z_rng, particles_z, sf_baseline, step=0):
+        q_z_mus, q_z_logvars, q_zs, recons = [], [], [], []
         
+        # ? 1. Sample n_particles graphs from particles_z
+        z_rng, key = random.split(z_rng) 
+        eps = random.logistic(key, shape=(self.n_particles, self.num_nodes, self.num_nodes))    
+        sampled_soft_g = self.particle_to_soft_graph(particles_z, eps, step) 
 
-def reparameterize(rng, mean, logvar):
-  std = jnp.exp(0.5 * logvar)
-  eps = random.normal(rng, logvar.shape)
-  return mean + eps * std
+        s = time()
+        for g in sampled_soft_g:
+            # ? 2. Get graph conditioned predictions on z: q(z|G)
+            flattened_g = jnp.array(g.reshape(-1))
+            flattened_g = device_put(flattened_g, jax.devices()[0])
+            q_z_mu, q_z_logvar = self.z_net(flattened_g)
+            q_z_mus.append(q_z_mu)
+            q_z_logvars.append(q_z_logvar)
+
+            z_rng, key = random.split(z_rng)
+            q_z = reparameterize(key, q_z_mu, q_z_logvar)
+            q_zs.append(q_z)
+
+        # ? 3. From q(z|G), decode to get reconstructed samples X in higher dimensions
+        for q_zi in q_zs:   recons.append(self.decoder(q_zi))
+        print(f"Rest of Decoder_DIBS forward method took {time()-s}s")
+
+        # ? 4. Calculate phi_z = Mean ( kxx * grad_log P(particles_z | data) + grad kxx ) for updating particles_z
+        # ? transformation phi_z(t)(particle m) applied in batch to each particle individually
+        phi_z, sf_baseline = self.get_phi_z(particles_z, step, z_rng, sf_baseline, data=jnp.array(q_zs))
+        
+        return jnp.array(recons), jnp.array(q_z_mus), jnp.array(q_z_logvars), phi_z, sampled_soft_g, sf_baseline, z_rng

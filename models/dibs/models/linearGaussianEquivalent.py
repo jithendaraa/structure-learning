@@ -301,7 +301,6 @@ class BGeJAX:
 
         # sum scores for all nodes
         res = self.eltwise_log_marginal_likelihood_given_g_single(jnp.arange(d), n_parents_all, R, w, data, log_gamma_terms)
-
         return jnp.sum(jnp.where(interv_targets, 0.0, res))
 
         # prev code without interventions

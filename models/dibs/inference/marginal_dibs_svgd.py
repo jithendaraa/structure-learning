@@ -156,7 +156,6 @@ class MarginalDiBS(DiBS):
 
         Returns
             transform vector of shape [d, k, 2] for the Z particle being updated        
-
         """
     
         # compute terms in sum
@@ -191,8 +190,6 @@ class MarginalDiBS(DiBS):
             the updated inputs
         """
         z = self.get_params(opt_state_z) # [n_particles, d, k, 2]
-        print(z[0])
-        print(opt_state_z)
         
         n_particles = z.shape[0]
         h = self.kernel.h   # make sure same bandwith is used for all calls to k(x, x') (in case e.g. the median heuristic is applied)
@@ -207,6 +204,7 @@ class MarginalDiBS(DiBS):
         # ? d/dz log p(z) (acyclicity) grad log PRIOR
         key, *batch_subk = random.split(key, n_particles + 1)
         dz_log_prior = self.eltwise_grad_latent_prior(z, jnp.array(batch_subk), t)
+        print("Got prior grads", dz_log_prior.shape, z.shape)
         
         # ? d/dz log p(z, D) = d/dz log p(z)  + log p(D | z) 
         dz_log_prob = dz_log_prior + dz_log_likelihood

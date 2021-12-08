@@ -361,7 +361,6 @@ class DiBS:
         # [d, d]
         p = self.edge_probs(single_z, t)
         n_vars, n_dim = single_z.shape[0:2]
-        print(p, n_vars, n_dim, self.n_grad_mc_samples)
 
         # [n_grad_mc_samples, d, d]
         subk, subk_ = random.split(subk)
