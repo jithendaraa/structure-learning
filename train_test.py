@@ -219,13 +219,13 @@ def train_decoder_dibs(model, loader_objs, opt, key):
     # @partial(jit, static_argnums=(5,))
     def train_step(state, z_rng, particles, sf_baseline, step):
         dibs_updates = 1
-        if opt.algo == 'fast-slow': dibs_updates = 100
+        if opt.algo == 'fast-slow': dibs_updates = opt.dibs_updates
 
         # ? mutliple dibs update for one ELBO update for decoder dibs
         for _ in tqdm(range(dibs_updates)):
             recons, q_z_mus, q_z_logvars, phi_z, soft_g, sf_baseline, z_rng = m.apply({'params': state.params}, z_rng, particles, sf_baseline, step)
             # ? Particles_z updated as SVGD transport step z(t+1)(particle m) = z(t)(m) + step_size * phi_z(t)(m)
-            particles = particles - (0.005 * phi_z)
+            particles = particles - (opt.dibs_lr * phi_z)
 
         def loss_fn(params):
             recons, q_z_mus, q_z_logvars, _, _, _, _ = m.apply({'params': params}, z_rng, particles, sf_baseline, step)
