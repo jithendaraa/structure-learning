@@ -210,6 +210,7 @@ train_vcn_nonlinearproj:
   proj: 'nonlinear'
 
 # ? 7. DIBS
+# ! python main.py --config defaults experimental train_dibs_er
 train_dibs_er:
   ckpt_id: 'train_dibs_er'
   model: 'DIBS'
@@ -224,6 +225,8 @@ train_dibs_er:
   proj: 'no'
   num_updates: 500
   num_samples: 500
+  grad_estimator: 'reparam' # ['score', 'reparam']
+  n_particles: 5
 
 
 # ? 8. VAE_DIBS
@@ -255,16 +258,17 @@ linear_decoderdibs_er:
   datatype: 'er'
   batch_size: 1000
   data_seed: 10
-  lr: 8e-4
   num_nodes: 4
   exp_edges: 0.7
   proj: 'linear'
-  steps: 50      # updates for VAE part
-  num_updates: 10    # updates for DIBS
+  steps: 200      # updates for VAE part
+  num_updates: 1    # updates for DIBS
   proj_dims: 10
-  num_samples: 500
   soft_constraint: False
   known_ED: False
+  num_samples: 3000
+  lr: 8e-4
+  n_particles: 10
 
 experimental:
   off_wandb: True

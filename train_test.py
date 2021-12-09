@@ -212,21 +212,21 @@ def train_decoder_dibs(model, loader_objs, opt, key):
 
     state = train_state.TrainState.create(
         apply_fn=m.apply,
-        params=m.init(rng, z_gt, key, particles_z, sf_baseline)['params'],
+        params=m.init(rng, key, particles_z, sf_baseline)['params'],
         tx=optimizer
     )
 
     # @partial(jit, static_argnums=(5,))
     def train_step(state, batch, z_rng, particles, sf_baseline, step):
         def loss_fn(params):
-            recons, q_z_mus, q_z_logvars, _, _, _, _ = m.apply({'params': params}, batch, z_rng, particles, sf_baseline, step)
+            recons, q_z_mus, q_z_logvars, _, _, _, _ = m.apply({'params': params}, z_rng, particles, sf_baseline, step)
             mse_loss, kl_z_loss = 0., 0.
             
             get_mse = lambda recon, x: jnp.mean(jnp.square(recon - x)) 
             v_get_mse = vmap(get_mse, (0, None), 0)
             mse_loss += jnp.sum(v_get_mse(recons, x))
 
-            p_std = jnp.array([2., 1., 1., jnp.sqrt(2.)])
+            p_std = jnp.array([jnp.sqrt(2.), jnp.sqrt(2.), 1., 1.])
             get_kl = lambda q_z_mu, q_z_logvar, p_std: jnp.sum(-0.5 + (jnp.log(p_std) - 0.5 * q_z_logvar) + (jnp.exp(q_z_logvar) + (q_z_mu)**2)/(2*(p_std**2)))
             v_get_kl = vmap(get_kl, (0, 0, None), 0)
             kl_z_loss += jnp.sum(v_get_kl(q_z_mus, q_z_logvars, p_std))
@@ -234,10 +234,7 @@ def train_decoder_dibs(model, loader_objs, opt, key):
             loss = (mse_loss + kl_z_loss) / opt.n_particles
             return loss
 
-        recons, q_z_mus, q_z_logvars, phi_z, soft_g, sf_baseline, z_rng = m.apply({'params': state.params}, batch, z_rng, particles, sf_baseline, step)
-        
-        # ? 6. Particles_z updated as SVGD transport step z(t+1)(particle m) = z(t)(m) + step_size * phi_z(t)(m)
-        particles = particles - (0.001 * phi_z)
+        recons, q_z_mus, q_z_logvars, phi_z, soft_g, sf_baseline, z_rng = m.apply({'params': state.params}, z_rng, particles, sf_baseline, step)
         
         grads = jax.grad(loss_fn)(state.params)
         res = state.apply_gradients(grads=grads)
@@ -253,6 +250,9 @@ def train_decoder_dibs(model, loader_objs, opt, key):
         kl_z_loss += jnp.sum(v_get_kl(q_z_mus, q_z_logvars, p_std))
         loss = (mse_loss + kl_z_loss) / opt.n_particles
 
+        # ? Particles_z updated as SVGD transport step z(t+1)(particle m) = z(t)(m) + step_size * phi_z(t)(m)
+        particles = particles - (opt.lr * phi_z)
+
         return res, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, np.asarray(soft_g), particles, sf_baseline
 
     for step in range(opt.steps):
@@ -260,17 +260,18 @@ def train_decoder_dibs(model, loader_objs, opt, key):
         s = time()
         state, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, soft_g, particles_z, sf_baseline = train_step(state, z_gt, rng, particles_z, sf_baseline, step)
         print(f'Step {step} | Loss {loss} | MSE: {mse_loss} | KL: {kl_z_loss} | Time per train step: {time() - s}s')
-        particles_g = np.random.binomial(1, soft_g, soft_g.shape)
 
-        if step >= 50 and step % 5 == 0:
+        if step % 5 == 0:
+            particles_g = np.random.binomial(1, soft_g, soft_g.shape)
             dibs_empirical = particle_marginal_empirical(particles_g)
             dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
             eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
             eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
-            sampled_graph = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
-            writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
-            print(f'Expected SHD Marginal: {eshd_m} | Empirical: {eshd_e}')
+            # sampled_graph = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
+            # writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
             print(q_z_mus, q_z_logvars)
+            print(f'Expected SHD Marginal: {eshd_m} | Empirical: {eshd_e}')
+            print(particles_g)
         print()
 
         

@@ -48,12 +48,6 @@ class Decoder(nn.Module):
     @nn.compact
     def __call__(self, z):
         z = nn.Dense(10, name='decoder_fc0')(z)
-        z = nn.relu(z)
-        z = nn.Dense(self.dims, name='decoder_fc1')(z)
-        z = nn.relu(z)
-        z = nn.Dense(self.dims, name='decoder_fc2')(z)
-        z = nn.relu(z)
-        z = nn.Dense(self.dims, name='decoder_fc3')(z)
         return z
         
 
@@ -62,6 +56,8 @@ def reparameterize(rng, mean, logvar):
   eps = random.normal(rng, logvar.shape)
   return mean + eps * std
 
+def v_reparameterize(rng, mean, logvar):
+    return vmap(reparameterize, (None, 0, 0), 0)(rng, mean, logvar)
 
 class Decoder_DIBS(nn.Module):
     key: int
@@ -74,7 +70,7 @@ class Decoder_DIBS(nn.Module):
     alpha_linear: float
     n_particles: int
     proj_dims: int
-    num_updates: int = 5
+    num_samples: int
     latent_prior_std: float = None
     grad_estimator_z: str = 'reparam'
     score_function_baseline: float = 0.0
@@ -381,7 +377,7 @@ class Decoder_DIBS(nn.Module):
         if self.grad_estimator_z == 'score':    grad_z_likelihood = self.grad_z_likelihood_score_function
         elif self.grad_estimator_z == 'reparam':    grad_z_likelihood = self.grad_z_likelihood_gumbel
         else:   raise ValueError(f'Unknown gradient estimator `{self.grad_estimator_z}`')
-        return vmap(grad_z_likelihood, (0, 0, 0, None, 0, None), (0, 0))(zs, thetas, baselines, t, subkeys, data)
+        return vmap(grad_z_likelihood, (0, 0, 0, None, 0, 0), (0, 0))(zs, thetas, baselines, t, subkeys, data)
 
 
     def grad_z_likelihood_score_function(self, single_z, single_theta, single_sf_baseline, t, subk, data=None):
@@ -600,33 +596,32 @@ class Decoder_DIBS(nn.Module):
         phi_z = self.parallel_update_z(particles_z, kxx, particles_z, dz_log_prob, self.kernel.h, step)
         return phi_z, sf_baseline
 
-    def __call__(self, z_gt, z_rng, particles_z, sf_baseline, step=0):
-        q_z_mus, q_z_logvars, q_zs, recons = [], [], [], []
-        
+    def get_posterior_single_z(self, key, single_g):
+        flattened_g = jnp.array(single_g.reshape(-1))
+        flattened_g = device_put(flattened_g, jax.devices()[0])
+        q_z_mu, q_z_logvar = self.z_net(flattened_g)
+        q_z = v_reparameterize(key, jnp.asarray([q_z_mu]*self.num_samples), jnp.asarray([q_z_logvar]*self.num_samples))
+        return q_z_mu, q_z_logvar, q_z
+
+    def get_posterior_z(self, key, gs):
+        return vmap(self.get_posterior_single_z, (None, 0), (0, 0, 0))(key, gs)
+    
+    def __call__(self, z_rng, particles_z, sf_baseline, step=0):
         # ? 1. Sample n_particles graphs from particles_z
         z_rng, key = random.split(z_rng) 
         eps = random.logistic(key, shape=(self.n_particles, self.num_nodes, self.num_nodes))    
         sampled_soft_g = self.particle_to_soft_graph(particles_z, eps, step) 
 
-        s = time()
-        for g in sampled_soft_g:
-            # ? 2. Get graph conditioned predictions on z: q(z|G)
-            flattened_g = jnp.array(g.reshape(-1))
-            flattened_g = device_put(flattened_g, jax.devices()[0])
-            q_z_mu, q_z_logvar = self.z_net(flattened_g)
-            q_z_mus.append(q_z_mu)
-            q_z_logvars.append(q_z_logvar)
+        # ? 2. Get graph conditioned predictions on z: q(z|G)
+        z_rng, key = random.split(z_rng) 
+        q_z_mus, q_z_logvars, q_zs = self.get_posterior_z(key, sampled_soft_g)
 
-            z_rng, key = random.split(z_rng)
-            q_z = reparameterize(key, q_z_mu, q_z_logvar)
-            q_zs.append(q_z)
-
-        # ? 3. From q(z|G), decode to get reconstructed samples X in higher dimensions
-        for q_zi in q_zs:   recons.append(self.decoder(q_zi))
-        print(f"Rest of Decoder_DIBS forward method took {time()-s}s")
+        # ? 3. From every distribution q(z_i|G), decode to get reconstructed samples X in higher dimensions. i = 1...num_nodes
+        decode_single_qz = lambda q_z: self.decoder(q_z)
+        recons = vmap(decode_single_qz, (0), 0)(q_zs)
 
         # ? 4. Calculate phi_z = Mean ( kxx * grad_log P(particles_z | data) + grad kxx ) for updating particles_z
         # ? transformation phi_z(t)(particle m) applied in batch to each particle individually
-        phi_z, sf_baseline = self.get_phi_z(particles_z, step, z_rng, sf_baseline, data=jnp.array(q_zs))
+        phi_z, sf_baseline = self.get_phi_z(particles_z, step, key, sf_baseline, data=jnp.array(q_zs))
         
-        return jnp.array(recons), jnp.array(q_z_mus), jnp.array(q_z_logvars), phi_z, sampled_soft_g, sf_baseline, z_rng
+        return recons, q_z_mus, q_z_logvars, phi_z, sampled_soft_g, sf_baseline, z_rng

@@ -197,14 +197,12 @@ class MarginalDiBS(DiBS):
         # ? d/dz log p(D | z) grad log likelihood
         key, *batch_subk = random.split(key, n_particles + 1) 
         dz_log_likelihood, sf_baseline = self.eltwise_grad_z_likelihood(z, None, sf_baseline, t, jnp.array(batch_subk), data)
-        print("Got grads", dz_log_likelihood.shape, z.shape)
         # here `None` is a placeholder for theta (in the joint inference case) 
         # since this is an inherited function from the general `DiBS` class
 
         # ? d/dz log p(z) (acyclicity) grad log PRIOR
         key, *batch_subk = random.split(key, n_particles + 1)
         dz_log_prior = self.eltwise_grad_latent_prior(z, jnp.array(batch_subk), t)
-        print("Got prior grads", dz_log_prior.shape, z.shape)
         
         # ? d/dz log p(z, D) = d/dz log p(z)  + log p(D | z) 
         dz_log_prob = dz_log_prior + dz_log_likelihood
@@ -251,8 +249,6 @@ class MarginalDiBS(DiBS):
             self.opt_init, self.opt_update, self.get_params = opt
             self.get_params = jit(self.get_params)
             opt_state_z = self.opt_init(z)
-            # import pdb; pdb.set_trace()
-            # print(opt_state_z.packed_state.shape, len(opt_state_z), type(opt_state_z[1]), type(opt_state_z[0]), len(opt_state_z[0][0]))
             self.opt = opt
 
         """Execute particle update steps for all particles in parallel using `vmap` functions"""

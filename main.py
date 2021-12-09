@@ -102,12 +102,15 @@ def build_model(opt, device, loader_objs):
   elif opt.model in ['Decoder_DIBS']:
     from models.Decoder_DIBS import Decoder_DIBS
     from jax import random
+    import jax.numpy as jnp
     key = random.PRNGKey(123)
+    latent_prior_std = 1.0 / jnp.sqrt(opt.num_nodes)
     
     def model():
       return Decoder_DIBS(key, opt.num_nodes, opt.data_type, opt.h_latent,
                           opt.theta_mu, opt.alpha_mu, opt.alpha_lambd,
-                          opt.alpha_linear, opt.n_particles, opt.proj_dims, opt.num_updates)
+                          opt.alpha_linear, opt.n_particles, opt.proj_dims, opt.num_samples,
+                          latent_prior_std=latent_prior_std)
 
   else: 
     raise NotImplementedError(f'Model {opt.model} is not implemented. Try one of {implemented_models}')
