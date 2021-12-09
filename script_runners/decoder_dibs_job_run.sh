@@ -10,8 +10,8 @@ if [ ${train} == 'train' ]
 then
     if [ ${dataset} == 'er' ]
     then
-        config='linear_decoderdibs_er'
-        output_file="out/Decoder_DIBS/linear_decoderdibs_er-%j.out"
+        config='decoder_dibs_er'
+        output_file="out/Decoder_DIBS/decoder_dibs_er-%j.out"
         echo "Train Decoder DIBS ER: ${config}"
     else
         echo "Not implemented dataset ${dataset}" 

@@ -249,10 +249,10 @@ linear_vaedibs_er:
   num_samples: 3000
   soft_constraint: False
 
-# ? 9. Linear Decoder_DIBS
-# ! python main.py --config defaults experimental linear_decoderdibs_er
-linear_decoderdibs_er:
-  ckpt_id: 'linear_decoderdibs_er'
+# ? 9. Decoder_DIBS
+# ! python main.py --config defaults experimental decoder_dibs_er
+decoder_dibs_er:
+  ckpt_id: 'decoder_dibs_er'
   model: 'Decoder_DIBS'
   dataset: 'er'
   datatype: 'er'
@@ -263,12 +263,13 @@ linear_decoderdibs_er:
   proj: 'linear'
   steps: 200      # updates for VAE part
   num_updates: 1    # updates for DIBS
-  proj_dims: 10
+  proj_dims: 8
   soft_constraint: False
   known_ED: False
   num_samples: 3000
   lr: 8e-4
   n_particles: 10
+  linear_decoder: False
 
 experimental:
   off_wandb: True
