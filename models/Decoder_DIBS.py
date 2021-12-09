@@ -1,3 +1,4 @@
+from re import A
 import sys
 sys.path.append('dibs/')
 from time import time
@@ -15,7 +16,6 @@ from jax.scipy.special import logsumexp
 
 from dibs.eval.target import make_graph_model
 from dibs.kernel import FrobeniusSquaredExponentialKernel
-# from dibs.inference import MarginalDiBS, dibs
 from dibs.models.linearGaussianEquivalent import BGeJAX
 from dibs.utils.graph import acyclic_constr_nograd
 
@@ -44,10 +44,20 @@ class Z_mu_logvar_Net(nn.Module):
 
 class Decoder(nn.Module):
     dims: int
+    linear_decoder: bool = True
 
     @nn.compact
     def __call__(self, z):
-        z = nn.Dense(10, name='decoder_fc0')(z)
+        if self.linear_decoder:
+            z = nn.Dense(self.dims, name='decoder_fc0')(z)
+        else:
+            z = nn.Dense(self.dims, name='decoder_fc0')(z)
+            z = nn.relu(z)
+            z = nn.Dense(self.dims, name='decoder_fc0')(z)
+            z = nn.relu(z)
+            z = nn.Dense(self.dims, name='decoder_fc0')(z)
+            z = nn.relu(z)
+            z = nn.Dense(self.dims, name='decoder_fc0')(z)
         return z
         
 
@@ -71,6 +81,7 @@ class Decoder_DIBS(nn.Module):
     n_particles: int
     proj_dims: int
     num_samples: int
+    linear_decoder: bool
     latent_prior_std: float = None
     grad_estimator_z: str = 'reparam'
     score_function_baseline: float = 0.0
@@ -84,11 +95,6 @@ class Decoder_DIBS(nn.Module):
         self.inference_model = BGeJAX(mean_obs=jnp.zeros(self.num_nodes), alpha_mu=1.0, alpha_lambd=self.num_nodes + 2)
         self.kernel = FrobeniusSquaredExponentialKernel(h=self.h_latent)
         self.bge_jax = BGeJAX(mean_obs=jnp.array([self.theta_mu]*self.num_nodes), alpha_mu=self.alpha_mu, alpha_lambd=self.alpha_lambd)
-        # self.dibs = MarginalDiBS(kernel=self.kernel, 
-        #         target_log_prior=self.log_prior, 
-        #         target_log_marginal_prob=self.log_likelihood, 
-        #         alpha_linear=self.alpha_linear,
-        #         grad_estimator_z=self.grad_estimator_z)
 
         self.alpha = lambda t: (self.alpha_linear * t)
         self.beta = lambda t: (self.beta_linear * t)
@@ -97,7 +103,7 @@ class Decoder_DIBS(nn.Module):
 
         # Net to feed in G and predict a Z 
         self.z_net = Z_mu_logvar_Net(self.num_nodes)
-        self.decoder = Decoder(self.proj_dims)
+        self.decoder = Decoder(self.proj_dims, self.linear_decoder)
         print("INIT")
 
     def log_prior(self, single_w_prob):
@@ -562,6 +568,7 @@ class Decoder_DIBS(nn.Module):
         grad_kernel_z = jit(grad(self.f_kernel, 0))
         return vmap(grad_kernel_z, (0, None, None, None), 0)(x_latents, y_latent, h, t)
 
+
     def z_update(self, single_z, kxx, z, grad_log_prob_z, h, t):
         """
         Computes SVGD update for `single_z` particlee given the kernel values 
@@ -584,6 +591,7 @@ class Decoder_DIBS(nn.Module):
         # average and negate (for optimizer)
         return - (weighted_gradient_ascent + repulsion).mean(axis=0)
 
+
     def parallel_update_z(self, *args):
         """
         Parallelizes `z_update` for all available particles
@@ -591,10 +599,12 @@ class Decoder_DIBS(nn.Module):
         """
         return vmap(self.z_update, (0, 1, None, None, None, None), 0)(*args)
 
+
     def get_phi_z(self, particles_z, step, z_rng, sf_baseline, data=None):
         _, _, dz_log_prob, kxx, sf_baseline, z_rng = self.grad_z_joint_log_prob(particles_z, step, z_rng, sf_baseline, data=data)
         phi_z = self.parallel_update_z(particles_z, kxx, particles_z, dz_log_prob, self.kernel.h, step)
         return phi_z, sf_baseline
+
 
     def get_posterior_single_z(self, key, single_g):
         flattened_g = jnp.array(single_g.reshape(-1))
@@ -603,9 +613,11 @@ class Decoder_DIBS(nn.Module):
         q_z = v_reparameterize(key, jnp.asarray([q_z_mu]*self.num_samples), jnp.asarray([q_z_logvar]*self.num_samples))
         return q_z_mu, q_z_logvar, q_z
 
+
     def get_posterior_z(self, key, gs):
         return vmap(self.get_posterior_single_z, (None, 0), (0, 0, 0))(key, gs)
     
+
     def __call__(self, z_rng, particles_z, sf_baseline, step=0):
         # ? 1. Sample n_particles graphs from particles_z
         z_rng, key = random.split(z_rng) 

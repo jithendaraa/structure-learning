@@ -244,7 +244,7 @@ def train_decoder_dibs(model, loader_objs, opt, key):
         v_get_mse = vmap(get_mse, (0, None), 0)
         mse_loss += jnp.sum(v_get_mse(recons, x))
 
-        p_std = jnp.array([2., 1., 1., jnp.sqrt(2.)])
+        p_std = jnp.array([jnp.sqrt(2.), jnp.sqrt(2.), 1., 1.])
         get_kl = lambda q_z_mu, q_z_logvar, p_std: jnp.sum(-0.5 + (jnp.log(p_std) - 0.5 * q_z_logvar) + (jnp.exp(q_z_logvar) + (q_z_mu)**2)/(2*(p_std**2)))
         v_get_kl = vmap(get_kl, (0, 0, None), 0)
         kl_z_loss += jnp.sum(v_get_kl(q_z_mus, q_z_logvars, p_std))

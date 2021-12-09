@@ -110,7 +110,7 @@ def build_model(opt, device, loader_objs):
       return Decoder_DIBS(key, opt.num_nodes, opt.data_type, opt.h_latent,
                           opt.theta_mu, opt.alpha_mu, opt.alpha_lambd,
                           opt.alpha_linear, opt.n_particles, opt.proj_dims, opt.num_samples,
-                          latent_prior_std=latent_prior_std)
+                          opt.linear_decoder, latent_prior_std=latent_prior_std)
 
   else: 
     raise NotImplementedError(f'Model {opt.model} is not implemented. Try one of {implemented_models}')
