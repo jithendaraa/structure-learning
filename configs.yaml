@@ -79,7 +79,7 @@ defaults:
   dims_per_node: 16 
 
   # ? VAE-VCN
-  opti: 'alt' # ['simult', 'alt'] for optimizing latent variable params and graph structure params
+  opti: 'alt' # ['simult', 'alt', 'fast-slow'] for optimizing latent variable params and graph structure params
 
   # ? DIBS
   h_latent: 5.0
@@ -261,15 +261,16 @@ decoder_dibs_er:
   num_nodes: 4
   exp_edges: 0.7
   proj: 'linear'
-  steps: 200      # updates for VAE part
   num_updates: 1    # updates for DIBS
   proj_dims: 8
   soft_constraint: False
   known_ED: False
-  num_samples: 3000
+  steps: 2000      # updates for VAE part
+  num_samples: 1000
   lr: 8e-4
-  n_particles: 10
+  n_particles: 5
   linear_decoder: False
+  algo: 'fast-slow'
 
 experimental:
   off_wandb: True

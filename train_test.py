@@ -217,7 +217,16 @@ def train_decoder_dibs(model, loader_objs, opt, key):
     )
 
     # @partial(jit, static_argnums=(5,))
-    def train_step(state, batch, z_rng, particles, sf_baseline, step):
+    def train_step(state, z_rng, particles, sf_baseline, step):
+        dibs_updates = 1
+        if opt.algo == 'fast-slow': dibs_updates = 100
+
+        # ? mutliple dibs update for one ELBO update for decoder dibs
+        for _ in tqdm(range(dibs_updates)):
+            recons, q_z_mus, q_z_logvars, phi_z, soft_g, sf_baseline, z_rng = m.apply({'params': state.params}, z_rng, particles, sf_baseline, step)
+            # ? Particles_z updated as SVGD transport step z(t+1)(particle m) = z(t)(m) + step_size * phi_z(t)(m)
+            particles = particles - (0.005 * phi_z)
+
         def loss_fn(params):
             recons, q_z_mus, q_z_logvars, _, _, _, _ = m.apply({'params': params}, z_rng, particles, sf_baseline, step)
             mse_loss, kl_z_loss = 0., 0.
@@ -234,8 +243,6 @@ def train_decoder_dibs(model, loader_objs, opt, key):
             loss = (mse_loss + kl_z_loss) / opt.n_particles
             return loss
 
-        recons, q_z_mus, q_z_logvars, phi_z, soft_g, sf_baseline, z_rng = m.apply({'params': state.params}, z_rng, particles, sf_baseline, step)
-        
         grads = jax.grad(loss_fn)(state.params)
         res = state.apply_gradients(grads=grads)
 
@@ -250,18 +257,15 @@ def train_decoder_dibs(model, loader_objs, opt, key):
         kl_z_loss += jnp.sum(v_get_kl(q_z_mus, q_z_logvars, p_std))
         loss = (mse_loss + kl_z_loss) / opt.n_particles
 
-        # ? Particles_z updated as SVGD transport step z(t+1)(particle m) = z(t)(m) + step_size * phi_z(t)(m)
-        particles = particles - (opt.lr * phi_z)
-
         return res, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, np.asarray(soft_g), particles, sf_baseline
 
     for step in range(opt.steps):
         key, rng = random.split(key)
         s = time()
-        state, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, soft_g, particles_z, sf_baseline = train_step(state, z_gt, rng, particles_z, sf_baseline, step)
+        state, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, soft_g, particles_z, sf_baseline = train_step(state, rng, particles_z, sf_baseline, step)
         print(f'Step {step} | Loss {loss} | MSE: {mse_loss} | KL: {kl_z_loss} | Time per train step: {time() - s}s')
 
-        if step % 5 == 0:
+        if (step+1) % 1 == 0:
             particles_g = np.random.binomial(1, soft_g, soft_g.shape)
             dibs_empirical = particle_marginal_empirical(particles_g)
             dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
