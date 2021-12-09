@@ -53,11 +53,11 @@ class Decoder(nn.Module):
         else:
             z = nn.Dense(self.dims, name='decoder_fc0')(z)
             z = nn.relu(z)
-            z = nn.Dense(self.dims, name='decoder_fc0')(z)
+            z = nn.Dense(self.dims, name='decoder_fc1')(z)
             z = nn.relu(z)
-            z = nn.Dense(self.dims, name='decoder_fc0')(z)
+            z = nn.Dense(self.dims, name='decoder_fc2')(z)
             z = nn.relu(z)
-            z = nn.Dense(self.dims, name='decoder_fc0')(z)
+            z = nn.Dense(self.dims, name='decoder_fc3')(z)
         return z
         
 
@@ -468,7 +468,7 @@ class Decoder_DIBS(nn.Module):
         subk, subk_ = random.split(subk)
        
         # [d, k, 2], [d, d], [n_grad_mc_samples, d, d], [1,], [1,] -> [n_grad_mc_samples]
-        logprobs_numerator = vmap(self.log_joint_prob_soft, (None, None, 0, None, None, None), 0)(single_z, single_theta, eps, t, subk_, data) 
+        logprobs_numerator = jit(vmap(self.log_joint_prob_soft, (None, None, 0, None, None, None), 0))(single_z, single_theta, eps, t, subk_, data) 
         logprobs_denominator = logprobs_numerator
         # [n_grad_mc_samples, d, k, 2]
         # d/dx log p(theta, D | G(x, eps)) for a batch of `eps` samples
@@ -619,10 +619,11 @@ class Decoder_DIBS(nn.Module):
     
 
     def __call__(self, z_rng, particles_z, sf_baseline, step=0):
+        
         # ? 1. Sample n_particles graphs from particles_z
         z_rng, key = random.split(z_rng) 
         eps = random.logistic(key, shape=(self.n_particles, self.num_nodes, self.num_nodes))    
-        sampled_soft_g = self.particle_to_soft_graph(particles_z, eps, step) 
+        sampled_soft_g = self.particle_to_soft_graph(particles_z, eps, step)
 
         # ? 2. Get graph conditioned predictions on z: q(z|G)
         z_rng, key = random.split(z_rng) 

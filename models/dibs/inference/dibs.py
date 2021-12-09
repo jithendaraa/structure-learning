@@ -357,9 +357,7 @@ class DiBS:
             tuple gradient, baseline  [d, k, 2], [1, ]
 
         """
-
-        # [d, d]
-        p = self.edge_probs(single_z, t)
+        p = self.edge_probs(single_z, t)    # [d, d]
         n_vars, n_dim = single_z.shape[0:2]
 
         # [n_grad_mc_samples, d, d]
@@ -390,9 +388,7 @@ class DiBS:
         # stable computation of exp/log/divide
         # [d * k * 2, ]  [d * k * 2, ]
         log_numerator, sign = logsumexp(a=logprobs_numerator_adjusted, b=grad_z, axis=1, return_sign=True)
-
-        # []
-        log_denominator = logsumexp(logprobs_denominator, axis=0)
+        log_denominator = logsumexp(logprobs_denominator, axis=0)   # []
 
         # [d * k * 2, ]
         stable_sf_grad = sign * jnp.exp(log_numerator - jnp.log(n_mc_numerator) - log_denominator + jnp.log(n_mc_denominator))
@@ -403,8 +399,6 @@ class DiBS:
         # update baseline
         single_sf_baseline = (self.score_function_baseline * logprobs_numerator.mean(0) +
                             (1 - self.score_function_baseline) * single_sf_baseline)
-
-        print("YEAH")
 
         return stable_sf_grad_shaped, single_sf_baseline
         
