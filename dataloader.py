@@ -110,6 +110,9 @@ def parse_datasets(opt, device):
         data_objects['data'] = data
         data_objects['adj_matrix'] = train_dataloader.adjacency_matrix
         data_objects['true_encoder'], data_objects['true_decoder'] = None, None
+        
+        if train_dataloader.noise_type.endswith('gaussian'):
+            data_objects['means'], data_objects['stds'] = train_dataloader.means, train_dataloader.stds
 
         if opt.proj in ['linear', 'nonlinear']:
             data_objects['projected_data'] = train_dataloader.projected_samples
@@ -117,7 +120,6 @@ def parse_datasets(opt, device):
             data_objects['true_encoder'] = train_dataloader.true_encoder
             data_objects['true_decoder'] = train_dataloader.true_decoder
     
-
     print(f"Loaded dataset {opt.dataset}")
     print()
     return data_objects

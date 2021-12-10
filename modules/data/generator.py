@@ -33,7 +33,6 @@ class Generator(torch.utils.data.Dataset):
 
 	def build_graph(self):
 		""" Initilises the adjacency matrix and the weighted adjacency matrix"""
-
 		self.adjacency_matrix = nx.to_numpy_matrix(self.graph)
 		self.weighted_adjacency_matrix = self.adjacency_matrix.copy()
 		edge_pointer = 0
@@ -48,7 +47,7 @@ class Generator(torch.utils.data.Dataset):
 
 	def init_sampler(self):
 		if self.noise_type.endswith('gaussian'):
-			#Identifiable
+			# Identifiable
 			if self.noise_type == 'isotropic-gaussian':
 				noise_std= [self.noise_sigma]*self.num_nodes
 			elif self.noise_type == 'gaussian':
@@ -85,28 +84,48 @@ class Generator(torch.utils.data.Dataset):
 		Outputs: Observations [num_samples x num_nodes]
 		"""
 
-		if graph is None:
-			graph = self.graph
-
+		if graph is None:	graph = self.graph
 		samples = torch.zeros(num_samples, self.num_nodes)
 		edge_pointer = 0
+		actual_means, actual_vars = [0.] * self.num_nodes, [0.] * self.num_nodes
+		sample_means, sample_vars = [0.] * self.num_nodes, [0.] * self.num_nodes
+
 		for i in nx.topological_sort(graph):
 			if i == node:
 				noise = torch.tensor([value]*num_samples)
 			else:
 				noise = self.graph.nodes[i]['sampler'].sample([num_samples])
 			parents = list(self.graph.predecessors(i))
-			if len(parents) == 0:
-				samples[:,i] = noise
+
+			if self.noise_type.endswith('gaussian'):
+				actual_mean = self.graph.nodes[i]['sampler'].loc
+				actual_var = self.graph.nodes[i]['sampler'].scale ** 2
 			else:
-				curr = 0.
+				NotImplementedError("Have not implemented for non-gaussian models")
+
+			if len(parents) == 0:	
+				samples[:,i] = noise
+			else:					
+				curr, actual_mean, actual_var = 0., 0., 0.
+
 				for j in parents:
+					if self.noise_type.endswith('gaussian'):
+						# ? actual µ_i = µ_noise_i + sum edge_weight(k, i) * µ_j (j in pa(i))
+						# ? actual variance σ^2_i = σ_noise_i^2 + sum (edge_weight(k, i) * σ_j (j in pa(i))) ** 2
+						actual_mean += self.weighted_adjacency_matrix[j, i] * self.graph.nodes[j]['sampler'].loc
+						actual_var += (self.weighted_adjacency_matrix[j, i] * self.graph.nodes[j]['sampler'].scale) ** 2
+
 					curr += self.weighted_adjacency_matrix[j, i]*samples[:,j]
 					edge_pointer += 1
 				curr += noise
 				samples[:, i] = curr
-
-		return samples # (num_samples * num_nodes)
+			
+			actual_means[i] = actual_mean.item()
+			actual_vars[i] = actual_var.item()
+			sample_means[i] = samples[:, i].mean().item()
+			sample_vars[i] = torch.var(samples[:, i], dim=0, unbiased=False).item() # ? Don't use Bessel's correction
+		
+		return samples, actual_means, np.sqrt(actual_vars), sample_means, np.sqrt(sample_vars) # (num_samples * num_nodes)
 
 	def intervene(self, num_samples, node = None, value = None):
 		
