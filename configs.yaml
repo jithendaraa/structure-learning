@@ -105,7 +105,7 @@ train_vcn:
   datatype: 'er'
   batch_size: 1000
   seed: 10
-  data_seed: 10
+  data_seed: 11
   lr: 1e-2
   steps: 30000
   model: 'VCN'
@@ -265,15 +265,16 @@ decoder_dibs_er:
   proj_dims: 8
   soft_constraint: False
   known_ED: False
-  steps: 50             # updates for VAE part
+  steps: 50             
   num_samples: 500
   lr: 8e-4
   dibs_lr: 3e-3
-  n_particles: 5
   linear_decoder: True
-  algo: 'fast-slow'
   dibs_updates: 200
+  n_particles: 20
+  algo: 'fast-slow'
   grad_estimator: 'reparam' # ['score', 'reparam']
+  z_prior: 'actual'   # ['actual', 'sample']
 
 experimental:
   off_wandb: True

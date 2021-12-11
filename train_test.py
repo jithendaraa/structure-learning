@@ -71,7 +71,8 @@ def train_dibs(target, loader_objs, opt, key):
     kernel = FrobeniusSquaredExponentialKernel(h=opt.h_latent)
     dibs = MarginalDiBS(kernel=kernel, target_log_prior=log_prior, 
                         target_log_marginal_prob=log_likelihood, 
-                        alpha_linear=opt.alpha_linear)
+                        alpha_linear=opt.alpha_linear, 
+                        grad_estimator_z=opt.grad_estimator)
 		
 	# ? initialize particles
     key, subk = random.split(key)
@@ -193,10 +194,15 @@ def train_decoder_dibs(model, loader_objs, opt, key):
     gt_graph = loader_objs['train_dataloader'].graph
     adjacency_matrix = loader_objs['adj_matrix']
     gt_samples = loader_objs['data']
-    x = loader_objs['projected_data']
+    x = jnp.array(loader_objs['projected_data'])
+    z_means, z_stds = loader_objs['means'], loader_objs['stds']
+    
+    # ? Prior P(z | G) for KL term - could be sample params or actual params mu and sigma
+    p_z_mus, p_z_stds = jnp.array(z_means[opt.z_prior]), jnp.array(z_stds[opt.z_prior])
+    print(p_z_mus, p_z_stds)
+
     z_gt = jnp.array(gt_samples) 
     z_gt = device_put(z_gt, jax.devices()[0])
-    x = jnp.array(x)
 
     m = model()
     key, rng = random.split(key)
@@ -216,16 +222,18 @@ def train_decoder_dibs(model, loader_objs, opt, key):
         tx=optimizer
     )
 
-    # @partial(jit, static_argnums=(5,))
+    # # @partial(jit, static_argnums=(5,))
     def train_step(state, z_rng, particles, sf_baseline, step):
         dibs_updates = 1
-        if opt.algo == 'fast-slow': dibs_updates = opt.dibs_updates
+        # if opt.algo == 'fast-slow': dibs_updates = opt.dibs_updates
 
         # ? mutliple dibs update for one ELBO update for decoder dibs
+        # ? Particles_z updated as SVGD transport step z(t+1)(particle m) = z(t)(m) + step_size * phi_z(t)(m)
         for _ in tqdm(range(dibs_updates)):
+            s = time()
             recons, q_z_mus, q_z_logvars, phi_z, soft_g, sf_baseline, z_rng = m.apply({'params': state.params}, z_rng, particles, sf_baseline, step)
-            # ? Particles_z updated as SVGD transport step z(t+1)(particle m) = z(t)(m) + step_size * phi_z(t)(m)
             particles = particles - (opt.dibs_lr * phi_z)
+            print(time() - s)
 
         def loss_fn(params):
             recons, q_z_mus, q_z_logvars, _, _, _, _ = m.apply({'params': params}, z_rng, particles, sf_baseline, step)
@@ -235,10 +243,9 @@ def train_decoder_dibs(model, loader_objs, opt, key):
             v_get_mse = vmap(get_mse, (0, None), 0)
             mse_loss += jnp.sum(v_get_mse(recons, x))
 
-            p_std = jnp.array([jnp.sqrt(2.), jnp.sqrt(2.), 1., 1.])
-            get_kl = lambda q_z_mu, q_z_logvar, p_std: jnp.sum(-0.5 + (jnp.log(p_std) - 0.5 * q_z_logvar) + (jnp.exp(q_z_logvar) + (q_z_mu)**2)/(2*(p_std**2)))
-            v_get_kl = vmap(get_kl, (0, 0, None), 0)
-            kl_z_loss += jnp.sum(v_get_kl(q_z_mus, q_z_logvars, p_std))
+            get_kl = lambda q_z_mu, q_z_logvar, p_z_mu, p_z_std: jnp.sum(-0.5 + (jnp.log(p_z_std) - 0.5 * q_z_logvar) + (jnp.exp(q_z_logvar) + (q_z_mu - p_z_mu)**2)/(2*(p_z_std**2)))
+            v_get_kl = vmap(get_kl, (0, 0, None, None), 0)
+            kl_z_loss += jnp.sum(v_get_kl(q_z_mus, q_z_logvars, p_z_mus, p_z_stds))
 
             loss = (mse_loss + kl_z_loss) / opt.n_particles
             return loss
@@ -251,10 +258,9 @@ def train_decoder_dibs(model, loader_objs, opt, key):
         v_get_mse = vmap(get_mse, (0, None), 0)
         mse_loss += jnp.sum(v_get_mse(recons, x))
 
-        p_std = jnp.array([jnp.sqrt(2.), jnp.sqrt(2.), 1., 1.])
-        get_kl = lambda q_z_mu, q_z_logvar, p_std: jnp.sum(-0.5 + (jnp.log(p_std) - 0.5 * q_z_logvar) + (jnp.exp(q_z_logvar) + (q_z_mu)**2)/(2*(p_std**2)))
-        v_get_kl = vmap(get_kl, (0, 0, None), 0)
-        kl_z_loss += jnp.sum(v_get_kl(q_z_mus, q_z_logvars, p_std))
+        get_kl = lambda q_z_mu, q_z_logvar, p_z_mu, p_z_std: jnp.sum(-0.5 + (jnp.log(p_z_std) - 0.5 * q_z_logvar) + (jnp.exp(q_z_logvar) + (q_z_mu - p_z_mu)**2)/(2*(p_z_std**2)))
+        v_get_kl = vmap(get_kl, (0, 0, None, None), 0)
+        kl_z_loss += jnp.sum(v_get_kl(q_z_mus, q_z_logvars, p_z_mus, p_z_stds))
         loss = (mse_loss + kl_z_loss) / opt.n_particles
 
         return res, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, np.asarray(soft_g), particles, sf_baseline
@@ -264,6 +270,7 @@ def train_decoder_dibs(model, loader_objs, opt, key):
         s = time()
         state, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, soft_g, particles_z, sf_baseline = train_step(state, rng, particles_z, sf_baseline, step)
         print(f'Step {step} | Loss {loss} | MSE: {mse_loss} | KL: {kl_z_loss} | Time per train step: {time() - s}s')
+        # break
 
         if (step+1) % 1 == 0:
             particles_g = np.random.binomial(1, soft_g, soft_g.shape)
@@ -273,7 +280,6 @@ def train_decoder_dibs(model, loader_objs, opt, key):
             eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
             # sampled_graph = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
             # writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
-            print(q_z_mus, q_z_logvars)
             print(f'Expected SHD Marginal: {eshd_m} | Empirical: {eshd_e}')
             print(particles_g)
         print()
