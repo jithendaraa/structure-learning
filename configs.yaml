@@ -265,13 +265,13 @@ decoder_dibs_er:
   proj_dims: 8
   soft_constraint: False
   known_ED: False
-  steps: 50             
+  steps: 20             
   num_samples: 500
   lr: 8e-4
   dibs_lr: 3e-3
   linear_decoder: True
-  dibs_updates: 200
-  n_particles: 20
+  dibs_updates: 400
+  n_particles: 10
   algo: 'fast-slow'
   grad_estimator: 'reparam' # ['score', 'reparam']
   z_prior: 'actual'   # ['actual', 'sample']

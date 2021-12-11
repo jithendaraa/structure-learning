@@ -27,7 +27,7 @@ from jax import device_put
 import jax.scipy.stats as dist
 from flax.training import train_state
 import jax.numpy as jnp
-from jax import vmap, random, jit
+from jax import vmap, random, jit, grad
 from dibs.kernel import FrobeniusSquaredExponentialKernel
 from dibs.inference import MarginalDiBS
 from dibs.eval.metrics import expected_shd
@@ -222,18 +222,16 @@ def train_decoder_dibs(model, loader_objs, opt, key):
         tx=optimizer
     )
 
-    # # @partial(jit, static_argnums=(5,))
+    # @partial(jit, static_argnums=(4,))
     def train_step(state, z_rng, particles, sf_baseline, step):
         dibs_updates = 1
-        # if opt.algo == 'fast-slow': dibs_updates = opt.dibs_updates
+        if opt.algo == 'fast-slow': dibs_updates = opt.dibs_updates
 
         # ? mutliple dibs update for one ELBO update for decoder dibs
         # ? Particles_z updated as SVGD transport step z(t+1)(particle m) = z(t)(m) + step_size * phi_z(t)(m)
         for _ in tqdm(range(dibs_updates)):
-            s = time()
             recons, q_z_mus, q_z_logvars, phi_z, soft_g, sf_baseline, z_rng = m.apply({'params': state.params}, z_rng, particles, sf_baseline, step)
             particles = particles - (opt.dibs_lr * phi_z)
-            print(time() - s)
 
         def loss_fn(params):
             recons, q_z_mus, q_z_logvars, _, _, _, _ = m.apply({'params': params}, z_rng, particles, sf_baseline, step)
@@ -250,7 +248,7 @@ def train_decoder_dibs(model, loader_objs, opt, key):
             loss = (mse_loss + kl_z_loss) / opt.n_particles
             return loss
 
-        grads = jax.grad(loss_fn)(state.params)
+        grads = grad(loss_fn)(state.params)   # time per train_step() is 14s with jit and 6.8s without
         res = state.apply_gradients(grads=grads)
 
         mse_loss, kl_z_loss = 0., 0.
@@ -270,7 +268,6 @@ def train_decoder_dibs(model, loader_objs, opt, key):
         s = time()
         state, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, soft_g, particles_z, sf_baseline = train_step(state, rng, particles_z, sf_baseline, step)
         print(f'Step {step} | Loss {loss} | MSE: {mse_loss} | KL: {kl_z_loss} | Time per train step: {time() - s}s')
-        # break
 
         if (step+1) % 1 == 0:
             particles_g = np.random.binomial(1, soft_g, soft_g.shape)

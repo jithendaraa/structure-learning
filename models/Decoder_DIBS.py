@@ -381,6 +381,7 @@ class Decoder_DIBS(nn.Module):
 
 
     # * Estimators for score d/dZ log p(theta, D | Z)  (i.e. w.r.t the latent embeddings Z for graph G)
+   
     def eltwise_grad_z_likelihood(self, zs, thetas, baselines, t, subkeys, data=None):
         if self.grad_estimator_z == 'score':    grad_z_likelihood = self.grad_z_likelihood_score_function
         elif self.grad_estimator_z == 'reparam':    grad_z_likelihood = self.grad_z_likelihood_gumbel
@@ -442,6 +443,7 @@ class Decoder_DIBS(nn.Module):
 
 
     # * reparametrized estimation of d/dZ log p(theta, D | Z) -> [grad_z_likelihood_gumbel]
+    # @functools.partial(jit, static_argnums=(0,))
     def grad_z_likelihood_gumbel(self, single_z, single_theta, single_sf_baseline, t, subk, data=None):
         """
         Reparameterization estimator for the score d/dZ log p(theta, D | Z) 
@@ -470,7 +472,7 @@ class Decoder_DIBS(nn.Module):
         subk, subk_ = random.split(subk)
        
         # [d, k, 2], [d, d], [n_grad_mc_samples, d, d], [1,], [1,] -> [n_grad_mc_samples]
-        logprobs_numerator = (vmap(self.log_joint_prob_soft, (None, None, 0, None, None, None), 0))(single_z, single_theta, eps, t, subk_, data) 
+        logprobs_numerator = vmap(self.log_joint_prob_soft, (None, None, 0, None, None, None), 0)(single_z, single_theta, eps, t, subk_, data) 
         logprobs_denominator = logprobs_numerator
         # [n_grad_mc_samples, d, k, 2]
         # d/dx log p(theta, D | G(x, eps)) for a batch of `eps` samples
@@ -535,6 +537,7 @@ class Decoder_DIBS(nn.Module):
 
     # * [grad_z_joint_log_prob]
     # * Calculate gradient of log joint prob log P(z, Data) wrt z, the particle
+    # @functools.partial(jit, static_argnums=(0,))
     def grad_z_joint_log_prob(self, z, t, key, sf_baseline, data=None):
         h = self.kernel.h
 
@@ -619,11 +622,9 @@ class Decoder_DIBS(nn.Module):
     def get_posterior_z(self, key, gs):
         return vmap(self.get_posterior_single_z, (None, 0), (0, 0, 0))(key, gs)
     
-    @functools.partial(jit, static_argnums=(0, ))
-    def decode_single_qz(self, q_z):
-        return self.decoder(q_z)
 
     def __call__(self, z_rng, particles_z, sf_baseline, step=0):
+        s = time()
         # ? 1. Sample n_particles graphs from particles_z
         z_rng, key = random.split(z_rng) 
         eps = random.logistic(key, shape=(self.n_particles, self.num_nodes, self.num_nodes))    
@@ -634,11 +635,11 @@ class Decoder_DIBS(nn.Module):
         q_z_mus, q_z_logvars, q_zs = self.get_posterior_z(key, sampled_soft_g)
 
         # ? 3. From every distribution q(z_i|G), decode to get reconstructed samples X in higher dimensions. i = 1...num_nodes
-        lambda z_input: self.map_row(alpha, T, z_input)
-        recons = vmap(self.decode_single_qz, (0), 0)(q_zs)
+        decoder = lambda q_z: self.decoder(q_z)
+        recons = vmap(decoder, (0), 0)(q_zs)
 
         # ? 4. Calculate phi_z = Mean ( kxx * grad_log P(particles_z | data) + grad kxx ) for updating particles_z
         # ? transformation phi_z(t)(particle m) applied in batch to each particle individually
         phi_z, sf_baseline = self.get_phi_z(particles_z, step, key, sf_baseline, data=jnp.array(q_zs))
-        
+        print(time() - s, "s")
         return recons, q_z_mus, q_z_logvars, phi_z, sampled_soft_g, sf_baseline, z_rng

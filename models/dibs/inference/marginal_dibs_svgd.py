@@ -190,7 +190,6 @@ class MarginalDiBS(DiBS):
             the updated inputs
         """
         z = self.get_params(opt_state_z) # [n_particles, d, k, 2]
-        
         n_particles = z.shape[0]
         h = self.kernel.h   # make sure same bandwith is used for all calls to k(x, x') (in case e.g. the median heuristic is applied)
 
