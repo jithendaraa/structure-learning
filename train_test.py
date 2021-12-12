@@ -225,13 +225,7 @@ def train_decoder_dibs(model, loader_objs, opt, key):
     # @partial(jit, static_argnums=(4,))
     def train_step(state, z_rng, particles, sf_baseline, step):
         dibs_updates = 1
-        if opt.algo == 'fast-slow': dibs_updates = opt.dibs_updates
-
-        # ? mutliple dibs update for one ELBO update for decoder dibs
-        # ? Particles_z updated as SVGD transport step z(t+1)(particle m) = z(t)(m) + step_size * phi_z(t)(m)
-        for _ in tqdm(range(dibs_updates)):
-            recons, q_z_mus, q_z_logvars, phi_z, soft_g, sf_baseline, z_rng = m.apply({'params': state.params}, z_rng, particles, sf_baseline, step)
-            particles = particles - (opt.dibs_lr * phi_z)
+        if opt.algo == 'fast-slow': dibs_updates = opt.num_updates
 
         def loss_fn(params):
             recons, q_z_mus, q_z_logvars, _, _, _, _ = m.apply({'params': params}, z_rng, particles, sf_baseline, step)
@@ -250,6 +244,12 @@ def train_decoder_dibs(model, loader_objs, opt, key):
 
         grads = grad(loss_fn)(state.params)   # time per train_step() is 14s with jit and 6.8s without
         res = state.apply_gradients(grads=grads)
+
+        # ? mutliple dibs update for one ELBO update for decoder dibs
+        # ? Particles_z updated as SVGD transport step z(t+1)(particle m) = z(t)(m) + step_size * phi_z(t)(m)
+        for _ in tqdm(range(dibs_updates)):
+            recons, q_z_mus, q_z_logvars, phi_z, soft_g, sf_baseline, z_rng = m.apply({'params': res.params}, z_rng, particles, sf_baseline, step)
+            particles = particles - (opt.dibs_lr * phi_z)
 
         mse_loss, kl_z_loss = 0., 0.
         get_mse = lambda recon, x: jnp.mean(jnp.square(recon - x)) 
@@ -275,8 +275,8 @@ def train_decoder_dibs(model, loader_objs, opt, key):
             dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
             eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
             eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
-            # sampled_graph = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
-            # writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
+            sampled_graph = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
+            writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
             print(f'Expected SHD Marginal: {eshd_m} | Empirical: {eshd_e}')
             print(particles_g)
         print()

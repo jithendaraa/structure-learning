@@ -257,20 +257,19 @@ decoder_dibs_er:
   dataset: 'er'
   datatype: 'er'
   batch_size: 1000
-  data_seed: 10
+  data_seed: 5
   num_nodes: 4
   exp_edges: 0.7
   proj: 'linear'
-  num_updates: 200      # updates for DIBS
   proj_dims: 8
   soft_constraint: False
   known_ED: False
-  steps: 20             
+  steps: 120             
   num_samples: 500
   lr: 8e-4
   dibs_lr: 3e-3
-  linear_decoder: True
-  dibs_updates: 400
+  linear_decoder: False
+  num_updates: 100
   n_particles: 10
   algo: 'fast-slow'
   grad_estimator: 'reparam' # ['score', 'reparam']

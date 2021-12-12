@@ -44,8 +44,6 @@ def set_opts(opt):
     if opt.num_nodes <=4: opt.alpha_lambd = 10.
     else: opt.alpha_lambd = 1000.
 
-    
-
     return opt
 
 def args_type(default):
@@ -243,9 +241,13 @@ def is_mec(g1, g2):
   """
     Returns True if graph g1 is a Markov Equivalent Class of graph g2
   """
-  g1 = graphical_models.DAG.from_nx(g1)
-  g1_skeleton = g1.cpdag() ##Find the skeleton
-  all_g1_mecs = g1_skeleton.all_dags() #Find all DAGs in MEC
+  try:
+    g1 = graphical_models.DAG.from_nx(g1)
+    g1_skeleton = g1.cpdag() ##Find the skeleton
+    all_g1_mecs = g1_skeleton.all_dags() #Find all DAGs in MEC
+  except:
+    return False
+  
   g2 = graphical_models.DAG.from_nx(g2)
   g2_skeleton = g2.cpdag() ##Find the skeleton
   all_g2_mecs = g2_skeleton.all_dags() #Find all DAGs in MEC
