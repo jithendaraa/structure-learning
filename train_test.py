@@ -238,8 +238,7 @@ def train_decoder_dibs(model, loader_objs, opt, key):
             get_kl = lambda q_z_mu, q_z_logvar, p_z_mu, p_z_std: jnp.sum(-0.5 + (jnp.log(p_z_std) - 0.5 * q_z_logvar) + (jnp.exp(q_z_logvar) + (q_z_mu - p_z_mu)**2)/(2*(p_z_std**2)))
             v_get_kl = vmap(get_kl, (0, 0, None, None), 0)
             kl_z_loss += jnp.sum(v_get_kl(q_z_mus, q_z_logvars, p_z_mus, p_z_stds))
-
-            loss = (mse_loss + kl_z_loss) / opt.n_particles
+            loss = (mse_loss + (opt.beta * kl_z_loss)) / opt.n_particles
             return loss
 
         grads = grad(loss_fn)(state.params)   # time per train_step() is 14s with jit and 6.8s without
@@ -259,14 +258,13 @@ def train_decoder_dibs(model, loader_objs, opt, key):
         get_kl = lambda q_z_mu, q_z_logvar, p_z_mu, p_z_std: jnp.sum(-0.5 + (jnp.log(p_z_std) - 0.5 * q_z_logvar) + (jnp.exp(q_z_logvar) + (q_z_mu - p_z_mu)**2)/(2*(p_z_std**2)))
         v_get_kl = vmap(get_kl, (0, 0, None, None), 0)
         kl_z_loss += jnp.sum(v_get_kl(q_z_mus, q_z_logvars, p_z_mus, p_z_stds))
-        loss = (mse_loss + kl_z_loss) / opt.n_particles
-
+        loss = (mse_loss + (opt.beta * kl_z_loss)) / opt.n_particles
         return res, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, np.asarray(soft_g), particles, sf_baseline
 
     for step in range(opt.steps):
         key, rng = random.split(key)
         s = time()
-        state, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, soft_g, particles_z, sf_baseline = train_step(state, rng, particles_z, sf_baseline, step)
+        state, loss, mse_loss, kl_z_loss, _, _, soft_g, particles_z, sf_baseline = train_step(state, rng, particles_z, sf_baseline, step)
         print(f'Step {step} | Loss {loss} | MSE: {mse_loss} | KL: {kl_z_loss} | Time per train step: {time() - s}s')
 
         if (step+1) % 1 == 0:
@@ -277,8 +275,9 @@ def train_decoder_dibs(model, loader_objs, opt, key):
             eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
             sampled_graph = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
             writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
+            writer.add_scalar('Evaluations/Exp. SHD (Empirical)', np.array(eshd_e), step)
+            writer.add_scalar('Evaluations/Exp. SHD (Marginal)', np.array(eshd_m), step)
             print(f'Expected SHD Marginal: {eshd_m} | Empirical: {eshd_e}')
-            print(particles_g)
         print()
 
         
