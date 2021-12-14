@@ -284,6 +284,7 @@ def log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file):
   gt_graph_edges = list(gt_graph.edges())
   gt_graph_edges.sort()
 
+  mec_or_gt_count = 0
   for idx in range(len(sampled_graphs)):
       graph = sampled_graphs[idx]
       ax = plt.subplot(nrows, ncols, count+1)
@@ -303,6 +304,7 @@ def log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file):
       if same_graph is True: color='blue'
       elif mecs[idx] is True: color='red'
       else: color='black'
+      if color in ['blue', 'red']: mec_or_gt_count += 1
 
       if same_graph is True:  ax.set_title(f'Freq: {graph_counts[idx]} | Ground truth', fontsize=23, color=color)
       else:   ax.set_title(f'Freq: {graph_counts[idx]} | MEC: {mecs[idx]}', fontsize=23, color=color)
@@ -312,7 +314,7 @@ def log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file):
   plt.savefig(dag_file, dpi=60)
   plt.show()
   sampled_graph = np.asarray(imageio.imread(dag_file))
-  return sampled_graph
+  return sampled_graph, mec_or_gt_count
 
 
 def sample_initial_random_particles(key, n_particles, n_vars, n_dim=None, latent_prior_std=None):

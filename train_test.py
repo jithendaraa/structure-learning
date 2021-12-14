@@ -267,16 +267,17 @@ def train_decoder_dibs(model, loader_objs, opt, key):
         state, loss, mse_loss, kl_z_loss, _, _, soft_g, particles_z, sf_baseline = train_step(state, rng, particles_z, sf_baseline, step)
         print(f'Step {step} | Loss {loss} | MSE: {mse_loss} | KL: {kl_z_loss} | Time per train step: {time() - s}s')
 
-        if (step+1) % 1 == 0:
+        if step % 1 == 0:
             particles_g = np.random.binomial(1, soft_g, soft_g.shape)
             dibs_empirical = particle_marginal_empirical(particles_g)
             dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
             eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
             eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
-            sampled_graph = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
+            sampled_graph, mec_gt_count = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
             writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
             writer.add_scalar('Evaluations/Exp. SHD (Empirical)', np.array(eshd_e), step)
             writer.add_scalar('Evaluations/Exp. SHD (Marginal)', np.array(eshd_m), step)
+            writer.add_scalar('Evaluations/MEC or GT recovery %', 100 * (mec_gt_count / opt.n_particles), step)
             print(f'Expected SHD Marginal: {eshd_m} | Empirical: {eshd_e}')
         print()
 
