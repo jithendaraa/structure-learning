@@ -1,3 +1,4 @@
+import functools
 import sys
 sys.path.append('models')
 sys.path.append('dibs/')
@@ -222,11 +223,10 @@ def train_decoder_dibs(model, loader_objs, opt, key):
         tx=optimizer
     )
 
-    @jit
     def loss_fn(params, z_rng, particles, sf_baseline, step):
         mse_loss, kl_z_loss = 0., 0.
         recons, q_z_mus, q_z_logvars, _, _, _, _ = m.apply({'params': params}, z_rng, particles, sf_baseline, step)
-        
+
         get_mse = lambda recon, x: jnp.mean(jnp.square(recon - x)) 
         v_get_mse = vmap(get_mse, (0, None), 0)
         mse_loss += jnp.sum(v_get_mse(recons, x)) / opt.n_particles
@@ -237,11 +237,12 @@ def train_decoder_dibs(model, loader_objs, opt, key):
         loss = (mse_loss + (opt.beta * kl_z_loss)) 
         return loss
     
-    def train_step(state, z_rng, particles, sf_baseline, step):
+    
+    def fast_slow_train_step(state, z_rng, particles, sf_baseline, step):
         dibs_updates = 1
         if opt.algo == 'fast-slow': dibs_updates = opt.num_updates
 
-        grads = jit(grad(loss_fn))(state.params, z_rng, particles, sf_baseline, step)   # time per train_step() is 14s with jit and 6.8s without
+        grads = jit(grad(jit(loss_fn)))(state.params, z_rng, particles, sf_baseline, step)   # time per train_step() is 14s with jit and 6.8s without
         res = state.apply_gradients(grads=grads)
 
         # ? mutliple dibs update for one ELBO update for decoder dibs
@@ -262,14 +263,45 @@ def train_decoder_dibs(model, loader_objs, opt, key):
 
         return res, np.array(loss), np.array(mse_loss), np.array(kl_z_loss), q_z_mus, q_z_logvars, np.asarray(soft_g), particles, sf_baseline
 
+    @jit
+    def def_train_step(state, z_rng, particles, sf_baseline, step):
+        grads = grad(loss_fn)(state.params, z_rng, particles, sf_baseline, step)   # time per train_step() is 14s with jit and 6.8s without
+        res = state.apply_gradients(grads=grads)
+
+        # ? mutliple dibs update for one ELBO update for decoder dibs
+        # ? Particles_z updated as SVGD transport step z(t+1)(particle m) = z(t)(m) + step_size * phi_z(t)(m)
+        recons, q_z_mus, q_z_logvars, phi_z, soft_g, sf_baseline, z_rng = m.apply({'params': res.params}, z_rng, particles, sf_baseline, step)
+        particles = particles - opt.dibs_lr * phi_z
+
+        mse_loss, kl_z_loss = 0., 0.
+        get_mse = lambda recon, x: jnp.mean(jnp.square(recon - x)) 
+        v_get_mse = vmap(get_mse, (0, None), 0)
+        mse_loss += jnp.sum(v_get_mse(recons, x)) / opt.n_particles
+
+        get_kl = lambda q_z_mu, q_z_logvar, p_z_mu, p_z_std: jnp.sum(-0.5 + (jnp.log(p_z_std) - 0.5 * q_z_logvar) + (jnp.exp(q_z_logvar) + (q_z_mu - p_z_mu)**2)/(2*(p_z_std**2)))
+        v_get_kl = vmap(get_kl, (0, 0, None, None), 0)
+        kl_z_loss += jnp.sum(v_get_kl(q_z_mus, q_z_logvars, p_z_mus, p_z_stds)) / opt.n_particles
+        loss = (mse_loss + (opt.beta * kl_z_loss))
+
+        return res, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, soft_g, particles, sf_baseline
+
+    if opt.algo == 'fast-slow':
+        trainer_fn = fast_slow_train_step
+        log_freq = 5
+    elif opt.algo == 'def':
+        trainer_fn = def_train_step
+        log_freq = 200
+
     for step in range(opt.steps):
         key, rng = random.split(key)
         s = time()
-        state, loss, mse_loss, kl_z_loss, _, _, soft_g, particles_z, sf_baseline = train_step(state, rng, particles_z, sf_baseline, step)
+        state, loss, mse_loss, kl_z_loss, _, _, soft_g, particles_z, sf_baseline = trainer_fn(state, rng, particles_z, sf_baseline, step)
+        loss, mse_loss, kl_z_loss = np.array(loss), np.array(mse_loss), np.array(kl_z_loss) 
         print(f'Step {step} | Loss {loss:4f} | MSE: {mse_loss:4f} | KL: {kl_z_loss} | Time per train step: {(time() - s):2f}s')
 
-        if step % 1 == 0:
-            particles_g = np.random.binomial(1, soft_g, soft_g.shape)
+        if step % log_freq == 0:
+            soft_g = np.array(soft_g)
+            particles_g = np.random.binomial(1, np.array(soft_g), soft_g.shape)
             dibs_empirical = particle_marginal_empirical(particles_g)
             dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
             eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
