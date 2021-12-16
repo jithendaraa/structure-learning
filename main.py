@@ -12,6 +12,7 @@ import torch
 from train_test import train_model
 import utils
 from dataloader import *
+import math
 
 
 def get_opt():
@@ -104,13 +105,14 @@ def build_model(opt, device, loader_objs):
     from jax import random
     import jax.numpy as jnp
     key = random.PRNGKey(123)
-    latent_prior_std = 1.0 / jnp.sqrt(opt.num_nodes)
+    latent_prior_std = 1.0 / math.sqrt(opt.num_nodes)
     
     def model():
-      return Decoder_DIBS(key, opt.num_nodes, opt.data_type, opt.h_latent,
-                          opt.theta_mu, opt.alpha_mu, opt.alpha_lambd,
-                          opt.alpha_linear, opt.n_particles, opt.proj_dims, opt.num_samples,
-                          opt.linear_decoder, latent_prior_std=latent_prior_std)
+      return Decoder_DIBS(opt.num_nodes, opt.datatype, opt.h_latent, 
+                          opt.alpha_mu, opt.alpha_lambd,
+                          opt.alpha_linear, opt.n_particles, opt.proj_dims, opt.num_samples, opt.linear_decoder,
+                          latent_prior_std=latent_prior_std)
+                          
 
   else: 
     raise NotImplementedError(f'Model {opt.model} is not implemented. Try one of {implemented_models}')

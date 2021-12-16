@@ -244,14 +244,12 @@ class BGeJAX:
         return log_gamma_terms[n_parents] + log_term_r
         
 
-    @functools.partial(jit, static_argnums=(0, ))
     def eltwise_log_marginal_likelihood_given_g_single(self, *args):
         """
         Same inputs as `log_marginal_likelihood_given_g_single`,
         but batched over `j` and `n_parents` dimensions
         """
         return vmap(self.log_marginal_likelihood_given_g_single, (0, 0, None, None, None, None), 0)(*args)
-
 
     def log_marginal_likelihood_given_g(self, *, w, data, interv_targets=None):
         """Computes BGe marignal likelihood  log p(x | G) in closed form 
