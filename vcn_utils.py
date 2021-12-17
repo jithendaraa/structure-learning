@@ -161,21 +161,23 @@ def auroc(model, ground_truth, num_samples = 1000):
     https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0009202"""
 
     gt = adj_mat_to_vec(torch.from_numpy(ground_truth).unsqueeze(0), model.num_nodes).numpy().squeeze()
-    num_nodes = model.num_nodes
     bs = 10000
     i = 0
     samples = []
+	
     with torch.no_grad():
         while i<num_samples:
             curr = min(bs, num_samples-i)
             samples.append(model.graph_dist.sample([curr]).cpu().numpy().squeeze())
             i+=curr
+			
     samples = np.concatenate(samples, axis = 0)
     samples_mean = np.mean(samples, axis = 0)
     sorted_beliefs_index = np.argsort(samples_mean)[::-1]
     fpr = np.zeros((samples_mean.shape[-1]))
     tpr = np.zeros((samples_mean.shape[-1]))
     tnr = np.zeros((samples_mean.shape[-1]))
+
     for i in range(samples_mean.shape[-1]):
         indexes = np.zeros((samples_mean.shape[-1]))
         indexes[sorted_beliefs_index[:i]] = 1
@@ -188,4 +190,3 @@ def auroc(model, ground_truth, num_samples = 1000):
         tnr[i] = float(tn)/(tn + fp)
     auroc = metrics.auc(fpr, tpr)
     return auroc
-
