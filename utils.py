@@ -13,7 +13,9 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import math
 from jax import numpy as jnp
-from jax import random
+from jax import random, jit
+from vcn_utils import adj_mat_to_vec
+from sklearn import metrics
 
 def set_opts(opt):
     print()
@@ -324,3 +326,40 @@ def sample_initial_random_particles(key, n_particles, n_vars, n_dim=None, latent
     key, subk = random.split(key)
     z = random.normal(subk, shape=(n_particles, n_vars, n_dim, 2)) * std        
     return z
+
+def dibs_auroc(model, key, params, particles_z, sf_baseline, num_nodes, adj_matrix, num_samples = 1000):
+    """Compute the AUROC of the model as given in 
+    https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0009202"""
+    n = num_nodes
+    gt = adj_mat_to_vec(torch.from_numpy(adj_matrix).unsqueeze(0), n).numpy().squeeze()
+    samples = []
+    indices = np.where(~np.eye(n,dtype=bool).flatten())[0]
+
+    for i in range(num_samples):
+        key, rng = random.split(key)
+        _, _, _, _, soft_g, _, _ = jit(model.apply)({'params': params}, 
+                                            rng, particles_z, sf_baseline, 0)
+        soft_g = np.array(soft_g)
+        particles_g = np.random.binomial(1, soft_g, soft_g.shape).reshape(-1, n*n)
+        samples.append(particles_g[:, indices].reshape(-1, len(indices)))
+
+    samples = np.array(samples)
+    samples = samples.reshape(-1, n*n - n)
+    samples_mean = np.mean(samples, axis = 0)
+    sorted_beliefs_index = np.argsort(samples_mean)[::-1]
+    fpr = np.zeros((samples_mean.shape[-1]))
+    tpr = np.zeros((samples_mean.shape[-1]))
+    tnr = np.zeros((samples_mean.shape[-1]))
+
+    for i in range(samples_mean.shape[-1]):
+        indexes = np.zeros((samples_mean.shape[-1]))
+        indexes[sorted_beliefs_index[:i]] = 1
+        tp = np.sum(np.logical_and(gt == 1, indexes == 1))
+        fn = np.sum(np.logical_and(indexes==0 , gt != indexes))
+        tn = np.sum(np.logical_and(gt==0, indexes==0))
+        fp = np.sum(np.logical_and(indexes==1, gt!=indexes))
+        fpr[i] = float(fp)/(fp+tn)
+        tpr[i] = float(tp)/(tp + fn)
+        tnr[i] = float(tn)/(tn + fp)
+    auroc = metrics.auc(fpr, tpr)
+    return auroc
