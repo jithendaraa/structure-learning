@@ -45,8 +45,8 @@ for seed in ${seeds[*]}; do
                 for dibs_updates in ${num_updates[*]}; do
                     for step in ${steps[*]}; do
                         for num_sample in ${num_samples[*]}; do
-                            args="--data_seed "$seed" --exp_edges "$exp_edge" --lr "$lr" --dibs_lr "$dibs_lr" --num_updates "$dibs_updates" --steps "$step" --num_samples "$num_sample
-                            command="sbatch --job-name ${config} --output ${output_file} --time ${time} scripts/search_decoder_dibs_run_job.sh ${config} ${args}"      
+                            args="
+                            command="sbatch --job-name ${config} --output ${output_file} --time ${time} scripts/search_decoder_dibs_run_job.sh ${config} ${seed} ${exp_edge} ${lr} ${dibs_lr} ${dibs_updates} ${step} ${num_sample}"      
                             echo ""
                             echo ${command}
                             echo ""
