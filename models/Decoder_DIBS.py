@@ -704,7 +704,7 @@ class Decoder_DIBS(nn.Module):
         phi_z = jit(vmap(self.z_update, (0, 1, None, None), 0))(particles_z, kxx, particles_z, dz_log_prob)
         print(f'Part 4 takes: {time() - s}s')
 
-        return recons, q_z_mus, q_z_logvars, phi_z, sampled_soft_g, sf_baseline, z_rng
+        return recons, q_z_mus, q_z_logvars, phi_z, sampled_soft_g, sf_baseline, z_rng, q_zs
 
 def eval_kernel(scale, x, y, h, global_h):
     h_ = lax.cond(
