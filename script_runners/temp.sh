@@ -7,13 +7,34 @@ time=$4
 
 keys=("seed" "exp_edges" "lr" "dibs_lr" "num_updates" "steps" "num_samples")
 
-seeds=(1)
-exp_edges=(1.0 1.5 2.0)
-lrs=(0.0001 0.0003 0.0008 0.001)
-dibs_lrs=(0.0003 0.0008 0.001 0.003 0.005)
-num_updates=(100 500 1000 3000)
-steps=(3000 5000 10000 50000 100000)
-num_samples=(500 1000 2000 3000)
+# seeds=(1)
+# exp_edges=(1.0 1.5 2.0)
+# lrs=(0.0001 0.0003 0.0008 0.001)
+# dibs_lrs=(0.0003 0.0008 0.001 0.003 0.005)
+# num_updates=(100 500)
+# steps=(3000 5000 10000 50000 100000)
+# num_samples=(500 1000 2000 3000)
+
+# Part 1
+# seeds=(1)
+# exp_edges=(1.0 1.5)
+# lrs=(0.0001 0.0003 0.0008 0.001)
+# dibs_lrs=(0.0003 0.0008 0.001 0.003 0.005)
+# num_updates=(100 500)
+# steps=(3000 5000 10000)
+# num_samples=(500 1000)
+
+# Part 2
+# seeds=(1)
+# exp_edges=(1.0 1.5)
+# lrs=(0.0001 0.0003 0.0008 0.001)
+# dibs_lrs=(0.0003 0.0008 0.001 0.003 0.005)
+# num_updates=(100 500)
+# steps=(3000 5000 10000)
+# num_samples=(2000 3000)
+
+
+
 
 array_len=$(( ${#seeds[@]} * ${#exp_edges[@]} * ${#lrs[@]} * ${#dibs_lrs[@]} * ${#num_updates[@]} * ${#steps[@]} * ${#num_samples[@]} ))
 echo $array_len
@@ -30,6 +51,18 @@ then
 else
     echo "Not implemented dataset ${train}" 
 fi
+
+command="sbatch --array=1-${array_len}%512 --job-name ${config} --output ${output_file} --time ${time} scripts/temp2.sh ${config}"   
+echo ""
+echo ${command}
+echo ""
+
+RES=$(${command})
+job_id=${RES##* }
+echo "Job ID"" ""${job_id}"" -> ""${config} ${args}" >> out/job_logs.txt
+echo "Job ID"" ""${job_id}"" -> ""${config} ${args}" 
+echo ""
+
 
 # # Iterate the string array using for loop
 # for seed in ${seeds[*]}; do
