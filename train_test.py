@@ -37,7 +37,6 @@ from dibs.eval.metrics import expected_shd
 from dibs.utils.func import particle_marginal_empirical, particle_marginal_mixture
 from dibs.models.linearGaussianEquivalent import BGeJAX
 
-
 def set_optimizers(model, opt):
     if opt.opti == 'alt' and opt.model in ['VAEVCN']: 
         return [optim.Adam(model.vcn_params, lr=1e-2), optim.Adam(model.vae_params, lr=opt.lr)]
@@ -183,7 +182,9 @@ def train_vae_dibs(model, loader_objs, opt, key):
             print()
 
 def train_decoder_dibs(model, loader_objs, opt, key):
+    import graphical_models
     import networkx as nx
+
     particles_g, eltwise_log_prob, opt_state_z = None, None, None
     sf_baseline = jnp.zeros(opt.n_particles)
     no_interv_targets = jnp.zeros(opt.num_nodes).astype(bool)
@@ -196,6 +197,7 @@ def train_decoder_dibs(model, loader_objs, opt, key):
     writer.add_image('graph_structure(GT-pred)/Ground truth', gt_graph_image, 0, dataformats='HWC')
 
     gt_graph = loader_objs['train_dataloader'].graph
+    gt_graph_cpdag = graphical_models.DAG.from_nx(gt_graph).cpdag()
     projection_matrix = jnp.array(loader_objs['projection_matrix'])
     adj_matrix = loader_objs['adj_matrix'].astype(int)
     gt_samples = loader_objs['data']
@@ -319,7 +321,7 @@ def train_decoder_dibs(model, loader_objs, opt, key):
         log_freq = 5
     elif opt.algo == 'def':
         trainer_fn = def_train_step
-        log_freq = 50
+        log_freq = opt.steps // 500
 
     for step in range(opt.steps):
         key, rng = random.split(key)
@@ -340,6 +342,19 @@ def train_decoder_dibs(model, loader_objs, opt, key):
             auroc = utils.dibs_auroc(m, rng, state.params, particles_z, sf_baseline, opt.num_nodes, gt, 500 // opt.n_particles)
             # todo calculate CPDAG SHD
             
+            cpdag_shds = []
+            for adj_mat in particles_g:
+                G = nx.from_numpy_matrix(adj_mat, create_using=nx.DiGraph)
+                try:
+                    G_cpdag = graphical_models.DAG.from_nx(G).cpdag()
+                    shd = gt_graph_cpdag.shd(G_cpdag)
+                    cpdag_shds.append(shd)
+                except:
+                    pass
+            
+            if len(cpdag_shds) > 0:
+                writer.add_scalar('Evaluations/CPDAG SHD', np.mean(cpdag_shds), step)
+            
             writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
             writer.add_scalar('Evaluations/Exp. SHD (Empirical)', np.array(eshd_e), step)
             writer.add_scalar('Evaluations/Exp. SHD (Marginal)', np.array(eshd_m), step)
@@ -355,9 +370,10 @@ def train_decoder_dibs(model, loader_objs, opt, key):
             writer.add_scalar('Distances/MSE(decoder | projection matrix)', np.array(decoder_dist), step)
 
             print(f'Expected SHD Marginal: {eshd_m} | Empirical: {eshd_e}')
-            print("GT-MEC", mec_gt_recovery)
-            print("AUROC:", auroc)
-        print()
+            print(f"GT-MEC: {mec_gt_recovery} | AUROC: {auroc}")
+            if len(cpdag_shds) > 0:
+                print(f"CPDAG SHD: {np.mean(cpdag_shds)}")
+        # print()
 
 
 def train_model(model, loader_objs, exp_config_dict, opt, device, key=None):
