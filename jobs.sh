@@ -28,4 +28,7 @@ then
 elif [ ${exp_id} == '6' ]   # ! Run Decoder DIBS
 then
     bash script_runners/decoder_dibs_job_run.sh ${dataset} ${train} 'Decoder_DIBS' ${time}
+elif [ ${exp_id} == '6s' ]   # ! Search over hyperparams Decoder DIBS
+then
+    bash script_runners/search_decoder_dibs_job.sh ${dataset} ${train} 'Decoder_DIBS' ${time}
 fi

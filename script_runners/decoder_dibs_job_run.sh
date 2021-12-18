@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# 1. Train VAE DIBS
 dataset=$1
 train=$2
 model=$3

@@ -13,7 +13,13 @@
 #SBATCH --mail-type=ALL
 
 id=$1
-args={$2:-''}
+seed=$2
+exp_edges=$3
+lr=$4
+dibs_lr=$5
+dibs_updates=$6
+steps=$7
+num_samples=$8
 start=`date +%s`
 echo "Script"
 
@@ -22,8 +28,9 @@ echo "Script"
 act_causal
 module load python/3.7
 echo `date` "Python starting"
-echo "python main.py --config defaults "${id}" "${args}
-python main.py --config defaults ${id} ${args}
+echo "python main.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edges} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_updates} --steps ${steps} --num_samples ${num_samples}"
+
+python main.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edges} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_updates} --steps ${steps} --num_samples ${num_samples}
 
 echo $end
 end=`date +%s`
