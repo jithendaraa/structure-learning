@@ -22,7 +22,8 @@ from functools import partial
 import vcn_utils
 from time import time
 from sklearn import metrics
-
+import graphical_models
+import networkx as nx
 
 import optax
 import jax
@@ -181,20 +182,27 @@ def train_vae_dibs(model, loader_objs, opt, key):
             print(f'Expected SHD Marginal: {eshd_m} | Empirical: {eshd_e}')
             print()
 
-def train_decoder_dibs(model, loader_objs, opt, key):
-    import graphical_models
-    import networkx as nx
-
+def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
     particles_g, eltwise_log_prob, opt_state_z = None, None, None
     sf_baseline = jnp.zeros(opt.n_particles)
     no_interv_targets = jnp.zeros(opt.num_nodes).astype(bool)
 
-    # ! Tensorboard setup and log ground truth causal graph
+    # ! Tensorboard and wandb setup and log ground truth causal graph
     logdir = utils.set_tb_logdir(opt)
     dag_file = join(logdir, 'sampled_dags.png')
     writer = SummaryWriter(logdir)
     gt_graph_image = np.asarray(imageio.imread(join(logdir, 'gt_graph.png')))
+
+    if opt.offline_wandb is True: os.system('wandb offline')
+    else:   os.system('wandb online')
+
+    if opt.off_wandb is False:
+        wandb.init(project=opt.wandb_project, entity=opt.wandb_entity, config=exp_config_dict, settings=wandb.Settings(start_method="fork"))
+        wandb.run.name = logdir.split('/')[-1]
+        wandb.run.save()
+
     writer.add_image('graph_structure(GT-pred)/Ground truth', gt_graph_image, 0, dataformats='HWC')
+    wandb.log({"graph_structure(GT-pred)/Ground truth": wandb.Image(join(logdir, 'gt_graph.png'))}, step=0)
 
     gt_graph = loader_objs['train_dataloader'].graph
     gt_graph_cpdag = graphical_models.DAG.from_nx(gt_graph).cpdag()
@@ -335,12 +343,11 @@ def train_decoder_dibs(model, loader_objs, opt, key):
             particles_g = np.random.binomial(1, soft_g, soft_g.shape)   # todo verify
             dibs_empirical = particle_marginal_empirical(particles_g)
             dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
-            eshd_e = expected_shd(dist=dibs_empirical, g=adj_matrix)
-            eshd_m = expected_shd(dist=dibs_mixture, g=adj_matrix)
+            eshd_e = np.array(expected_shd(dist=dibs_empirical, g=adj_matrix))
+            eshd_m = np.array(expected_shd(dist=dibs_mixture, g=adj_matrix))
             sampled_graph, mec_gt_count = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
             mec_gt_recovery = 100 * (mec_gt_count / opt.n_particles)
             auroc = utils.dibs_auroc(m, rng, state.params, particles_z, sf_baseline, opt.num_nodes, gt, 500 // opt.n_particles)
-            # todo calculate CPDAG SHD
             
             cpdag_shds = []
             for adj_mat in particles_g:
@@ -352,20 +359,33 @@ def train_decoder_dibs(model, loader_objs, opt, key):
                 except:
                     pass
             
+            # ! wandb logs
+            wandb_log_dict = {"graph_structure(GT-pred)/Ground truth": wandb.Image(sampled_graph),
+                        'Evaluations/Exp. SHD (Empirical)': eshd_e,
+                        'Evaluations/Exp. SHD (Marginal)': eshd_m,
+                        'Evaluations/MEC-GT recovery %': mec_gt_recovery,
+                        'Evaluations/AUROC': auroc,
+                        'z_losses/MSE': mse_loss,
+                        'z_losses/KL': kl_z_loss,
+                        'z_losses/ELBO': loss,
+                        'Distances/MSE(Predicted z | z_GT)': np.array(z_dist),
+                        'Distances/MSE(decoder | projection matrix)': np.array(decoder_dist)
+                        }
             if len(cpdag_shds) > 0:
                 writer.add_scalar('Evaluations/CPDAG SHD', np.mean(cpdag_shds), step)
+                wandb_log_dict['Evaluations/CPDAG SHD'] = np.mean(cpdag_shds)
             
+            wandb.log(wandb_log_dict, step=step)
+
+            # ! tensorboard logs
             writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
             writer.add_scalar('Evaluations/Exp. SHD (Empirical)', np.array(eshd_e), step)
             writer.add_scalar('Evaluations/Exp. SHD (Marginal)', np.array(eshd_m), step)
             writer.add_scalar('Evaluations/MEC or GT recovery %', mec_gt_recovery, step)
             writer.add_scalar('Evaluations/AUROC', auroc, step)
-            # todo log CPDAG SHD to Tensorboard
-        
             writer.add_scalar('z_losses/MSE', mse_loss, step)
             writer.add_scalar('z_losses/KL', kl_z_loss, step)
             writer.add_scalar('z_losses/ELBO', loss, step)
-
             writer.add_scalar('Distances/MSE(Predicted z | z_GT)', np.array(z_dist), step)
             writer.add_scalar('Distances/MSE(decoder | projection matrix)', np.array(decoder_dist), step)
 
@@ -373,7 +393,7 @@ def train_decoder_dibs(model, loader_objs, opt, key):
             print(f"GT-MEC: {mec_gt_recovery} | AUROC: {auroc}")
             if len(cpdag_shds) > 0:
                 print(f"CPDAG SHD: {np.mean(cpdag_shds)}")
-        # print()
+        print()
 
 
 def train_model(model, loader_objs, exp_config_dict, opt, device, key=None):
@@ -385,7 +405,7 @@ def train_model(model, loader_objs, exp_config_dict, opt, device, key=None):
         train_vae_dibs(model, loader_objs, opt, key)
         return
     elif opt.model in ['Decoder_DIBS']:
-        train_decoder_dibs(model, loader_objs, opt, key)
+        train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key)
         return
 
     pred_gt, time_epoch, likelihood, kl_graph, elbo_train, vae_elbo = None, [], [], [], [], []
