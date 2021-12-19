@@ -1,5 +1,6 @@
 import functools
 import sys
+from networkx.algorithms.centrality import group
 from numpy.random.mtrand import sample
 sys.path.append('models')
 sys.path.append('dibs/')
@@ -189,6 +190,7 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
 
     # ! Tensorboard and wandb setup and log ground truth causal graph
     logdir = utils.set_tb_logdir(opt)
+    group_name = logdir.split('/')[-1].replace(f"_seed{opt.data_seed}", "")
     dag_file = join(logdir, 'sampled_dags.png')
     writer = SummaryWriter(logdir)
     gt_graph_image = np.asarray(imageio.imread(join(logdir, 'gt_graph.png')))
@@ -197,7 +199,12 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
     else:   os.system('wandb online')
 
     if opt.off_wandb is False:
-        wandb.init(project=opt.wandb_project, entity=opt.wandb_entity, config=exp_config_dict, settings=wandb.Settings(start_method="fork"))
+        wandb.init(project=opt.wandb_project, 
+                    entity=opt.wandb_entity, 
+                    group=group_name,
+                    config=exp_config_dict, 
+                    settings=wandb.Settings(start_method="fork"), 
+                    sync_tensorboard=True)
         wandb.run.name = logdir.split('/')[-1]
         wandb.run.save()
 
@@ -359,25 +366,8 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
                 except:
                     pass
             
-            # ! wandb logs
-            wandb_log_dict = {"graph_structure(GT-pred)/Ground truth": wandb.Image(sampled_graph),
-                        'Evaluations/Exp. SHD (Empirical)': eshd_e,
-                        'Evaluations/Exp. SHD (Marginal)': eshd_m,
-                        'Evaluations/MEC-GT recovery %': mec_gt_recovery,
-                        'Evaluations/AUROC': auroc,
-                        'z_losses/MSE': mse_loss,
-                        'z_losses/KL': kl_z_loss,
-                        'z_losses/ELBO': loss,
-                        'Distances/MSE(Predicted z | z_GT)': np.array(z_dist),
-                        'Distances/MSE(decoder | projection matrix)': np.array(decoder_dist)
-                        }
-            if len(cpdag_shds) > 0:
-                writer.add_scalar('Evaluations/CPDAG SHD', np.mean(cpdag_shds), step)
-                wandb_log_dict['Evaluations/CPDAG SHD'] = np.mean(cpdag_shds)
-            
-            wandb.log(wandb_log_dict, step=step)
-
             # ! tensorboard logs
+            if len(cpdag_shds) > 0: writer.add_scalar('Evaluations/CPDAG SHD', np.mean(cpdag_shds), step)
             writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
             writer.add_scalar('Evaluations/Exp. SHD (Empirical)', np.array(eshd_e), step)
             writer.add_scalar('Evaluations/Exp. SHD (Marginal)', np.array(eshd_m), step)
