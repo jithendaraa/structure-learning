@@ -250,31 +250,31 @@ linear_vaedibs_er:
   soft_constraint: False
 
 # ? 9. Decoder_DIBS
-# ! python main.py --config defaults experimental decoder_dibs_er
+# ! python main.py --config defaults decoder_dibs_er
 decoder_dibs_er:
   ckpt_id: 'decoder_dibs_er'
   model: 'Decoder_DIBS'
   dataset: 'er'
   datatype: 'er'
   batch_size: 1000
-  data_seed: 2
-  num_nodes: 4
-  exp_edges: 0.7
   proj: 'linear'
-  proj_dims: 8
   soft_constraint: False
   known_ED: False
-  steps: 10000           
-  num_samples: 500
-  lr: 3e-4
-  dibs_lr: 3e-3
   linear_decoder: False
-  num_updates: 500
-  n_particles: 20
   algo: 'def'
   grad_estimator: 'reparam' # ['score', 'reparam']
   z_prior: 'actual'   # ['actual', 'sample']
-  beta: 1.5
+  beta: 1.0
+  n_particles: 20
+  num_nodes: 4
+  proj_dims: 8
+  data_seed: 1
+  exp_edges: 1.0
+  dibs_lr: 3e-4
+  lr: 3e-4
+  steps: 3000
+  num_updates: 500
+  num_samples: 500
 
 experimental:
   off_wandb: True

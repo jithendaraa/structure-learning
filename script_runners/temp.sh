@@ -7,34 +7,13 @@ time=$4
 
 keys=("seed" "exp_edges" "lr" "dibs_lr" "num_updates" "steps" "num_samples")
 
-# seeds=(1)
-# exp_edges=(1.0 1.5 2.0)
-# lrs=(0.0001 0.0003 0.0008 0.001)
-# dibs_lrs=(0.0003 0.0008 0.001 0.003 0.005)
-# num_updates=(100 500)
-# steps=(3000 5000 10000 50000 100000)
-# num_samples=(500 1000 2000 3000)
-
-# Part 1
-# seeds=(1)
-# exp_edges=(1.0 1.5)
-# lrs=(0.0001 0.0003 0.0008 0.001)
-# dibs_lrs=(0.0003 0.0008 0.001 0.003 0.005)
-# num_updates=(100 500)
-# steps=(3000 5000 10000)
-# num_samples=(500 1000)
-
-# Part 2
-# seeds=(1)
-# exp_edges=(1.0 1.5)
-# lrs=(0.0001 0.0003 0.0008 0.001)
-# dibs_lrs=(0.0003 0.0008 0.001 0.003 0.005)
-# num_updates=(100 500)
-# steps=(3000 5000 10000)
-# num_samples=(2000 3000)
-
-
-
+seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
+exp_edges=(0.8 1.0 1.5)
+lrs=(0.0003)
+dibs_lrs=(0.0003)
+num_samples=(500)
+num_updates=(500)
+steps=(5000)
 
 array_len=$(( ${#seeds[@]} * ${#exp_edges[@]} * ${#lrs[@]} * ${#dibs_lrs[@]} * ${#num_updates[@]} * ${#steps[@]} * ${#num_samples[@]} ))
 echo $array_len

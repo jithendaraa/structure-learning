@@ -23,7 +23,7 @@ act_causal
 module load python/3.7
 echo `date` "Python starting"
 echo "python main.py --config defaults "${id}" "${args}
-python main.py --config defaults ${id} ${args}
+python main.py --config defaults ${id} ${args} --dibs_lr 1e-2
 
 echo $end
 end=`date +%s`

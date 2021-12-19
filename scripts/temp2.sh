@@ -12,33 +12,18 @@
 #SBATCH --mail-type=REQUEUE
 #SBATCH --mail-type=ALL
 
-# seeds=(1)
-# exp_edges=(1.0 1.5 2.0)
-# lrs=(0.0001 0.0003 0.0008 0.001)
-# dibs_lrs=(0.0003 0.0008 0.001 0.003 0.005)
-# num_updates=(100 500)
-# steps=(3000 5000 10000 50000 100000)
-# num_samples=(500 1000 2000 3000)
+seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
+exp_edges=(0.8 1.0 1.5)
+lrs=(0.0003)
+dibs_lrs=(0.0003)
+num_samples=(500)
+num_updates=(500)
+steps=(5000)
 
-# Part 1
-# seeds=(1)
-# exp_edges=(1.0 1.5)
-# lrs=(0.0001 0.0003 0.0008 0.001)
-# dibs_lrs=(0.0003 0.0008 0.001 0.003 0.005)
-# num_updates=(100 500)
-# steps=(3000 5000 10000)
-# num_samples=(500 1000)
-
-# Part 2
-# seeds=(1)
-# exp_edges=(1.0 1.5)
-# lrs=(0.0001 0.0003 0.0008 0.001)
-# dibs_lrs=(0.0003 0.0008 0.001 0.003 0.005)
-# num_updates=(100 500)
-# steps=(3000 5000 10000)
-# num_samples=(2000 3000)
-
-
+num_nodes=4
+proj_dims=8
+algo='def'
+n_particles=2
 
 array_len=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#dibs_lrs[@]} * ${#num_updates[@]} * ${#steps[@]} * ${#num_samples[@]} ))
 
@@ -66,9 +51,9 @@ echo "Script"
 act_causal
 module load python/3.7
 echo `date` "Python starting"
-echo "python main.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_update} --steps ${step} --num_samples ${num_sample}"
+echo "python main.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_update} --steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --algo ${algo} --n_particles ${n_particles}"
 
-python main.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_update} --steps ${step} --num_samples ${num_sample}
+python main.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_update} --steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --algo ${algo} --n_particles ${n_particles}
 
 echo $end
 end=`date +%s`

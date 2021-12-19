@@ -77,29 +77,6 @@ def v_reparameterize(rng, mean, logvar):
     return vmap(reparameterize, (None, 0, 0), 0)(rng, mean, logvar)
 
 
-# * Graph samplers from z
-# def particle_to_soft_graph(z, eps, t, tau):
-#     """ 
-#     Gumbel-softmax / concrete distribution using Logistic(0,1) samples `eps`
-
-#     Args:
-#         z: a single latent tensor Z of shape [d, k, 2]
-#         eps: random iid Logistic(0,1) noise  of shape [d, d] 
-#         t: step
-    
-#     Returns:
-#         Gumbel-softmax sample of adjacency matrix [d, d]
-#     """
-#     scores = jnp.einsum('...ik,...jk->...ij', z[..., 0], z[..., 1])
-#     # soft reparameterization using gumbel-softmax/concrete distribution
-#     # eps ~ Logistic(0,1)
-#     soft_graph = sigmoid(tau * (eps + t * scores))
-
-#     # mask diagonal since it is explicitly not modeled
-#     n_vars = soft_graph.shape[-1]
-#     soft_graph = index_mul(soft_graph, index[..., jnp.arange(n_vars), jnp.arange(n_vars)], 0.0)
-#     return soft_graph
-
 def edge_log_probs(z, t):
     """
     Edge log probabilities encoded by latent representation
