@@ -1,6 +1,6 @@
 import warnings
 warnings.filterwarnings("ignore", message="No GPU automatically detected")
-
+import numpy as np
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 
@@ -161,7 +161,7 @@ def threshold_metrics(*, dist, g, undirected_cpdag_oriented_correctly=False):
         [1, ]
     """
     n_vars = g.shape[0]
-    g_flat = g.reshape(-1)
+    g_flat = np.array(g).reshape(-1)
 
     # convert graph ids to adjacency matrices
     id_particles_cyc, log_weights_cyc = dist 
