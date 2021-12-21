@@ -35,7 +35,7 @@ import jax.numpy as jnp
 from jax import vmap, random, jit, grad
 from dibs.kernel import FrobeniusSquaredExponentialKernel
 from dibs.inference import MarginalDiBS
-from dibs.eval.metrics import expected_shd
+from dibs.eval.metrics import expected_shd, threshold_metrics
 from dibs.utils.func import particle_marginal_empirical, particle_marginal_mixture
 from dibs.models.linearGaussianEquivalent import BGeJAX
 
@@ -100,9 +100,13 @@ def train_dibs(target, loader_objs, opt, key):
     sampled_graph, mec_or_gt_count = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
     writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, 0, dataformats='HWC')
 
+    auroc_empirical = threshold_metrics(dist = dibs_empirical, g=adjacency_matrix)['roc_auc']
+    auroc_mixture = threshold_metrics(dist = dibs_mixture, g=adjacency_matrix)['roc_auc']
+
     print("ESHD (empirical):", eshd_e)
     print("ESHD (marginal mixture):", eshd_m)
     print("MEC-GT Recovery %", mec_or_gt_count)
+    print(f"AUROC (Empirical and Marginal): {auroc_empirical} {auroc_mixture}")
 
 def train_vae_dibs(model, loader_objs, opt, key):
     particles_g, eltwise_log_prob = None, None
