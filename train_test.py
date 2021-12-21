@@ -97,11 +97,12 @@ def train_dibs(target, loader_objs, opt, key):
     eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
     eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
     
-    sampled_graph = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
+    sampled_graph, mec_or_gt_count = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
     writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, 0, dataformats='HWC')
 
     print("ESHD (empirical):", eshd_e)
     print("ESHD (marginal mixture):", eshd_m)
+    print("MEC-GT Recovery %", mec_or_gt_count)
 
 def train_vae_dibs(model, loader_objs, opt, key):
     particles_g, eltwise_log_prob = None, None
@@ -201,10 +202,8 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
     if opt.off_wandb is False:
         wandb.init(project=opt.wandb_project, 
                     entity=opt.wandb_entity, 
-                    group=group_name,
                     config=exp_config_dict, 
-                    settings=wandb.Settings(start_method="fork"), 
-                    sync_tensorboard=True)
+                    settings=wandb.Settings(start_method="fork"))
         wandb.run.name = logdir.split('/')[-1]
         wandb.run.save()
 
@@ -366,8 +365,26 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
                 except:
                     pass
             
+            wandb_log_dict = {
+                'graph_structure(GT-pred)/Posterior sampled graphs': wandb.Image(sampled_graph),
+                'Evaluations/Exp. SHD (Empirical)': eshd_e,
+                'Evaluations/Exp. SHD (Marginal)': eshd_m,
+                'Evaluations/MEC or GT recovery %': mec_gt_recovery,
+                'Evaluations/AUROC': auroc,
+                'z_losses/MSE': mse_loss,
+                'z_losses/KL': kl_z_loss,
+                'z_losses/ELBO': loss,
+                'Distances/MSE(Predicted z | z_GT)': np.array(z_dist),
+                'Distances/MSE(decoder | projection matrix)': np.array(decoder_dist)
+            }
+
             # ! tensorboard logs
-            if len(cpdag_shds) > 0: writer.add_scalar('Evaluations/CPDAG SHD', np.mean(cpdag_shds), step)
+            if len(cpdag_shds) > 0: 
+                writer.add_scalar('Evaluations/CPDAG SHD', np.mean(cpdag_shds), step)
+                wandb_log_dict['Evaluations/CPDAG SHD'] = np.mean(cpdag_shds)
+            
+            wandb.log(wandb_log_dict, step=step)
+
             writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
             writer.add_scalar('Evaluations/Exp. SHD (Empirical)', np.array(eshd_e), step)
             writer.add_scalar('Evaluations/Exp. SHD (Marginal)', np.array(eshd_m), step)
