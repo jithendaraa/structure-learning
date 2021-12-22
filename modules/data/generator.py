@@ -83,7 +83,6 @@ class Generator(torch.utils.data.Dataset):
 
 		Outputs: Observations [num_samples x num_nodes]
 		"""
-
 		if graph is None:	graph = self.graph
 		samples = torch.zeros(num_samples, self.num_nodes)
 		edge_pointer = 0
@@ -91,10 +90,8 @@ class Generator(torch.utils.data.Dataset):
 		sample_means, sample_vars = [0.] * self.num_nodes, [0.] * self.num_nodes
 
 		for i in nx.topological_sort(graph):
-			if i == node:
-				noise = torch.tensor([value]*num_samples)
-			else:
-				noise = self.graph.nodes[i]['sampler'].sample([num_samples])
+			if i == node:	noise = torch.tensor([value]*num_samples)
+			else:			noise = self.graph.nodes[i]['sampler'].sample([num_samples])
 			parents = list(self.graph.predecessors(i))
 
 			if self.noise_type.endswith('gaussian'):
@@ -126,10 +123,7 @@ class Generator(torch.utils.data.Dataset):
 			# sample_vars[i] = torch.var(samples[:, i], dim=0, unbiased=False).item() # ? Don't use Bessel's correction
 		
 		sample_covariance = torch.cov(torch.transpose(samples, 0, 1))
-		print("sample_covariance", sample_covariance)
-
 		# TODO: Calculate and return `actual covariance` instead of np.sqrt(actual_vars)
-
 		return samples, actual_means, np.sqrt(actual_vars), sample_means, sample_covariance # (num_samples * num_nodes)
 
 	def intervene(self, num_samples, node = None, value = None):
