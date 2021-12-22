@@ -67,18 +67,19 @@ class Decoder(nn.Module):
         return z
         
 
-def reparameterize_multivariate_normal(rng, mean, logcovar):
-
+def reparameterized_multivariate_normal(rng, mean, logcovar, size):
     # Cholesky decomposition: Σ = LL.T where L is lower triangular
     # reparametrised sample `res = mean + eps * L`
+    d = logcovar.shape[0]
+    unit_cov_matrix = jnp.identity(d)
+    unit_cov_matrix = jnp.expand_dims(unit_cov_matrix, 0).repeat(size, axis=0)
+    
     covar = jnp.exp(logcovar)
     L = jnp.linalg.cholesky(covar)
-    eps = random.multivariate_normal(rng, logcovar.shape)
-    return mean + eps * L
 
-
-def v_reparameterize(rng, mean, logvar):
-    return vmap(reparameterize_multivariate_normal, (None, 0, 0), 0)(rng, mean, logvar)
+    standard_mean = jnp.zeros((size, d))
+    eps = random.multivariate_normal(rng, standard_mean, unit_cov_matrix)
+    return mean + jnp.matmul(eps, L)
 
 
 def edge_log_probs(z, t):
@@ -475,16 +476,6 @@ class Decoder_DIBS(nn.Module):
 
         return g_samples
 
-    def get_posterior_single_z(self, key, single_g):
-        flattened_g = jnp.array(single_g.reshape(-1))
-        q_z_mu = 0.0 # TODO (Assumption to be removed later) Assume q_z_mu is always 0.0
-        q_z_logcovar = jnp.asarray(self.z_net(flattened_g)).reshape(self.num_nodes, self.num_nodes)
-        q_z = v_reparameterize(key, jnp.asarray([q_z_mu]*self.num_samples), jnp.asarray([q_z_logcovar]*self.num_samples))
-        return q_z_mu, q_z_logcovar, q_z
-
-    def get_posterior_z(self, key, gs):
-        return vmap(self.get_posterior_single_z, (None, 0), (0, 0, 0))(key, gs)
-
     def eltwise_grad_z_likelihood(self, zs, thetas, baselines, t, subkeys, data):
         if self.grad_estimator_z == 'reparam':    
             grad_z_likelihood = self.grad_z_likelihood_gumbel
@@ -646,6 +637,16 @@ class Decoder_DIBS(nn.Module):
         grad_kernel_z = jit(grad(self.f_kernel, 0))
         return vmap(grad_kernel_z, (0, None), 0)(x_latents, y_latent)
 
+    def get_posterior_single_z(self, key, single_g):
+        flattened_g = jnp.array(single_g.reshape(-1))
+        q_z_mu = jnp.asarray([0.0] * self.num_nodes) # TODO (Assumption to be removed later) Assume q_z_mu is always 0.0
+        q_z_logcovar = jnp.asarray(self.z_net(flattened_g)).reshape(self.num_nodes, self.num_nodes)
+        q_z = reparameterized_multivariate_normal(key, q_z_mu, q_z_logcovar, self.num_samples)
+        print(q_z.shape)
+        return q_z_mu, q_z_logcovar, q_z
+
+    def get_posterior_z(self, key, gs):
+        return vmap(self.get_posterior_single_z, (None, 0), (0, 0, 0))(key, gs)
 
     def __call__(self, z_rng, particles_z, sf_baseline, step=0):
         # ? 1. Sample n_particles graphs from particles_z
@@ -658,6 +659,7 @@ class Decoder_DIBS(nn.Module):
         # ? 2. Get graph conditioned predictions on z: q(z|G)
         s = time()
         z_rng, key = random.split(z_rng) 
+        # (num_samples, n_particles, d) (num_samples, n_particles, d, d)
         q_z_mus, q_z_logcovars, q_zs = self.get_posterior_z(key, sampled_soft_g)
         print(f'Part 2 takes: {time() - s}s')
 
