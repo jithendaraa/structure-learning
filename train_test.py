@@ -195,7 +195,6 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
 
     # ! Tensorboard and wandb setup and log ground truth causal graph
     logdir = utils.set_tb_logdir(opt)
-    group_name = logdir.split('/')[-1].replace(f"_seed{opt.data_seed}", "")
     dag_file = join(logdir, 'sampled_dags.png')
     writer = SummaryWriter(logdir)
     gt_graph_image = np.asarray(imageio.imread(join(logdir, 'gt_graph.png')))
@@ -210,9 +209,9 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
                     settings=wandb.Settings(start_method="fork"))
         wandb.run.name = logdir.split('/')[-1]
         wandb.run.save()
+        wandb.log({"graph_structure(GT-pred)/Ground truth": wandb.Image(join(logdir, 'gt_graph.png'))}, step=0)
 
     writer.add_image('graph_structure(GT-pred)/Ground truth', gt_graph_image, 0, dataformats='HWC')
-    wandb.log({"graph_structure(GT-pred)/Ground truth": wandb.Image(join(logdir, 'gt_graph.png'))}, step=0)
 
     gt_graph = loader_objs['train_dataloader'].graph
     gt_graph_cpdag = graphical_models.DAG.from_nx(gt_graph).cpdag()
@@ -220,14 +219,14 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
     adj_matrix = loader_objs['adj_matrix'].astype(int)
     gt_samples = loader_objs['data']
     x = jnp.array(loader_objs['projected_data'])
-    z_means, z_stds = loader_objs['means'], loader_objs['stds']
+    z_means, z_covars = loader_objs['means'], loader_objs['covars']
     z_gt = jnp.array(gt_samples) 
     z_gt = device_put(z_gt, jax.devices()[0])
     gt = utils.adj_mat_to_vec(torch.from_numpy(adj_matrix).unsqueeze(0), opt.num_nodes).numpy().squeeze()
     
     # ? Prior P(z | G) for KL term - could be sample params or actual params mu and sigma
-    p_z_mus, p_z_stds = jnp.array(z_means[opt.z_prior]), jnp.array(z_stds[opt.z_prior])
-    print("mu", p_z_mus, "std", p_z_stds)
+    p_z_mu, p_z_covar = jnp.array(z_means[opt.z_prior]), jnp.array(z_covars[opt.z_prior])
+    print(z_covars['sample'])
 
     m = model()
     key, rng = random.split(key)
@@ -248,43 +247,55 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
         tx=optimizer
     )
 
+    def get_single_kl(p_z_covar, p_z_mu, q_z_covar, q_z_mu):
+        mu_diff = p_z_mu - q_z_mu
+
+        kl_loss = 0.5 * (   jnp.log(jnp.linalg.det(p_z_covar)) - \
+                            jnp.log(jnp.linalg.det(q_z_covar)) - \
+                            opt.num_nodes + \
+                            jnp.trace( jnp.matmul(jnp.linalg.inv(p_z_covar), q_z_covar) ) + \
+                            jnp.matmul(jnp.matmul(jnp.transpose(mu_diff), jnp.linalg.inv(p_z_covar)), mu_diff)
+                        )
+
+        return kl_loss
+
+
+
     def loss_fn(params, z_rng, particles, sf_baseline, step):
         mse_loss, kl_z_loss = 0., 0.
-        recons, q_z_mus, q_z_logvars, _, _, _, _, _ = m.apply({'params': params}, z_rng, particles, sf_baseline, step)
+        recons, q_z_mus, q_z_covars, _, _, _, _, _ = m.apply({'params': params}, z_rng, particles, sf_baseline, step)
 
         get_mse = lambda recon, x: jnp.mean(jnp.square(recon - x)) 
         v_get_mse = vmap(get_mse, (0, None), 0)
-        mse_loss += jnp.sum(v_get_mse(recons, x)) / opt.n_particles
+        mse_loss += jnp.mean(v_get_mse(recons, x)) / opt.proj_dims
 
-        get_kl = lambda q_z_mu, q_z_logvar, p_z_mu, p_z_std: jnp.sum(-0.5 + (jnp.log(p_z_std) - 0.5 * q_z_logvar) + (jnp.exp(q_z_logvar) + (q_z_mu - p_z_mu)**2)/(2*(p_z_std**2)))
-        v_get_kl = vmap(get_kl, (0, 0, None, None), 0)
-        kl_z_loss += jnp.sum(v_get_kl(q_z_mus, q_z_logvars, p_z_mus, p_z_stds)) / opt.n_particles
+        get_kl = vmap(get_single_kl, (None, None, 0, 0), 0)
+        kl_z_loss += jnp.mean(get_kl(p_z_covar, p_z_mu, q_z_covars, q_z_mus)) / opt.num_nodes
+
         loss = (mse_loss + (opt.beta * kl_z_loss)) 
         return loss
-    
-    
+
+    @jit
     def fast_slow_train_step(state, z_rng, particles, sf_baseline, step):
         dibs_updates = 1
         if opt.algo == 'fast-slow': dibs_updates = opt.num_updates
 
-        grads = jit(grad(jit(loss_fn)))(state.params, z_rng, particles, sf_baseline, step)   # time per train_step() is 14s with jit and 6.8s without
+        grads = grad(loss_fn)(state.params, z_rng, particles, sf_baseline, step)   # time per train_step() is 14s with jit and 6.8s without
         res = state.apply_gradients(grads=grads)
 
         # ? mutliple dibs update for one ELBO update for decoder dibs
         # ? Particles_z updated as SVGD transport step z(t+1)(particle m) = z(t)(m) + step_size * phi_z(t)(m)
         for _ in tqdm(range(dibs_updates)):
-            recons, q_z_mus, q_z_logvars, phi_z, soft_g, sf_baseline, z_rng, pred_z = jit(m.apply)({'params': res.params}, z_rng, particles, sf_baseline, step)
+            recons, q_z_mus, q_z_covars, phi_z, soft_g, sf_baseline, z_rng, pred_z = m.apply({'params': res.params}, z_rng, particles, sf_baseline, step)
             particles = particles - (opt.dibs_lr * phi_z)
 
         mse_loss, kl_z_loss, z_dist, decoder_dist = 0., 0., 0., 0.
         get_mse = lambda recon, x: jnp.mean(jnp.square(recon - x)) 
-        v_get_mse = jit(vmap(get_mse, (0, None), 0))
-        mse_loss += jnp.mean(v_get_mse(recons, x))
+        v_get_mse = vmap(get_mse, (0, None), 0)
+        mse_loss += jnp.mean(v_get_mse(recons, x)) / opt.proj_dims
 
-        get_kl = lambda q_z_mu, q_z_logvar, p_z_mu, p_z_std: jnp.sum(-0.5 + (jnp.log(p_z_std) - 0.5 * q_z_logvar) + (jnp.exp(q_z_logvar) + (q_z_mu - p_z_mu)**2)/(2*(p_z_std**2)))
-        v_get_kl = jit(vmap(get_kl, (0, 0, None, None), 0))
-        kl_z_loss += jnp.mean(v_get_kl(q_z_mus, q_z_logvars, p_z_mus, p_z_stds)) 
-        loss = (mse_loss + (opt.beta * kl_z_loss))
+        get_kl = vmap(get_single_kl, (None, None, 0, 0), 0)
+        kl_z_loss += jnp.mean(get_kl(p_z_covar, p_z_mu, q_z_covars, q_z_mus)) / opt.num_nodes
 
         z_dist += jnp.mean(v_get_mse(pred_z, z_gt)) 
 
@@ -295,29 +306,27 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
         zTx = jnp.dot(zT, pred_x)
         zTz_inv = jnp.linalg.inv(jnp.dot(zT, z))
         decoder_projection = jnp.dot(zTz_inv, zTx)
-        v_get_mse = jit(vmap(jit(get_mse), (0, 0), 0))
+        v_get_mse =vmap(get_mse, (0, 0), 0)
         decoder_dist += jnp.mean(v_get_mse(decoder_projection, projection_matrix)) 
 
         return res, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, soft_g, particles, sf_baseline, z_dist, decoder_dist
 
-    @jit
     def def_train_step(state, z_rng, particles, sf_baseline, step):
-        grads = grad(loss_fn)(state.params, z_rng, particles, sf_baseline, step)   # time per train_step() is 14s with jit and 6.8s without
+        grads = jit(grad(jit(loss_fn)))(state.params, z_rng, particles, sf_baseline, step)   # time per train_step() is 14s with jit and 6.8s without
         res = state.apply_gradients(grads=grads)
 
         # ? mutliple dibs update for one ELBO update for decoder dibs
         # ? Particles_z updated as SVGD transport step z(t+1)(particle m) = z(t)(m) + step_size * phi_z(t)(m)
-        recons, q_z_mus, q_z_logvars, phi_z, soft_g, sf_baseline, z_rng, pred_z = m.apply({'params': res.params}, z_rng, particles, sf_baseline, step)
+        recons, q_z_mus, q_z_covars, phi_z, soft_g, sf_baseline, z_rng, pred_z = jit(m.apply)({'params': res.params}, z_rng, particles, sf_baseline, step)
         particles = particles - opt.dibs_lr * phi_z
 
         mse_loss, kl_z_loss, z_dist, decoder_dist = 0., 0., 0., 0.
         get_mse = lambda recon, x: jnp.mean(jnp.square(recon - x)) 
         v_get_mse = vmap(get_mse, (0, None), 0)
-        mse_loss += jnp.mean(v_get_mse(recons, x))
+        mse_loss += jnp.mean(v_get_mse(recons, x)) / opt.proj_dims
 
-        get_kl = lambda q_z_mu, q_z_logvar, p_z_mu, p_z_std: jnp.sum(-0.5 + (jnp.log(p_z_std) - 0.5 * q_z_logvar) + (jnp.exp(q_z_logvar) + (q_z_mu - p_z_mu)**2)/(2*(p_z_std**2)))
-        v_get_kl = vmap(get_kl, (0, 0, None, None), 0)
-        kl_z_loss += jnp.mean(v_get_kl(q_z_mus, q_z_logvars, p_z_mus, p_z_stds)) 
+        get_kl = vmap(get_single_kl, (None, None, 0, 0), 0)
+        kl_z_loss += jnp.mean(get_kl(p_z_covar, p_z_mu, q_z_covars, q_z_mus)) / opt.num_nodes
         loss = (mse_loss + (opt.beta * kl_z_loss))
 
         z_dist += jnp.mean(v_get_mse(pred_z, z_gt)) 
@@ -332,11 +341,11 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
         v_get_mse = vmap(get_mse, (0, 0), 0)
         decoder_dist += jnp.sum(v_get_mse(decoder_projection, projection_matrix)) / opt.num_nodes
         
-        return res, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, soft_g, particles, sf_baseline, z_dist, decoder_dist
+        return res, loss, mse_loss, kl_z_loss, q_z_mus, q_z_covars, soft_g, particles, sf_baseline, z_dist, decoder_dist
 
     if opt.algo == 'fast-slow':
         trainer_fn = fast_slow_train_step
-        log_freq = 5
+        log_freq = 10
     elif opt.algo == 'def':
         trainer_fn = def_train_step
         log_freq = opt.steps // 500
@@ -357,7 +366,8 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
             eshd_m = np.array(expected_shd(dist=dibs_mixture, g=adj_matrix))
             sampled_graph, mec_gt_count = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
             mec_gt_recovery = 100 * (mec_gt_count / opt.n_particles)
-            auroc = utils.dibs_auroc(m, rng, state.params, particles_z, sf_baseline, opt.num_nodes, gt, 500 // opt.n_particles)
+            auroc_e = threshold_metrics(dist = dibs_empirical, g=adj_matrix)['roc_auc']
+            auroc_m = threshold_metrics(dist = dibs_mixture, g=adj_matrix)['roc_auc']
             
             cpdag_shds = []
             for adj_mat in particles_g:
@@ -369,31 +379,35 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
                 except:
                     pass
             
-            wandb_log_dict = {
-                'graph_structure(GT-pred)/Posterior sampled graphs': wandb.Image(sampled_graph),
-                'Evaluations/Exp. SHD (Empirical)': eshd_e,
-                'Evaluations/Exp. SHD (Marginal)': eshd_m,
-                'Evaluations/MEC or GT recovery %': mec_gt_recovery,
-                'Evaluations/AUROC': auroc,
-                'z_losses/MSE': mse_loss,
-                'z_losses/KL': kl_z_loss,
-                'z_losses/ELBO': loss,
-                'Distances/MSE(Predicted z | z_GT)': np.array(z_dist),
-                'Distances/MSE(decoder | projection matrix)': np.array(decoder_dist)
-            }
+            if opt.off_wandb is False:
+                wandb_log_dict = {
+                    'graph_structure(GT-pred)/Posterior sampled graphs': wandb.Image(sampled_graph),
+                    'Evaluations/Exp. SHD (Empirical)': eshd_e,
+                    'Evaluations/Exp. SHD (Marginal)': eshd_m,
+                    'Evaluations/MEC or GT recovery %': mec_gt_recovery,
+                    'Evaluations/AUROC (empirical)': auroc_e,
+                    'Evaluations/AUROC (marginal)': auroc_m,
+                    'z_losses/MSE': mse_loss,
+                    'z_losses/KL': kl_z_loss,
+                    'z_losses/ELBO': loss,
+                    'Distances/MSE(Predicted z | z_GT)': np.array(z_dist),
+                    'Distances/MSE(decoder | projection matrix)': np.array(decoder_dist)
+                }
 
             # ! tensorboard logs
             if len(cpdag_shds) > 0: 
                 writer.add_scalar('Evaluations/CPDAG SHD', np.mean(cpdag_shds), step)
-                wandb_log_dict['Evaluations/CPDAG SHD'] = np.mean(cpdag_shds)
+                if opt.off_wandb is False: wandb_log_dict['Evaluations/CPDAG SHD'] = np.mean(cpdag_shds)
             
-            wandb.log(wandb_log_dict, step=step)
+            if opt.off_wandb is False: 
+                wandb.log(wandb_log_dict, step=step)
 
             writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
             writer.add_scalar('Evaluations/Exp. SHD (Empirical)', np.array(eshd_e), step)
             writer.add_scalar('Evaluations/Exp. SHD (Marginal)', np.array(eshd_m), step)
             writer.add_scalar('Evaluations/MEC or GT recovery %', mec_gt_recovery, step)
-            writer.add_scalar('Evaluations/AUROC', auroc, step)
+            writer.add_scalar('Evaluations/AUROC (empirical)', auroc_e, step)
+            writer.add_scalar('Evaluations/AUROC (marginal)', auroc_m, step)
             writer.add_scalar('z_losses/MSE', mse_loss, step)
             writer.add_scalar('z_losses/KL', kl_z_loss, step)
             writer.add_scalar('z_losses/ELBO', loss, step)
@@ -401,7 +415,7 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
             writer.add_scalar('Distances/MSE(decoder | projection matrix)', np.array(decoder_dist), step)
 
             print(f'Expected SHD Marginal: {eshd_m} | Empirical: {eshd_e}')
-            print(f"GT-MEC: {mec_gt_recovery} | AUROC: {auroc}")
+            print(f"GT-MEC: {mec_gt_recovery} | AUROC (empirical and marginal): {auroc_e} {auroc_m}")
             if len(cpdag_shds) > 0:
                 print(f"CPDAG SHD: {np.mean(cpdag_shds)}")
         print()
