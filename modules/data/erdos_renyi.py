@@ -38,10 +38,10 @@ class ER(Generator):
 
 		super().__init__(num_nodes, len(self.graph.edges), noise_type, num_samples, noise_mu=noise_mu, mu_prior = mu_prior , sigma_prior = sigma_prior, seed = seed)
 		self.init_sampler()
-		self.samples, actual_means, actual_stds, sample_means, sample_stds = self.sample(self.num_samples)
+		self.samples, actual_means, actual_covars, sample_means, sample_covars = self.sample(self.num_samples)
 
 		self.means = {'actual': actual_means,'sample': sample_means}
-		self.stds = {'actual': actual_stds,'sample': sample_stds}
+		self.covars = {'actual': actual_covars,'sample': sample_covars}
 
 		if project == 'linear': 
 			self.projection_matrix = torch.rand(self.num_nodes, self.proj_dims)
