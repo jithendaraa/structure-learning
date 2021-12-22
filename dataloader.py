@@ -112,7 +112,7 @@ def parse_datasets(opt, device):
         data_objects['true_encoder'], data_objects['true_decoder'] = None, None
         
         if train_dataloader.noise_type.endswith('gaussian'):
-            data_objects['means'], data_objects['stds'] = train_dataloader.means, train_dataloader.stds
+            data_objects['means'], data_objects['covars'] = train_dataloader.means, train_dataloader.covars
 
         if opt.proj in ['linear', 'nonlinear']:
             data_objects['projected_data'] = train_dataloader.projected_samples
