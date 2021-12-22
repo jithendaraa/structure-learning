@@ -37,15 +37,15 @@ class Z_mu_logvar_Net(nn.Module):
         z = nn.Dense(self.latent_dims, name='encoder_2')(z)
         z = nn.relu(z)
         
-        z_mu = nn.Dense(self.latent_dims, name='mu_encoder_0')(z)
-        z_mu = nn.relu(z_mu)
-        z_mu = nn.Dense(self.latent_dims, name='mu_encoder_1')(z_mu)
+        # z_mu = nn.Dense(self.latent_dims, name='mu_encoder_0')(z)
+        # z_mu = nn.relu(z_mu)
+        # z_mu = nn.Dense(self.latent_dims, name='mu_encoder_1')(z_mu)
 
-        z_logvar = nn.Dense(self.latent_dims, name='logvar_encoder_0')(z)
-        z_logvar = nn.relu(z_logvar)
-        z_logvar = nn.Dense(self.latent_dims, name='logvar_encoder_1')(z_logvar)
+        z_logcovar = nn.Dense(self.latent_dims*self.latent_dims, name='logvar_encoder_0')(z)
+        z_logcovar = nn.relu(z_logcovar)
+        z_logcovar = nn.Dense(self.latent_dims*self.latent_dims, name='logvar_encoder_1')(z_logcovar)
 
-        return z_mu, z_logvar
+        return z_logcovar
 
 
 class Decoder(nn.Module):
@@ -67,14 +67,18 @@ class Decoder(nn.Module):
         return z
         
 
-def reparameterize(rng, mean, logvar):
-  std = jnp.exp(0.5 * logvar)
-  eps = random.normal(rng, logvar.shape)
-  return mean + eps * std
+def reparameterize_multivariate_normal(rng, mean, logcovar):
+
+    # Cholesky decomposition: Σ = LL.T where L is lower triangular
+    # reparametrised sample `res = mean + eps * L`
+    covar = jnp.exp(logcovar)
+    L = jnp.linalg.cholesky(covar)
+    eps = random.multivariate_normal(rng, logcovar.shape)
+    return mean + eps * L
 
 
 def v_reparameterize(rng, mean, logvar):
-    return vmap(reparameterize, (None, 0, 0), 0)(rng, mean, logvar)
+    return vmap(reparameterize_multivariate_normal, (None, 0, 0), 0)(rng, mean, logvar)
 
 
 def edge_log_probs(z, t):
@@ -473,9 +477,10 @@ class Decoder_DIBS(nn.Module):
 
     def get_posterior_single_z(self, key, single_g):
         flattened_g = jnp.array(single_g.reshape(-1))
-        q_z_mu, q_z_logvar = self.z_net(flattened_g)
-        q_z = v_reparameterize(key, jnp.asarray([q_z_mu]*self.num_samples), jnp.asarray([q_z_logvar]*self.num_samples))
-        return q_z_mu, q_z_logvar, q_z
+        q_z_mu = 0.0 # TODO (Assumption to be removed later) Assume q_z_mu is always 0.0
+        q_z_logcovar = jnp.asarray(self.z_net(flattened_g)).reshape(self.num_nodes, self.num_nodes)
+        q_z = v_reparameterize(key, jnp.asarray([q_z_mu]*self.num_samples), jnp.asarray([q_z_logcovar]*self.num_samples))
+        return q_z_mu, q_z_logcovar, q_z
 
     def get_posterior_z(self, key, gs):
         return vmap(self.get_posterior_single_z, (None, 0), (0, 0, 0))(key, gs)
@@ -642,7 +647,6 @@ class Decoder_DIBS(nn.Module):
         return vmap(grad_kernel_z, (0, None), 0)(x_latents, y_latent)
 
 
-
     def __call__(self, z_rng, particles_z, sf_baseline, step=0):
         # ? 1. Sample n_particles graphs from particles_z
         s = time()
@@ -654,7 +658,7 @@ class Decoder_DIBS(nn.Module):
         # ? 2. Get graph conditioned predictions on z: q(z|G)
         s = time()
         z_rng, key = random.split(z_rng) 
-        q_z_mus, q_z_logvars, q_zs = self.get_posterior_z(key, sampled_soft_g)
+        q_z_mus, q_z_logcovars, q_zs = self.get_posterior_z(key, sampled_soft_g)
         print(f'Part 2 takes: {time() - s}s')
 
         # ? 3. From every distribution q(z_i|G), decode to get reconstructed samples X in higher dimensions. i = 1...num_nodes
@@ -678,10 +682,10 @@ class Decoder_DIBS(nn.Module):
         kxx = self.f_kernel_mat(particles_z, particles_z) # ? k(z, z) for all particles
 
         # ? transformation phi_z(t)(particle m) applied in batch to each particle individually
-        phi_z = jit(vmap(self.z_update, (0, 1, None, None), 0))(particles_z, kxx, particles_z, dz_log_prob)
+        phi_z = vmap(self.z_update, (0, 1, None, None), 0)(particles_z, kxx, particles_z, dz_log_prob)
         print(f'Part 4 takes: {time() - s}s')
 
-        return recons, q_z_mus, q_z_logvars, phi_z, sampled_soft_g, sf_baseline, z_rng, q_zs
+        return recons, q_z_mus, jnp.exp(q_z_logcovars), phi_z, sampled_soft_g, sf_baseline, z_rng, q_zs
 
 def eval_kernel(scale, x, y, h, global_h):
     h_ = lax.cond(
