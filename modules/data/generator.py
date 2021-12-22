@@ -123,9 +123,14 @@ class Generator(torch.utils.data.Dataset):
 			actual_means[i] = actual_mean.item()
 			actual_vars[i] = actual_var.item()
 			sample_means[i] = samples[:, i].mean().item()
-			sample_vars[i] = torch.var(samples[:, i], dim=0, unbiased=False).item() # ? Don't use Bessel's correction
+			# sample_vars[i] = torch.var(samples[:, i], dim=0, unbiased=False).item() # ? Don't use Bessel's correction
 		
-		return samples, actual_means, np.sqrt(actual_vars), sample_means, np.sqrt(sample_vars) # (num_samples * num_nodes)
+		sample_covariance = torch.cov(torch.transpose(samples, 0, 1))
+		print("sample_covariance", sample_covariance)
+
+		# TODO: Calculate and return `actual covariance` instead of np.sqrt(actual_vars)
+
+		return samples, actual_means, np.sqrt(actual_vars), sample_means, sample_covariance # (num_samples * num_nodes)
 
 	def intervene(self, num_samples, node = None, value = None):
 		
