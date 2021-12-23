@@ -58,6 +58,15 @@ def train_dibs(target, loader_objs, opt, key):
 
     data = loader_objs['data'] 
     x = jnp.array(data) 
+    kI = jnp.array(
+        [
+            [1., 0., 0., 0.],
+            [1., 2., 0., 0.],
+            [1., 0., 3., 0.],
+            [1., 0., 0., 4.],
+        ]
+    )
+    x = jnp.matmul(x, kI)
     no_interv_targets = jnp.zeros(opt.num_nodes).astype(bool) # observational data
 
     def log_prior(single_w_prob):
@@ -105,7 +114,7 @@ def train_dibs(target, loader_objs, opt, key):
 
     print("ESHD (empirical):", eshd_e)
     print("ESHD (marginal mixture):", eshd_m)
-    print("MEC-GT Recovery %", mec_or_gt_count)
+    print("MEC-GT Recovery %", mec_or_gt_count * 100.0/ opt.n_particles)
     print(f"AUROC (Empirical and Marginal): {auroc_empirical} {auroc_mixture}")
 
 def train_vae_dibs(model, loader_objs, opt, key):
@@ -315,7 +324,6 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
         grads = jit(grad(jit(loss_fn)))(state.params, z_rng, particles, sf_baseline, step)   # time per train_step() is 14s with jit and 6.8s without
         res = state.apply_gradients(grads=grads)
 
-        # ? mutliple dibs update for one ELBO update for decoder dibs
         # ? Particles_z updated as SVGD transport step z(t+1)(particle m) = z(t)(m) + step_size * phi_z(t)(m)
         recons, q_z_mus, q_z_covars, phi_z, soft_g, sf_baseline, z_rng, pred_z = jit(m.apply)({'params': res.params}, z_rng, particles, sf_baseline, step)
         particles = particles - opt.dibs_lr * phi_z
@@ -345,10 +353,10 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
 
     if opt.algo == 'fast-slow':
         trainer_fn = fast_slow_train_step
-        log_freq = 10
+        log_freq = opt.steps // 100
     elif opt.algo == 'def':
         trainer_fn = def_train_step
-        log_freq = opt.steps // 500
+        log_freq = opt.steps // 100
 
     for step in range(opt.steps):
         key, rng = random.split(key)
@@ -356,7 +364,7 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
         state, loss, mse_loss, kl_z_loss, _, _, soft_g, particles_z, sf_baseline, z_dist, decoder_dist = trainer_fn(state, rng, particles_z, sf_baseline, step)
         loss, mse_loss, kl_z_loss = np.array(loss), np.array(mse_loss), np.array(kl_z_loss) 
         print(f'Step {step} | Loss {loss:4f} | MSE: {mse_loss:4f} | KL: {kl_z_loss} | Time per train step: {(time() - s):2f}s')
-        
+
         if step % log_freq == 0:
             soft_g = np.array(soft_g)
             particles_g = np.random.binomial(1, soft_g, soft_g.shape)   # todo verify
@@ -399,8 +407,7 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
                 writer.add_scalar('Evaluations/CPDAG SHD', np.mean(cpdag_shds), step)
                 if opt.off_wandb is False: wandb_log_dict['Evaluations/CPDAG SHD'] = np.mean(cpdag_shds)
             
-            if opt.off_wandb is False: 
-                wandb.log(wandb_log_dict, step=step)
+            if opt.off_wandb is False: wandb.log(wandb_log_dict, step=step)
 
             writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
             writer.add_scalar('Evaluations/Exp. SHD (Empirical)', np.array(eshd_e), step)

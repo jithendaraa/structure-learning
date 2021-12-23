@@ -1,10 +1,13 @@
 from re import A
 import sys
 
+from jax._src.numpy.linalg import cholesky
+
 sys.path.append('dibs/')
 from time import time
 import numpy as np
 import functools
+import utils
 
 import jax
 import jax.numpy as jnp
@@ -27,25 +30,27 @@ from dibs.graph.graph import ErdosReniDAGDistribution, ScaleFreeDAGDistribution,
 
 class Z_mu_logvar_Net(nn.Module):
     latent_dims: int
+    num_cholesky_terms: int
 
     @nn.compact
     def __call__(self, g):
+
         z = nn.Dense(20, name='encoder_0')(g)
         z = nn.relu(z)
-        z = nn.Dense(self.latent_dims, name='encoder_1')(z)
+        z = nn.Dense(3 * self.latent_dims, name='encoder_1')(z)
         z = nn.relu(z)
-        z = nn.Dense(self.latent_dims, name='encoder_2')(z)
+        z = nn.Dense(3 * self.latent_dims, name='encoder_2')(z)
         z = nn.relu(z)
         
-        # z_mu = nn.Dense(self.latent_dims, name='mu_encoder_0')(z)
-        # z_mu = nn.relu(z_mu)
-        # z_mu = nn.Dense(self.latent_dims, name='mu_encoder_1')(z_mu)
+        z_mu = nn.Dense(3 * self.latent_dims, name='mu_encoder_0')(z)
+        z_mu = nn.relu(z_mu)
+        z_mu = nn.Dense(self.latent_dims, name='mu_encoder_1')(z_mu)
 
-        z_logcovar = nn.Dense(self.latent_dims*self.latent_dims, name='logvar_encoder_0')(z)
-        z_logcovar = nn.relu(z_logcovar)
-        z_logcovar = nn.Dense(self.latent_dims*self.latent_dims, name='logvar_encoder_1')(z_logcovar)
+        z_logcholesky = nn.Dense(self.latent_dims*self.latent_dims, name='logcovar_encoder_0')(z)
+        z_logcholesky = nn.relu(z_logcholesky)
+        z_logcholesky = nn.Dense(self.num_cholesky_terms, name='logcovar_encoder_1')(z_logcholesky)
 
-        return z_logcovar
+        return jnp.asarray(z_mu), jnp.asarray(z_logcholesky)
 
 
 class Decoder(nn.Module):
@@ -67,19 +72,16 @@ class Decoder(nn.Module):
         return z
         
 
-def reparameterized_multivariate_normal(rng, mean, logcovar, size):
+def reparameterized_multivariate_normal(rng, mean, cholesky_L, size):
     # Cholesky decomposition: Σ = LL.T where L is lower triangular
     # reparametrised sample `res = mean + eps * L`
-    d = logcovar.shape[0]
+    d = cholesky_L.shape[0]
     unit_cov_matrix = jnp.identity(d)
     unit_cov_matrix = jnp.expand_dims(unit_cov_matrix, 0).repeat(size, axis=0)
     
-    covar = jnp.exp(logcovar)
-    L = jnp.linalg.cholesky(covar)
-
     standard_mean = jnp.zeros((size, d))
     eps = random.multivariate_normal(rng, standard_mean, unit_cov_matrix)
-    return mean + jnp.matmul(eps, L)
+    return mean + jnp.matmul(eps, cholesky_L)
 
 
 def edge_log_probs(z, t):
@@ -137,7 +139,8 @@ class Decoder_DIBS(nn.Module):
             NotImplementedError(f"Not implemented {self.datatype}")
 
         # Net to feed in G and predict a Z 
-        self.z_net = Z_mu_logvar_Net(self.num_nodes)
+        num_cholesky_terms = int(self.num_nodes * (self.num_nodes + 1) / 2.0)
+        self.z_net = Z_mu_logvar_Net(self.num_nodes, num_cholesky_terms)
         self.decoder = Decoder(self.proj_dims, self.linear_decoder)
         print("INIT")
 
@@ -637,13 +640,20 @@ class Decoder_DIBS(nn.Module):
         grad_kernel_z = jit(grad(self.f_kernel, 0))
         return vmap(grad_kernel_z, (0, None), 0)(x_latents, y_latent)
 
+    
     def get_posterior_single_z(self, key, single_g):
         flattened_g = jnp.array(single_g.reshape(-1))
-        q_z_mu = jnp.asarray([0.0] * self.num_nodes) # TODO (Assumption to be removed later) Assume q_z_mu is always 0.0
-        q_z_logcovar = jnp.asarray(self.z_net(flattened_g)).reshape(self.num_nodes, self.num_nodes)
-        q_z = reparameterized_multivariate_normal(key, q_z_mu, q_z_logcovar, self.num_samples)
-        print(q_z.shape)
-        return q_z_mu, q_z_logcovar, q_z
+        q_z_mu, q_z_logcholesky = self.z_net(flattened_g)
+        q_z_cholesky = jnp.exp(q_z_logcholesky)
+
+        tril_indices = jnp.tril_indices(self.num_nodes)
+        i, j = tril_indices[0], tril_indices[1]
+        cholesky_L = jnp.zeros((self.num_nodes,self.num_nodes), dtype=float)
+        cholesky_L = cholesky_L.at[i, j].set(q_z_cholesky)
+
+        q_z = reparameterized_multivariate_normal(key, q_z_mu, cholesky_L, self.num_samples)
+        q_z_covariance = jnp.matmul(cholesky_L, jnp.transpose(cholesky_L))
+        return q_z_mu, q_z_covariance, q_z
 
     def get_posterior_z(self, key, gs):
         return vmap(self.get_posterior_single_z, (None, 0), (0, 0, 0))(key, gs)
@@ -660,7 +670,7 @@ class Decoder_DIBS(nn.Module):
         s = time()
         z_rng, key = random.split(z_rng) 
         # (num_samples, n_particles, d) (num_samples, n_particles, d, d)
-        q_z_mus, q_z_logcovars, q_zs = self.get_posterior_z(key, sampled_soft_g)
+        q_z_mus, q_z_covariance, q_zs = self.get_posterior_z(key, sampled_soft_g)
         print(f'Part 2 takes: {time() - s}s')
 
         # ? 3. From every distribution q(z_i|G), decode to get reconstructed samples X in higher dimensions. i = 1...num_nodes
@@ -687,7 +697,7 @@ class Decoder_DIBS(nn.Module):
         phi_z = vmap(self.z_update, (0, 1, None, None), 0)(particles_z, kxx, particles_z, dz_log_prob)
         print(f'Part 4 takes: {time() - s}s')
 
-        return recons, q_z_mus, jnp.exp(q_z_logcovars), phi_z, sampled_soft_g, sf_baseline, z_rng, q_zs
+        return recons, q_z_mus, q_z_covariance, phi_z, sampled_soft_g, sf_baseline, z_rng, q_zs
 
 def eval_kernel(scale, x, y, h, global_h):
     h_ = lax.cond(
