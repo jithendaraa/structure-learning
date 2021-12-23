@@ -220,7 +220,7 @@ def set_tb_logdir(opt):
   elif opt.model in ['Slot_VCN_img']:
     logdir += f'_({opt.num_nodes}-{opt.slot_size})_seed{opt.seed}_{opt.data_seed}_factorised{opt.factorised}_proj{opt.proj}{opt.proj_dims}_expedges{opt.exp_edges}'
   elif opt.model in ['DIBS']:
-    logdir += f'_({opt.num_nodes})_seed{opt.seed}_{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_dibsupdates{opt.num_updates}'
+    logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_dibsupdates{opt.num_updates}'
   elif opt.model in ['VAE_DIBS']:
     logdir += f'_({opt.num_nodes})_seed{opt.seed}_{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_sftcnstrnt_{opt.soft_constraint}_dibsupdates{opt.num_updates}_knownED{opt.known_ED}'
   
@@ -312,7 +312,8 @@ def log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file):
       if same_graph is True: color='blue'
       elif mecs[idx] is True: color='red'
       else: color='black'
-      if color in ['blue', 'red']: mec_or_gt_count += 1
+      if color in ['blue', 'red']: 
+        mec_or_gt_count += graph_counts[idx]
 
       if same_graph is True:  ax.set_title(f'Freq: {graph_counts[idx]} | Ground truth', fontsize=23, color=color)
       else:   ax.set_title(f'Freq: {graph_counts[idx]} | MEC: {mecs[idx]}', fontsize=23, color=color)
