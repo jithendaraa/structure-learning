@@ -320,12 +320,13 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
 
         return res, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, soft_g, particles, sf_baseline, z_dist, decoder_dist
 
+    @jit
     def def_train_step(state, z_rng, particles, sf_baseline, step):
-        grads = jit(grad(jit(loss_fn)))(state.params, z_rng, particles, sf_baseline, step)   # time per train_step() is 14s with jit and 6.8s without
+        grads = grad(loss_fn)(state.params, z_rng, particles, sf_baseline, step)   # time per train_step() is 14s with jit and 6.8s without
         res = state.apply_gradients(grads=grads)
 
         # ? Particles_z updated as SVGD transport step z(t+1)(particle m) = z(t)(m) + step_size * phi_z(t)(m)
-        recons, q_z_mus, q_z_covars, phi_z, soft_g, sf_baseline, z_rng, pred_z = jit(m.apply)({'params': res.params}, z_rng, particles, sf_baseline, step)
+        recons, q_z_mus, q_z_covars, phi_z, soft_g, sf_baseline, z_rng, pred_z = m.apply({'params': res.params}, z_rng, particles, sf_baseline, step)
         particles = particles - opt.dibs_lr * phi_z
 
         mse_loss, kl_z_loss, z_dist, decoder_dist = 0., 0., 0., 0.
@@ -356,7 +357,7 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
         log_freq = opt.steps // 100
     elif opt.algo == 'def':
         trainer_fn = def_train_step
-        log_freq = opt.steps // 100
+        log_freq = opt.steps // 200
 
     for step in range(opt.steps):
         key, rng = random.split(key)
