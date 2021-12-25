@@ -12,7 +12,7 @@ defaults:
   model_params_logdir: "model_params"         # has the form logs/<model_name>/model_params/<id>_00000xxxxx.pickle
 
   # ? wandb
-  offline_wandb: True
+  offline_wandb: False
   off_wandb: False
   wandb_project: 'structure-learning'
   wandb_entity: 'jithendaraa'
