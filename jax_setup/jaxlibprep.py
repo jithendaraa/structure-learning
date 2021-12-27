@@ -199,7 +199,7 @@ def patch(args):
 if __name__ == "__main__":
     # Create parser
     argp = argparse.ArgumentParser(epilog=DOCS, formatter_class=argparse.RawDescriptionHelpFormatter)
-    argp.add_argument("--jaxlib-version", "-V", default="0.1.69")
+    argp.add_argument("--jaxlib-version", "-V", default="0.1.73")
     argp.add_argument("--cuda-version",   "-C", default="cuda110")
     argp.add_argument("--python-version", "-P", default="cp37")
     argp.add_argument("--download",       "-d", action="store_true",  dest="download", default=True)
