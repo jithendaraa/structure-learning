@@ -6,10 +6,7 @@ import matplotlib.pyplot as plt
 
 import torch
 from torch.utils.data import Dataset, DataLoader
-from torchvision import transforms as T
-from torchvision.datasets.mnist import MNIST
 import utils
-import cv2
 
 from modules.data.erdos_renyi import ER
 from modules.BGe import BGe
@@ -64,6 +61,9 @@ def parse_datasets(opt, device):
     test_dir = os.path.join(opt.data_dir, 'test')
 
     if opt.dataset == 'clevr':
+        import cv2
+        from torchvision import transforms as T
+
         trainFolder = CLEVR(train_dir, opt, is_train=True, device=device, ch=opt.channels)
         testFolder = CLEVR(test_dir, opt, is_train=False, device=device, ch=opt.channels)
         train_dataloader = DataLoader(trainFolder, batch_size=opt.batch_size, shuffle=False)
@@ -75,6 +75,7 @@ def parse_datasets(opt, device):
         data = train_dataloader
 
     elif opt.dataset == 'mnist':
+        from torchvision.datasets.mnist import MNIST
         from torchvision.datasets import MNIST
         # set download = True for the first time you run and ensure internet access before running for 1st time
         trainFolder = MNIST(train_dir, train=True, transform=T.Compose([T.ToTensor()]))

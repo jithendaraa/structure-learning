@@ -1,7 +1,5 @@
 import functools
 import sys
-from networkx.algorithms.centrality import group
-from numpy.random.mtrand import sample
 sys.path.append('models')
 sys.path.append('dibs/')
 
