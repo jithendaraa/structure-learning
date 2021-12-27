@@ -1,5 +1,4 @@
 import torch
-from torchvision.utils import make_grid
 
 import os
 import pickle
@@ -173,6 +172,8 @@ def unstack_and_split(x, batch_size, num_channels=3):
   return channels, masks
 
 def log_to_tb(opt, writer, loss_dict, step, pred_gt):
+  from torchvision.utils import make_grid
+
   if step % opt.loss_log_freq == 0:
     for key in loss_dict.keys():
         writer.add_scalar(key, loss_dict[key], step)
@@ -200,6 +201,7 @@ def log_images_to_tb(opt, step, keys, values, writer, dataformats='NHWC'):
       writer.add_images(key, val, step, dataformats=dataformats)
 
 def log_encodings_per_node_to_tb(opt, writer, enc_inp, step):
+  from torchvision.utils import make_grid
   d, chan_per_node, h, w = enc_inp.size()
 
   if step > 0 and step % opt.media_log_freq == 0:
@@ -228,7 +230,7 @@ def set_tb_logdir(opt):
     if opt.algo == 'def':
       logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_steps{opt.steps}_knownED{opt.known_ED}_lindecode{opt.linear_decoder}_algo{opt.algo}_particles{opt.n_particles}_beta{opt.beta}_dibslr{opt.dibs_lr}'
     elif opt.algo == 'fast-slow':
-      logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_steps{opt.steps}_dibsupdates{opt.num_updates}_knownED{opt.known_ED}_lindecode{opt.linear_decoder}_algo{opt.algo}_particles{opt.n_particles}_beta{opt.beta}_dibslr{opt.dibs_lr}'
+      logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_steps{opt.steps}_dibsupdates{opt.num_updates}_knownED{opt.known_ED}_lindecode{opt.linear_decoder}_algo{opt.algo}_particles{opt.n_particles}_dibslr{opt.dibs_lr}'
       
 
 
