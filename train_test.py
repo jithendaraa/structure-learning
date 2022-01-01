@@ -313,7 +313,7 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
         v_get_mse =vmap(get_mse, (0, 0), 0)
         decoder_dist += jnp.mean(v_get_mse(decoder_projection, projection_matrix)) 
 
-        return res, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, soft_g, particles, sf_baseline, z_dist, decoder_dist
+        return res, loss, mse_loss, kl_z_loss, q_z_mus, q_z_covars, soft_g, particles, sf_baseline, z_dist, decoder_dist
 
     @jit
     def def_train_step(state, z_rng, particles, sf_baseline, step):
