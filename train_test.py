@@ -302,7 +302,7 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
         get_kl = vmap(get_single_kl, (None, None, 0, 0), 0)
         kl_z_loss += jnp.mean(get_kl(p_z_covar, p_z_mu, q_z_covars, q_z_mus)) / opt.num_nodes
         loss = (mse_loss + (opt.beta * kl_z_loss))
-        
+
         z_dist += jnp.mean(v_get_mse(pred_z, z_gt)) 
 
         z, pred_x = pred_z[0], recons[0]
@@ -313,12 +313,12 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
         v_get_mse =vmap(get_mse, (0, 0), 0)
         decoder_dist += jnp.mean(v_get_mse(decoder_projection, projection_matrix)) 
 
-        return res, np.array(loss), np.array(mse_loss), np.array(kl_z_loss), q_z_mus, q_z_logvars, soft_g, particles, sf_baseline, z_dist, decoder_dist
+        return res, loss, mse_loss, kl_z_loss, q_z_mus, q_z_logvars, soft_g, particles, sf_baseline, z_dist, decoder_dist
 
     @jit
     def def_train_step(state, z_rng, particles, sf_baseline, step):
         recons, q_z_mus, q_z_covars, phi_z, soft_g, sf_baseline, z_rng, pred_z = m.apply({'params': state.params}, z_rng, particles, sf_baseline, step)
-        particles_z = particles_z - opt.dibs_lr * phi_z
+        particles = particles - opt.dibs_lr * phi_z
         grads = grad(loss_fn)(state.params, z_rng, particles, sf_baseline, step)   # time per train_step() is 14s with jit and 6.8s without
         res = state.apply_gradients(grads=grads)
 
@@ -341,17 +341,18 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
         v_get_mse = vmap(get_mse, (0, 0), 0)
         decoder_dist += jnp.sum(v_get_mse(decoder_projection, projection_matrix)) / opt.num_nodes
         
-        return res, np.array(loss), np.array(mse_loss), np.array(kl_z_loss), q_z_mus, q_z_covars, soft_g, particles, sf_baseline, z_dist, decoder_dist, phi_z
+        return res, loss, mse_loss, kl_z_loss, q_z_mus, q_z_covars, soft_g, particles, sf_baseline, z_dist, decoder_dist
 
     if opt.algo == 'fast-slow': trainer_fn = fast_slow_train_step
     elif opt.algo == 'def':     trainer_fn = def_train_step
 
     for step in range(opt.steps):
         s = time()
-        state, loss, mse_loss, kl_z_loss, _, _, soft_g, particles_z, sf_baseline, z_dist, decoder_dist, phi_z = trainer_fn(state, rng, particles_z, sf_baseline, step)
+        state, loss, mse_loss, kl_z_loss, _, _, soft_g, particles_z, sf_baseline, z_dist, decoder_dist = trainer_fn(state, rng, particles_z, sf_baseline, step)
         print(f'Step {step} | Loss {loss:4f} | MSE: {mse_loss:4f} | KL: {kl_z_loss} | Time per train step: {(time() - s):2f}s')
 
         if step % log_freq == 0:
+            loss, mse_loss, kl_z_loss = np.array(loss), np.array(mse_loss), np.array(kl_z_loss)
             soft_g = np.array(soft_g)
             particles_g = np.random.binomial(1, soft_g, soft_g.shape)
             dibs_empirical = particle_marginal_empirical(particles_g)
