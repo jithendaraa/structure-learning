@@ -34,7 +34,6 @@ class Z_mu_logvar_Net(nn.Module):
 
     @nn.compact
     def __call__(self, g):
-
         z = nn.Dense(20, name='encoder_0')(g)
         z = nn.relu(z)
         z = nn.Dense(3 * self.latent_dims, name='encoder_1')(z)
@@ -44,9 +43,17 @@ class Z_mu_logvar_Net(nn.Module):
         
         z_mu = nn.Dense(3 * self.latent_dims, name='mu_encoder_0')(z)
         z_mu = nn.relu(z_mu)
+        z_mu = nn.Dense(3 * self.latent_dims, name='mu_encoder_2')(z_mu)
+        z_mu = nn.relu(z_mu)
+        z_mu = nn.Dense(3 * self.latent_dims, name='mu_encoder_3')(z_mu)
+        z_mu = nn.relu(z_mu)
         z_mu = nn.Dense(self.latent_dims, name='mu_encoder_1')(z_mu)
 
         z_logcholesky = nn.Dense(self.latent_dims*self.latent_dims, name='logcovar_encoder_0')(z)
+        z_logcholesky = nn.relu(z_logcholesky)
+        z_logcholesky = nn.Dense(self.latent_dims*self.latent_dims, name='logcovar_encoder_2')(z_logcholesky)
+        z_logcholesky = nn.relu(z_logcholesky)
+        z_logcholesky = nn.Dense(self.latent_dims*self.latent_dims, name='logcovar_encoder_3')(z_logcholesky)
         z_logcholesky = nn.relu(z_logcholesky)
         z_logcholesky = nn.Dense(self.num_cholesky_terms, name='logcovar_encoder_1')(z_logcholesky)
 
@@ -69,6 +76,14 @@ class Decoder(nn.Module):
             z = nn.Dense(self.dims, name='decoder_fc2')(z)
             z = nn.relu(z)
             z = nn.Dense(self.dims, name='decoder_fc3')(z)
+            z = nn.relu(
+                z)
+            z = nn.Dense(self.dims, name='decoder_fc4')(z)
+            z = nn.relu(z)
+            z = nn.Dense(self.dims, name='decoder_fc5')(z)
+            z = nn.relu(z)
+            z = nn.Dense(self.dims, name='decoder_fc6')(z)
+            
         return z
         
 
@@ -117,6 +132,7 @@ class Decoder_DIBS(nn.Module):
     num_samples: int
     linear_decoder: bool
     latent_prior_std: float
+    proj_matrix: jnp.array
     grad_estimator_z: str = 'reparam'
     score_function_baseline: float = 0.0
     n_grad_mc_samples: int = 128
@@ -125,6 +141,7 @@ class Decoder_DIBS(nn.Module):
     n_acyclicity_mc_samples: int = 32
     scale: float = 1.0
     edges_per_node: float = 1.0
+    known_ED: bool = False
 
     def setup(self):
         # For BGeJAX
@@ -141,7 +158,8 @@ class Decoder_DIBS(nn.Module):
         # Net to feed in G and predict a Z 
         num_cholesky_terms = int(self.num_nodes * (self.num_nodes + 1) / 2.0)
         self.z_net = Z_mu_logvar_Net(self.num_nodes, num_cholesky_terms)
-        self.decoder = Decoder(self.proj_dims, self.linear_decoder)
+        if self.known_ED is False:
+            self.decoder = Decoder(self.proj_dims, self.linear_decoder)
         print("INIT")
 
     def f_kernel(self, x_latent, y_latent):
@@ -640,7 +658,6 @@ class Decoder_DIBS(nn.Module):
         grad_kernel_z = jit(grad(self.f_kernel, 0))
         return vmap(grad_kernel_z, (0, None), 0)(x_latents, y_latent)
 
-    
     def get_posterior_single_z(self, key, single_g):
         flattened_g = jnp.array(single_g.reshape(-1))
         q_z_mu, q_z_logcholesky = self.z_net(flattened_g)
@@ -661,21 +678,23 @@ class Decoder_DIBS(nn.Module):
     def __call__(self, z_rng, particles_z, sf_baseline, step=0):
         # ? 1. Sample n_particles graphs from particles_z
         s = time()
-        z_rng, key = random.split(z_rng) 
-        eps = random.logistic(key, shape=(self.n_particles, self.num_nodes, self.num_nodes))  
+        eps = random.logistic(z_rng, shape=(self.n_particles, self.num_nodes, self.num_nodes))  
         sampled_soft_g = self.particle_to_soft_graph(particles_z, eps, step)
-        print(f'Part 1 takes: {time() - s}s')
+        print(f'Part 1 takes: {time() - s}s' )
 
         # ? 2. Get graph conditioned predictions on z: q(z|G)
         s = time()
-        z_rng, key = random.split(z_rng) 
         # (num_samples, n_particles, d) (num_samples, n_particles, d, d)
-        q_z_mus, q_z_covariance, q_zs = self.get_posterior_z(key, sampled_soft_g)
+        q_z_mus, q_z_covariance, q_zs = self.get_posterior_z(z_rng, sampled_soft_g)
         print(f'Part 2 takes: {time() - s}s')
 
         # ? 3. From every distribution q(z_i|G), decode to get reconstructed samples X in higher dimensions. i = 1...num_nodes
         s = time()
-        decoder = lambda q_z: self.decoder(q_z)
+        if self.known_ED is False:
+            decoder = lambda q_z: self.decoder(q_z)
+        else:
+            decoder = lambda q_z: jnp.matmul(q_z, self.proj_matrix)
+
         recons = vmap(decoder, (0), 0)(q_zs)
         print(f'Part 3 takes: {time() - s}s')
 
