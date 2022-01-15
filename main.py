@@ -95,9 +95,14 @@ def build_model(opt, device, loader_objs):
     from models.dibs.eval.target import make_linear_gaussian_equivalent_model
 
     key = random.PRNGKey(123)
-    model = make_linear_gaussian_equivalent_model(key =  key, n_vars = opt.num_nodes, graph_prior_str = opt.datatype,
-		                                              obs_noise = opt.noise_sigma, mean_edge = opt.theta_mu, sig_edge = opt.theta_sigma, 
-                                                  n_observations = opt.num_samples, n_ho_observations = opt.num_samples)
+    model = make_linear_gaussian_equivalent_model(key =  key, 
+      n_vars = opt.num_nodes, 
+      graph_prior_str = opt.datatype,
+      obs_noise = opt.noise_sigma, 
+      mean_edge = opt.theta_mu, 
+      sig_edge = opt.theta_sigma, 
+      n_observations = opt.num_samples, 
+      n_ho_observations = opt.num_samples)
 
   elif opt.model in ['Decoder_DIBS']:
     from models.Decoder_DIBS import Decoder_DIBS
