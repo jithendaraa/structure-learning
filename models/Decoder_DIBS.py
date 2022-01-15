@@ -584,7 +584,7 @@ class Decoder_DIBS(nn.Module):
         return vmap(self.get_posterior_single_z, (None, 0), (0, 0, 0))(key, gs)
 
 
-    def __call__(self, z_rng, particles_z, sf_baseline, z_data, step=0):
+    def __call__(self, z_rng, particles_z, sf_baseline, step=0):
         # ? 1. Sample n_particles graphs from particles_z
         s = time()
         if self.grad_estimator_z == 'score':
@@ -606,8 +606,7 @@ class Decoder_DIBS(nn.Module):
         s = time()
         if self.known_ED is False:  decoder = lambda q_z: self.decoder(q_z)
         else:                       decoder = lambda q_z: jnp.matmul(q_z, self.proj_matrix)
-        # decoder = lambda q_z: self.decoder(q_z)
-        # recon = decoder(z_data)
+
         recons = vmap(decoder, (0), 0)(q_zs)
         print(f'Part 3 takes: {time() - s}s')
 
@@ -617,7 +616,7 @@ class Decoder_DIBS(nn.Module):
 
         z_rng, *batch_subk = random.split(z_rng, self.n_particles + 1) 
         dz_log_likelihood, sf_baseline = self.eltwise_grad_z_likelihood(particles_z, None, sf_baseline, 
-                                            step, jnp.array(batch_subk), z_data)
+                                            step, jnp.array(batch_subk), q_zs)
         # print("Grad. LL", dz_log_likelihood[-1], dz_log_likelihood.shape)
         
         # ? d/dz log p(z) (acyclicity) grad log PRIOR
