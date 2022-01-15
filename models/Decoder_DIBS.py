@@ -9,7 +9,8 @@ import numpy as np
 import functools
 import utils
 
-import jax
+import jax, torch
+torch.manual_seed(0)
 import jax.numpy as jnp
 from jax import random, vmap, grad, device_put, jit
 from flax import linen as nn
@@ -27,66 +28,6 @@ from dibs.utils.func import leftsel
 from dibs.graph.graph import ErdosReniDAGDistribution, ScaleFreeDAGDistribution, UniformDAGDistributionRejection
 
 
-
-class Z_mu_logvar_Net(nn.Module):
-    latent_dims: int
-    num_cholesky_terms: int
-
-    @nn.compact
-    def __call__(self, g):
-        z = nn.Dense(20, name='encoder_0')(g)
-        z = nn.relu(z)
-        z = nn.Dense(3 * self.latent_dims, name='encoder_1')(z)
-        z = nn.relu(z)
-        z = nn.Dense(3 * self.latent_dims, name='encoder_2')(z)
-        z = nn.relu(z)
-        
-        z_mu = nn.Dense(3 * self.latent_dims, name='mu_encoder_0')(z)
-        z_mu = nn.relu(z_mu)
-        z_mu = nn.Dense(3 * self.latent_dims, name='mu_encoder_2')(z_mu)
-        z_mu = nn.relu(z_mu)
-        z_mu = nn.Dense(3 * self.latent_dims, name='mu_encoder_3')(z_mu)
-        z_mu = nn.relu(z_mu)
-        z_mu = nn.Dense(self.latent_dims, name='mu_encoder_1')(z_mu)
-
-        z_logcholesky = nn.Dense(self.latent_dims*self.latent_dims, name='logcovar_encoder_0')(z)
-        z_logcholesky = nn.relu(z_logcholesky)
-        z_logcholesky = nn.Dense(self.latent_dims*self.latent_dims, name='logcovar_encoder_2')(z_logcholesky)
-        z_logcholesky = nn.relu(z_logcholesky)
-        z_logcholesky = nn.Dense(self.latent_dims*self.latent_dims, name='logcovar_encoder_3')(z_logcholesky)
-        z_logcholesky = nn.relu(z_logcholesky)
-        z_logcholesky = nn.Dense(self.num_cholesky_terms, name='logcovar_encoder_1')(z_logcholesky)
-
-        return jnp.asarray(z_mu), jnp.asarray(z_logcholesky)
-
-
-class Decoder(nn.Module):
-    dims: int
-    linear_decoder: bool
-
-    @nn.compact
-    def __call__(self, z):
-        if self.linear_decoder:
-            z = nn.Dense(self.dims, name='decoder_fc0')(z)
-        else:
-            z = nn.Dense(self.dims, name='decoder_fc0')(z)
-            z = nn.relu(z)
-            z = nn.Dense(self.dims, name='decoder_fc1')(z)
-            z = nn.relu(z)
-            z = nn.Dense(self.dims, name='decoder_fc2')(z)
-            z = nn.relu(z)
-            z = nn.Dense(self.dims, name='decoder_fc3')(z)
-            z = nn.relu(
-                z)
-            z = nn.Dense(self.dims, name='decoder_fc4')(z)
-            z = nn.relu(z)
-            z = nn.Dense(self.dims, name='decoder_fc5')(z)
-            z = nn.relu(z)
-            z = nn.Dense(self.dims, name='decoder_fc6')(z)
-            
-        return z
-        
-
 def reparameterized_multivariate_normal(rng, mean, cholesky_L, size):
     # Cholesky decomposition: Σ = LL.T where L is lower triangular
     # reparametrised sample `res = mean + eps * L`
@@ -97,7 +38,6 @@ def reparameterized_multivariate_normal(rng, mean, cholesky_L, size):
     standard_mean = jnp.zeros((size, d))
     eps = random.multivariate_normal(rng, standard_mean, unit_cov_matrix)
     return mean + jnp.matmul(eps, cholesky_L)
-
 
 def edge_log_probs(z, t):
     """
@@ -119,17 +59,6 @@ def edge_log_probs(z, t):
     log_probs = index_mul(log_probs, index[..., jnp.arange(log_probs.shape[-1]), jnp.arange(log_probs.shape[-1])], 0.0)
     log_probs_neg = index_mul(log_probs_neg, index[..., jnp.arange(log_probs_neg.shape[-1]), jnp.arange(log_probs_neg.shape[-1])], 0.0)
     return log_probs, log_probs_neg
-
-
-def eval_kernel(scale, x, y, h, global_h):
-    h_ = lax.cond(
-        h == -1.0,
-        lambda _: global_h,
-        lambda _: h,
-        operand=None)
-
-    squared_norm = jnp.sum((x - y) ** 2.0)      # compute norm
-    return scale * jnp.exp(- squared_norm / h_) # compute kernel
 
 
 class Decoder_DIBS(nn.Module):
@@ -158,11 +87,10 @@ class Decoder_DIBS(nn.Module):
     def setup(self):
         # For BGeJAX
         self.mean_obs = jnp.zeros(self.num_nodes)
-
-        # For ErdosReniDAGDistribution
         self.n_vars = self.num_nodes
         self.n_edges = self.edges_per_node * self.num_nodes
         self.p = self.n_edges / ((self.n_vars * (self.n_vars - 1)) / 2)
+        self.no_interv_targets = jnp.zeros(self.num_nodes).astype(bool)
 
         if self.datatype not in ['er']:
             NotImplementedError(f"Not implemented {self.datatype}")
@@ -170,6 +98,10 @@ class Decoder_DIBS(nn.Module):
         # Net to feed in G and predict a Z 
         num_cholesky_terms = int(self.num_nodes * (self.num_nodes + 1) / 2.0)
         self.z_net = Z_mu_logvar_Net(self.num_nodes, num_cholesky_terms)
+        
+        self.inference_model = BGeJAX(mean_obs=jnp.zeros(self.n_vars), alpha_mu=1.0, alpha_lambd=self.n_vars + 2)
+        self.kernel = FrobeniusSquaredExponentialKernel(h=self.h_latent)
+
         if self.known_ED is False:
             self.decoder = Decoder(self.proj_dims, self.linear_decoder)
         print("INIT")
@@ -187,7 +119,7 @@ class Decoder_DIBS(nn.Module):
         Returns:
             [1, ] kernel value
         """
-        return eval_kernel(self.scale, x_latent, y_latent, self.h_latent, self.h_latent)
+        return self.kernel.eval(x=x_latent, y=y_latent, h=self.h_latent)
         
     def f_kernel_mat(self, x_latents, y_latents):
         """
@@ -203,77 +135,6 @@ class Decoder_DIBS(nn.Module):
             [A, B] kernel values
         """
         return vmap(vmap(self.f_kernel, (None, 0), 0), (0, None), 0)(x_latents, y_latents)
-
-    def slogdet_jax(self, m, parents, n_parents):
-        """
-        jax.jit-compatible log determinant of a submatrix
-
-        Done by masking everything but the submatrix and
-        adding a diagonal of ones everywhere else for the 
-        valid determinant
-
-        Args:
-            m: [d, d] matrix
-            parents: [d, ] boolean indicator of parents
-            n_parents: number of parents total
-
-        Returns:
-            natural log of determinant of `m`
-        """
-
-        n_vars = parents.shape[0]
-        submat = leftsel(m, parents, maskval=np.nan)
-        submat = leftsel(submat.T, parents, maskval=np.nan).T
-        submat = jnp.where(jnp.isnan(submat), jnp.eye(n_vars), submat)
-        return jnp.linalg.slogdet(submat)[1]
-
-    def log_marginal_likelihood_given_g(self, w, data, interv_targets=None):
-        """Computes BGe marignal likelihood  log p(x | G) in closed form 
-        Args:	
-            data: observations [N, d]	
-            w: adjacency matrix [d, d]	
-            interv_targets: boolean mask of shape [d,] of whether or not a node was intervened on
-                    intervened nodes are ignored in likelihood computation
-        Returns:
-            [1, ] BGe Score
-        """
-
-        N, d = data.shape        
-        if interv_targets is None:
-            interv_targets = jnp.zeros(d).astype(bool)
-
-        # pre-compute matrices
-        small_t = (self.alpha_mu * (self.alpha_lambd - d - 1)) / \
-            (self.alpha_mu + 1)
-        T = small_t * jnp.eye(d)
-
-        x_bar = data.mean(axis=0, keepdims=True)
-        x_center = data - x_bar
-        s_N = x_center.T @ x_center  # [d, d]
-
-        # Kuipers (2014) states R wrongly in the paper, using alpha_lambd rather than alpha_mu;
-        # the supplementary contains the correct term
-        R = T + s_N + ((N * self.alpha_mu) / (N + self.alpha_mu)) * \
-            ((x_bar - self.mean_obs).T @ (x_bar - self.mean_obs))  # [d, d]
-
-        # store log gamma terms for all possible values of l
-        all_l = jnp.arange(d)
-        log_gamma_terms = (
-            0.5 * (jnp.log(self.alpha_mu) - jnp.log(N + self.alpha_mu))
-            + gammaln(0.5 * (N + self.alpha_lambd - d + all_l + 1))
-            - gammaln(0.5 * (self.alpha_lambd - d + all_l + 1))
-            - 0.5 * N * jnp.log(jnp.pi)
-            # log det(T_JJ)^(..) / det(T_II)^(..) for default T
-            + 0.5 * (self.alpha_lambd - d + 2 * all_l + 1) * \
-            jnp.log(small_t)
-        )
-
-        # compute number of parents for each node
-        n_parents_all = w.sum(axis=0).astype(jnp.int32)
-
-        # sum scores for all nodes
-        res = self.eltwise_log_marginal_likelihood_given_g_single(jnp.arange(d), n_parents_all, R, w, data, log_gamma_terms)
-        return jnp.sum(jnp.where(interv_targets, 0.0, res))
 
     def log_prior(self, soft_g):
         """log p(G) using edge probabilities as G"""    
@@ -309,7 +170,7 @@ class Decoder_DIBS(nn.Module):
         return w.reshape(*w.shape[:-2], n_vars * n_vars)
 
     # * Generative graph model p(G | particles Z)
-    def edge_probs(self, z, alpha_t):
+    def edge_probs(self, z, t):
         """
         Edge probabilities encoded by latent representation 
 
@@ -322,7 +183,7 @@ class Decoder_DIBS(nn.Module):
         """
         u, v = z[..., 0], z[..., 1]
         scores = jnp.einsum('...ik,...jk->...ij', u, v)
-        probs =  sigmoid(alpha_t * scores)
+        probs =  sigmoid(self.alpha_linear * t * scores)
 
         # mask diagonal since it is explicitly not modeled
         probs = index_mul(probs, index[..., jnp.arange(probs.shape[-1]), jnp.arange(probs.shape[-1])], 0.0)
@@ -351,6 +212,10 @@ class Decoder_DIBS(nn.Module):
 
         return log_prob_g
 
+    def target_log_joint_prob(self, single_w, data):
+        log_lik = self.inference_model.log_marginal_likelihood_given_g(w=single_w, data=data, interv_targets=self.no_interv_targets)
+        return log_lik
+
     def log_joint_prob_soft(self, single_z, single_theta, eps, t, subk, data):
         """
         This is the composition of 
@@ -369,7 +234,7 @@ class Decoder_DIBS(nn.Module):
             logprob of shape [1, ]
         """
         soft_g_sample = self.particle_to_soft_graph(single_z, eps, t)
-        return self.log_marginal_likelihood_given_g(soft_g_sample, data)
+        return self.target_log_joint_prob(soft_g_sample, data)
 
     def eltwise_grad_latent_log_prob(self, gs, single_z, t):
         """
@@ -388,58 +253,6 @@ class Decoder_DIBS(nn.Module):
         dz_latent_log_prob = grad(self.latent_log_prob, 1)
         return vmap(dz_latent_log_prob, (0, None, None), 0)(gs, single_z, t)
 
-    def log_marginal_likelihood_given_g_single(self, j, n_parents, R, w, data, log_gamma_terms):
-        """
-        Computes node specific term of BGe metric
-        jit-compatible
-
-        Args:
-            j (int): node index for score
-            n_parents (int): number of parents of node j
-            R: internal matrix for BGe score [d, d]
-            w: adjacency matrix [d, d] 
-            data: observations [N, d] 
-            log_gamma_terms: internal values for BGe score [d, ]
-
-        Returns:
-            BGe score for node j
-        """
-
-        N, d = data.shape
-
-        isj = jnp.arange(d) == j
-        parents = w[:, j] == 1
-        parents_and_j = parents | isj
-
-        # if JAX_DEBUG_NANS raises NaN error here,
-        # ignore (happens due to lax.cond evaluating the second clause when n_parents == 0)
-        log_term_r = lax.cond(
-            n_parents == 0,
-            # leaf node case
-            lambda _: (
-                # log det(R)^(...)
-                - 0.5 * (N + self.alpha_lambd - d + 1) * jnp.log(jnp.abs(R[j, j]))
-            ),
-            # child case
-            lambda _: (
-                # log det(R_II)^(..) / det(R_JJ)^(..)
-                0.5 * (N + self.alpha_lambd - d + n_parents) *
-                    self.slogdet_jax(R, parents, n_parents)
-                - 0.5 * (N + self.alpha_lambd - d + n_parents + 1) *
-                    self.slogdet_jax(R, parents_and_j, n_parents + 1)
-            ),
-            operand=None,
-        )
-
-        return log_gamma_terms[n_parents] + log_term_r
-
-    def eltwise_log_marginal_likelihood_given_g_single(self, *args):
-        """
-        Same inputs as `log_marginal_likelihood_given_g_single`,
-        but batched over `j` and `n_parents` dimensions
-        """
-        return vmap(self.log_marginal_likelihood_given_g_single, (0, 0, None, None, None, None), 0)(*args)
-
     # * Estimators for scores of log p(theta, D | particles Z)
     def eltwise_log_joint_prob(self, gs, data):
         """
@@ -453,7 +266,7 @@ class Decoder_DIBS(nn.Module):
         Returns:
             batch of logprobs [n_graphs, ]
         """
-        return vmap(self.log_marginal_likelihood_given_g, (0, None), 0)(gs, data)
+        return vmap(self.target_log_joint_prob, (0, None), 0)(gs, data)
 
     def constraint_gumbel(self, single_z, single_eps, alpha_t):
         """ 
@@ -517,7 +330,7 @@ class Decoder_DIBS(nn.Module):
         else:   
             raise ValueError(f'Unknown gradient estimator `{self.grad_estimator_z}`')
         
-        return vmap(grad_z_likelihood, (0, 0, 0, None, 0, 0), (0, 0))(zs, thetas, baselines, t, subkeys, data)
+        return vmap(grad_z_likelihood, (0, 0, 0, None, 0, None), (0, 0))(zs, thetas, baselines, t, subkeys, data)
 
     def grad_z_likelihood_score_function(self, single_z, single_theta, single_sf_baseline, t, subk, data=None):
         """
@@ -664,12 +477,13 @@ class Decoder_DIBS(nn.Module):
         grad_prior_z = vmap(grad_target_log_prior_particle, (0, None), 0)(zs, t)
 
         # constraint term  [n_particles, d, k, 2], [n_particles,], [1,] -> [n_particles, d, k, 2]
-        eltwise_grad_constraint = vmap(self.grad_constraint_gumbel, (0, 0, None), 0)(zs, subkeys, alpha_t)
+        eltwise_grad_constraint = vmap(self.grad_constraint_gumbel, (0, 0, None), 0)(zs, subkeys, t)
 
         return - beta_t * eltwise_grad_constraint \
                 - zs / (self.latent_prior_std ** 2.0) \
                 + grad_prior_z 
     
+
     def particle_to_soft_graph(self, z, eps, t):
         """ 
         Gumbel-softmax / concrete distribution using Logistic(0,1) samples `eps`
@@ -735,7 +549,6 @@ class Decoder_DIBS(nn.Module):
         # average and negate (for optimizer)
         return res
 
-
     def eltwise_grad_kernel_z(self, x_latents, y_latent):
         """
         Computes gradient d/dz k(z, z') elementwise for each provided particle z
@@ -751,6 +564,7 @@ class Decoder_DIBS(nn.Module):
         """        
         grad_kernel_z = jit(grad(self.f_kernel, 0))
         return vmap(grad_kernel_z, (0, None), 0)(x_latents, y_latent)
+
 
     def get_posterior_single_z(self, key, single_g):
         flattened_g = jnp.array(single_g.reshape(-1))
@@ -769,11 +583,17 @@ class Decoder_DIBS(nn.Module):
     def get_posterior_z(self, key, gs):
         return vmap(self.get_posterior_single_z, (None, 0), (0, 0, 0))(key, gs)
 
-    def __call__(self, z_rng, particles_z, sf_baseline, step=0):
+
+    def __call__(self, z_rng, particles_z, sf_baseline, z_data, step=0):
         # ? 1. Sample n_particles graphs from particles_z
         s = time()
-        # eps = random.logistic(z_rng, shape=(self.n_particles, self.num_nodes, self.num_nodes))  
-        sampled_soft_g = self.particle_to_g_lim(particles_z)
+        if self.grad_estimator_z == 'score':
+            sampled_soft_g = self.particle_to_g_lim(particles_z)
+        
+        elif self.grad_estimator_z == 'reparam':
+            eps = random.logistic(z_rng, shape=(self.n_particles, self.num_nodes, self.num_nodes))  
+            sampled_soft_g = self.particle_to_soft_graph(particles_z, eps, step)
+
         print(f'Part 1 takes: {time() - s}s' )
 
         # ? 2. Get graph conditioned predictions on z: q(z|G)
@@ -786,19 +606,24 @@ class Decoder_DIBS(nn.Module):
         s = time()
         if self.known_ED is False:  decoder = lambda q_z: self.decoder(q_z)
         else:                       decoder = lambda q_z: jnp.matmul(q_z, self.proj_matrix)
-
+        # decoder = lambda q_z: self.decoder(q_z)
+        # recon = decoder(z_data)
         recons = vmap(decoder, (0), 0)(q_zs)
         print(f'Part 3 takes: {time() - s}s')
 
         # ? 4. Calculate phi_z = Mean ( kxx * grad_log P(particles_z | data) + grad kxx ) for updating particles_z
         s = time()
         # ? d/dz log p(data | z) grad log likelihood
+
         z_rng, *batch_subk = random.split(z_rng, self.n_particles + 1) 
         dz_log_likelihood, sf_baseline = self.eltwise_grad_z_likelihood(particles_z, None, sf_baseline, 
-                                            step, jnp.array(batch_subk), jnp.array(q_zs))
+                                            step, jnp.array(batch_subk), z_data)
+        # print("Grad. LL", dz_log_likelihood[-1], dz_log_likelihood.shape)
+        
         # ? d/dz log p(z) (acyclicity) grad log PRIOR
         z_rng, *batch_subk = random.split(z_rng, self.n_particles + 1)
         dz_log_prior = self.eltwise_grad_latent_prior(particles_z, jnp.array(batch_subk), step)
+        # print("Grad. prior", dz_log_prior[-1], dz_log_prior.shape)
 
         # ? d/dz log p(z, D) = d/dz log p(z)  + log p(D | z) 
         dz_log_prob = dz_log_prior + dz_log_likelihood
@@ -809,7 +634,66 @@ class Decoder_DIBS(nn.Module):
         print(f'Part 4 takes: {time() - s}s')
 
         return recons, q_z_mus, q_z_covariance, phi_z, sampled_soft_g, sf_baseline, z_rng, q_zs
+        # return None, None, None, phi_z, sampled_soft_g, sf_baseline, z_rng, None
 
+
+class Z_mu_logvar_Net(nn.Module):
+    latent_dims: int
+    num_cholesky_terms: int
+
+    @nn.compact
+    def __call__(self, g):
+        z = nn.Dense(20, name='encoder_0')(g)
+        z = nn.relu(z)
+        z = nn.Dense(3 * self.latent_dims, name='encoder_1')(z)
+        z = nn.relu(z)
+        z = nn.Dense(3 * self.latent_dims, name='encoder_2')(z)
+        z = nn.relu(z)
+        
+        z_mu = nn.Dense(3 * self.latent_dims, name='mu_encoder_0')(z)
+        z_mu = nn.relu(z_mu)
+        z_mu = nn.Dense(3 * self.latent_dims, name='mu_encoder_2')(z_mu)
+        z_mu = nn.relu(z_mu)
+        z_mu = nn.Dense(3 * self.latent_dims, name='mu_encoder_3')(z_mu)
+        z_mu = nn.relu(z_mu)
+        z_mu = nn.Dense(self.latent_dims, name='mu_encoder_1')(z_mu)
+
+        z_logcholesky = nn.Dense(self.latent_dims*self.latent_dims, name='logcovar_encoder_0')(z)
+        z_logcholesky = nn.relu(z_logcholesky)
+        z_logcholesky = nn.Dense(self.latent_dims*self.latent_dims, name='logcovar_encoder_2')(z_logcholesky)
+        z_logcholesky = nn.relu(z_logcholesky)
+        z_logcholesky = nn.Dense(self.latent_dims*self.latent_dims, name='logcovar_encoder_3')(z_logcholesky)
+        z_logcholesky = nn.relu(z_logcholesky)
+        z_logcholesky = nn.Dense(self.num_cholesky_terms, name='logcovar_encoder_1')(z_logcholesky)
+
+        return jnp.asarray(z_mu), jnp.asarray(z_logcholesky)
+
+
+class Decoder(nn.Module):
+    dims: int
+    linear_decoder: bool
+
+    @nn.compact
+    def __call__(self, z):
+        if self.linear_decoder:
+            z = nn.Dense(self.dims, name='decoder_fc0')(z)
+        else:
+            z = nn.Dense(self.dims, name='decoder_fc0')(z)
+            z = nn.relu(z)
+            z = nn.Dense(self.dims, name='decoder_fc1')(z)
+            z = nn.relu(z)
+            z = nn.Dense(self.dims, name='decoder_fc2')(z)
+            z = nn.relu(z)
+            z = nn.Dense(self.dims, name='decoder_fc3')(z)
+            z = nn.relu(
+                z)
+            z = nn.Dense(self.dims, name='decoder_fc4')(z)
+            z = nn.relu(z)
+            z = nn.Dense(self.dims, name='decoder_fc5')(z)
+            z = nn.relu(z)
+            z = nn.Dense(self.dims, name='decoder_fc6')(z)
+            
+        return z
 
 
 

@@ -4,6 +4,7 @@ import tqdm
 import jax.numpy as jnp
 from jax import jit, vmap, random, grad
 from jax.experimental import optimizers
+import numpy as np
 
 from dibs.inference.dibs import DiBS
 from time import time
@@ -44,7 +45,7 @@ class MarginalDiBS(DiBS):
         we define a marginal log likelihood variant with dummy parameter inputs. This will allow using the same 
         gradient estimator functions for both inference cases.
         """
-        target_log_marginal_prob_extra_args = lambda single_z, single_theta, subk, data: target_log_marginal_prob(single_z, data)
+        target_log_marginal_prob_extra_args = lambda single_z, data: target_log_marginal_prob(single_z, data)
 
         super(MarginalDiBS, self).__init__(
             target_log_prior=target_log_prior,
@@ -89,11 +90,10 @@ class MarginalDiBS(DiBS):
         # sample
         key, subk = random.split(key)
         z = random.normal(subk, shape=(n_particles, n_vars, n_dim, 2)) * std        
-
         return z
 
 
-    def f_kernel(self, x_latent, y_latent, h, t):
+    def f_kernel(self, x_latent, y_latent, h):
         """
         Evaluates kernel
 
@@ -109,7 +109,7 @@ class MarginalDiBS(DiBS):
         return self.kernel.eval(x=x_latent, y=y_latent, h=h)
     
 
-    def f_kernel_mat(self, x_latents, y_latents, h, t):
+    def f_kernel_mat(self, x_latents, y_latents, h):
         """
         Computes pairwise kernel matrix
 
@@ -122,11 +122,11 @@ class MarginalDiBS(DiBS):
         Returns:
             [A, B] kernel values
         """
-        return vmap(vmap(self.f_kernel, (None, 0, None, None), 0), 
-            (0, None, None, None), 0)(x_latents, y_latents, h, t)
+        return vmap(vmap(self.f_kernel, (None, 0, None), 0), 
+            (0, None, None), 0)(x_latents, y_latents, h)
 
 
-    def eltwise_grad_kernel_z(self, x_latents, y_latent, h, t):
+    def eltwise_grad_kernel_z(self, x_latents, y_latent, h):
         """
         Computes gradient d/dz k(z, z') elementwise for each provided particle z
 
@@ -140,10 +140,10 @@ class MarginalDiBS(DiBS):
             batch of gradients for latent tensors Z [n_particles, d, k, 2]
         """        
         grad_kernel_z = grad(self.f_kernel, 0)
-        return vmap(grad_kernel_z, (0, None, None, None), 0)(x_latents, y_latent, h, t)
+        return vmap(grad_kernel_z, (0, None, None), 0)(x_latents, y_latent, h)
 
 
-    def z_update(self, single_z, kxx, z, grad_log_prob_z, h, t):
+    def z_update(self, single_z, kxx, z, grad_log_prob_z, h):
         """
         Computes SVGD update for `single_z` particlee given the kernel values 
         `kxx` and the d/dz gradients of the target density for each of the available particles 
@@ -160,7 +160,7 @@ class MarginalDiBS(DiBS):
     
         # compute terms in sum
         weighted_gradient_ascent = kxx[..., None, None, None] * grad_log_prob_z
-        repulsion = self.eltwise_grad_kernel_z(z, single_z, h, t)
+        repulsion = self.eltwise_grad_kernel_z(z, single_z, h)
 
         # average and negate (for optimizer)
         return - (weighted_gradient_ascent + repulsion).mean(axis=0)
@@ -171,7 +171,7 @@ class MarginalDiBS(DiBS):
         Parallelizes `z_update` for all available particles
         Otherwise, same inputs as `z_update`.
         """
-        return vmap(self.z_update, (0, 1, None, None, None, None), 0)(*args)
+        return vmap(self.z_update, (0, 1, None, None, None), 0)(*args)
 
 
     # this is the crucial @jit
@@ -205,10 +205,10 @@ class MarginalDiBS(DiBS):
         
         # ? d/dz log p(z, D) = d/dz log p(z)  + log p(D | z) 
         dz_log_prob = dz_log_prior + dz_log_likelihood
+        kxx = self.f_kernel_mat(z, z, h) # ? k(z, z) for all particles
         
-        kxx = self.f_kernel_mat(z, z, h, t) # ? k(z, z) for all particles
         # transformation phi() applied in batch to each particle individually
-        phi_z = self.parallel_update_z(z, kxx, z, dz_log_prob, h, t)
+        phi_z = self.parallel_update_z(z, kxx, z, dz_log_prob, h)
 
         # apply transformation
         # `x += stepsize * phi`; the phi returned is negated for SVGD
@@ -236,6 +236,7 @@ class MarginalDiBS(DiBS):
         n_particles, _, n_dim, _ = z.shape  
         if sf_baseline is None: sf_baseline = jnp.zeros(n_particles)
         if self.latent_prior_std is None: self.latent_prior_std = 1.0 / jnp.sqrt(n_dim)
+        z_rng = random.PRNGKey(123)
 
         # init optimizer
         if self.opt is None:
@@ -255,11 +256,27 @@ class MarginalDiBS(DiBS):
 
         for t in it:
             opt_state_z, key, sf_baseline = self.svgd_step(opt_state_z, key, sf_baseline, t, data)     # perform one SVGD step (compiled with @jit)
+            
             # callback
             if callback and callback_every and (((t+1) % callback_every == 0) or (t == (n_steps - 1))):
                 z = self.get_params(opt_state_z)
                 callback(dibs=self, t=t, zs=z)
 
-        # return transported particles
         z_final = self.get_params(opt_state_z)
-        return z_final, opt_state_z, sf_baseline
+        print("particles_z: ", z_final[-1])
+            
+        if self.grad_estimator_z == 'reparam':
+            eps = random.logistic(z_rng, shape=(n_particles, n_dim, n_dim))  
+            soft_g = self.particle_to_soft_graph(z_final, eps, t)
+            soft_g = np.array(soft_g)
+            particles_g = np.random.binomial(1, soft_g, soft_g.shape)
+            
+            for sg, g in zip(soft_g, particles_g):
+                print(sg)
+                print(g)
+                print()
+        
+        elif self.grad_estimator_z == 'score':
+            particles_g = self.particle_to_g_lim(z_final)
+
+        return particles_g, opt_state_z, sf_baseline

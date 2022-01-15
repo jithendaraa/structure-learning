@@ -28,7 +28,6 @@ class FrobeniusSquaredExponentialKernel:
         Returns: 
             [1,] 
         """
-
         # bandwidth (jax-consistent checking which h is used)
         h_ = lax.cond(
             h == -1.0,
@@ -38,6 +37,6 @@ class FrobeniusSquaredExponentialKernel:
 
         # compute norm
         squared_norm = jnp.sum((x - y) ** 2.0)
-
+        
         # compute kernel
         return self.scale * jnp.exp(- squared_norm / h_)

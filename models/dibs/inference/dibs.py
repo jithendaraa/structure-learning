@@ -263,7 +263,7 @@ class DiBS:
     Estimators for scores of log p(theta, D | Z) 
     """
 
-    def eltwise_log_joint_prob(self, gs, single_theta, rng, data=None):
+    def eltwise_log_joint_prob(self, gs, data=None):
         """
         log p(data | G, theta) batched over samples of G
 
@@ -276,7 +276,7 @@ class DiBS:
             batch of logprobs [n_graphs, ]
         """
 
-        return vmap(self.target_log_joint_prob, (0, None, None, None), 0)(gs, single_theta, rng, data)
+        return vmap(self.target_log_joint_prob, (0, None), 0)(gs, data)
 
     
 
@@ -370,7 +370,7 @@ class DiBS:
 
         # [n_grad_mc_samples, ] 
         subk, subk_ = random.split(subk)
-        logprobs_numerator = self.eltwise_log_joint_prob(g_samples, single_theta, subk_, data)
+        logprobs_numerator = self.eltwise_log_joint_prob(g_samples, data)
         logprobs_denominator = logprobs_numerator
 
         # variance_reduction
