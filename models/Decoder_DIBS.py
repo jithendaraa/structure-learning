@@ -483,7 +483,6 @@ class Decoder_DIBS(nn.Module):
                 - zs / (self.latent_prior_std ** 2.0) \
                 + grad_prior_z 
     
-
     def particle_to_soft_graph(self, z, eps, t):
         """ 
         Gumbel-softmax / concrete distribution using Logistic(0,1) samples `eps`
@@ -565,28 +564,28 @@ class Decoder_DIBS(nn.Module):
         grad_kernel_z = jit(grad(self.f_kernel, 0))
         return vmap(grad_kernel_z, (0, None), 0)(x_latents, y_latent)
 
-
     def get_posterior_single_z(self, key, single_g):
         flattened_g = jnp.array(single_g.reshape(-1))
         q_z_mu, q_z_logcholesky = self.z_net(flattened_g)
         q_z_cholesky = jnp.exp(q_z_logcholesky)
+        return q_z_mu, q_z_cholesky
+
+    def get_posterior_z(self, key, gs):
+        q_z_mus, q_z_choleskys = vmap(self.get_posterior_single_z, (None, 0), (0, 0))(key, gs)
+        q_z_cholesky_across_gs = jnp.mean(q_z_choleskys, axis=0)
 
         tril_indices = jnp.tril_indices(self.num_nodes)
         i, j = tril_indices[0], tril_indices[1]
         cholesky_L = jnp.zeros((self.num_nodes,self.num_nodes), dtype=float)
-        cholesky_L = cholesky_L.at[i, j].set(q_z_cholesky)
+        cholesky_L = cholesky_L.at[i, j].set(q_z_cholesky_across_gs)
 
-        q_z = reparameterized_multivariate_normal(key, q_z_mu, cholesky_L, self.num_samples)
-        q_z_covariance = jnp.matmul(cholesky_L, jnp.transpose(cholesky_L))
-        return q_z_mu, q_z_covariance, q_z
+        q_z_mu_across_gs = jnp.mean(q_z_mus, axis=0)
+        q_z_covar_across_gs = jnp.matmul(cholesky_L, jnp.transpose(cholesky_L))
+        q_z = reparameterized_multivariate_normal(key, q_z_mu_across_gs, cholesky_L, self.num_samples)
+        return q_z_mu_across_gs, q_z_covar_across_gs, q_z
 
-    def get_posterior_z(self, key, gs):
-        return vmap(self.get_posterior_single_z, (None, 0), (0, 0, 0))(key, gs)
-
-
-    def __call__(self, z_rng, particles_z, sf_baseline, step=0):
+    def __call__(self, z_rng, particles_z, sf_baseline, data, step=0):
         # ? 1. Sample n_particles graphs from particles_z
-        s = time()
         if self.grad_estimator_z == 'score':
             sampled_soft_g = self.particle_to_g_lim(particles_z)
         
@@ -594,35 +593,32 @@ class Decoder_DIBS(nn.Module):
             eps = random.logistic(z_rng, shape=(self.n_particles, self.num_nodes, self.num_nodes))  
             sampled_soft_g = self.particle_to_soft_graph(particles_z, eps, step)
 
-        print(f'Part 1 takes: {time() - s}s' )
-
         # ? 2. Get graph conditioned predictions on z: q(z|G)
-        s = time()
         # (num_samples, n_particles, d) (num_samples, n_particles, d, d)
-        q_z_mus, q_z_covariance, q_zs = self.get_posterior_z(z_rng, sampled_soft_g)
-        print(f'Part 2 takes: {time() - s}s')
+        # print(z_rng, sampled_soft_g)
+        q_z_mu, q_z_covariance, q_z = self.get_posterior_z(z_rng, sampled_soft_g)
 
         # ? 3. From every distribution q(z_i|G), decode to get reconstructed samples X in higher dimensions. i = 1...num_nodes
-        s = time()
         if self.known_ED is False:  decoder = lambda q_z: self.decoder(q_z)
         else:                       decoder = lambda q_z: jnp.matmul(q_z, self.proj_matrix)
-
-        recons = vmap(decoder, (0), 0)(q_zs)
-        print(f'Part 3 takes: {time() - s}s')
+        X_recon = decoder(q_z)
 
         # ? 4. Calculate phi_z = Mean ( kxx * grad_log P(particles_z | data) + grad kxx ) for updating particles_z
-        s = time()
         # ? d/dz log p(data | z) grad log likelihood
+        # oof = 0
+        # if data is not None:
+        #     oof = 1
+        
+        if data is None: 
+            data = jax.lax.stop_gradient(q_z)
 
         z_rng, *batch_subk = random.split(z_rng, self.n_particles + 1) 
         dz_log_likelihood, sf_baseline = self.eltwise_grad_z_likelihood(particles_z, None, sf_baseline, 
-                                            step, jnp.array(batch_subk), q_zs)
-        # print("Grad. LL", dz_log_likelihood[-1], dz_log_likelihood.shape)
-        
+                                            step, jnp.array(batch_subk), data)
+
         # ? d/dz log p(z) (acyclicity) grad log PRIOR
         z_rng, *batch_subk = random.split(z_rng, self.n_particles + 1)
         dz_log_prior = self.eltwise_grad_latent_prior(particles_z, jnp.array(batch_subk), step)
-        # print("Grad. prior", dz_log_prior[-1], dz_log_prior.shape)
 
         # ? d/dz log p(z, D) = d/dz log p(z)  + log p(D | z) 
         dz_log_prob = dz_log_prior + dz_log_likelihood
@@ -630,10 +626,11 @@ class Decoder_DIBS(nn.Module):
 
         # ? transformation phi_z(t)(particle m) applied in batch to each particle individually
         phi_z = vmap(self.z_update, (0, 1, None, None), 0)(particles_z, kxx, particles_z, dz_log_prob)
-        print(f'Part 4 takes: {time() - s}s')
 
-        return recons, q_z_mus, q_z_covariance, phi_z, sampled_soft_g, sf_baseline, z_rng, q_zs
-        # return None, None, None, phi_z, sampled_soft_g, sf_baseline, z_rng, None
+        # if oof == 1:
+        #     import pdb; pdb.set_trace()
+
+        return X_recon, q_z_mu, q_z_covariance, phi_z, sampled_soft_g, sf_baseline, z_rng, q_z
 
 
 class Z_mu_logvar_Net(nn.Module):
