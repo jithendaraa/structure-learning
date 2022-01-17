@@ -203,6 +203,7 @@ class MarginalDiBS(DiBS):
         key, *batch_subk = random.split(key, n_particles + 1)
         dz_log_prior = self.eltwise_grad_latent_prior(z, jnp.array(batch_subk), t)
         
+
         # ? d/dz log p(z, D) = d/dz log p(z)  + log p(D | z) 
         dz_log_prob = dz_log_prior + dz_log_likelihood
         kxx = self.f_kernel_mat(z, z, h) # ? k(z, z) for all particles
@@ -236,7 +237,6 @@ class MarginalDiBS(DiBS):
         n_particles, _, n_dim, _ = z.shape  
         if sf_baseline is None: sf_baseline = jnp.zeros(n_particles)
         if self.latent_prior_std is None: self.latent_prior_std = 1.0 / jnp.sqrt(n_dim)
-        z_rng = random.PRNGKey(123)
 
         # init optimizer
         if self.opt is None:
@@ -266,6 +266,7 @@ class MarginalDiBS(DiBS):
         print("particles_z: ", z_final[-1])
             
         if self.grad_estimator_z == 'reparam':
+            z_rng = random.PRNGKey(123)
             eps = random.logistic(z_rng, shape=(n_particles, n_dim, n_dim))  
             soft_g = self.particle_to_soft_graph(z_final, eps, t)
             soft_g = np.array(soft_g)

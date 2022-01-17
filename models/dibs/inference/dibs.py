@@ -359,6 +359,8 @@ class DiBS:
         """
         p = self.edge_probs(single_z, t)    # [d, d]
         n_vars, n_dim = single_z.shape[0:2]
+        # print("Inside SF")
+        # import pdb; pdb.set_trace()
 
         # [n_grad_mc_samples, d, d]
         subk, subk_ = random.split(subk)
@@ -399,7 +401,6 @@ class DiBS:
         # update baseline
         single_sf_baseline = (self.score_function_baseline * logprobs_numerator.mean(0) +
                             (1 - self.score_function_baseline) * single_sf_baseline)
-
         return stable_sf_grad_shaped, single_sf_baseline
         
 
