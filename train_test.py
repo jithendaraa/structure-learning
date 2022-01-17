@@ -341,14 +341,9 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
         else:
             if step == decoder_train_steps:
                 q_z_mus, q_z_covars = np.array(q_z_mus), np.array(q_z_covars)
-
                 data = np.random.multivariate_normal(q_z_mus, q_z_covars, opt.num_samples)
                 x = jnp.array(data)
-                print(x)
-                print("________________________________________")
-                import pdb; pdb.set_trace()
             
-            # print("Step", step)
             t = dibs_update
             state, subk, q_z_mus, q_z_covars, soft_g, sf_baseline, _, _, phi_z, opt_state_z = no_grad_def_train(state, subk, particles_z, sf_baseline, t, opt_state_z, data)
             particles_z = get_params(opt_state_z)
@@ -410,12 +405,12 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
             writer.add_scalar('Evaluations/AUROC (empirical)', auroc_e, step)
             writer.add_scalar('Evaluations/AUROC (marginal)', auroc_m, step)
             
-            # if step < 300: 
-            #     writer.add_scalar('z_losses/MSE', mse_loss, step)
-            #     writer.add_scalar('z_losses/KL', kl_z_loss, step)
-            #     writer.add_scalar('z_losses/ELBO', loss, step)
-            #     writer.add_scalar('Distances/MSE(Predicted z | z_GT)', np.array(z_dist), step)
-            #     writer.add_scalar('Distances/MSE(decoder | projection matrix)', np.array(decoder_dist), step)
+            if step < decoder_train_steps: 
+                writer.add_scalar('z_losses/MSE', mse_loss, step)
+                writer.add_scalar('z_losses/KL', kl_z_loss, step)
+                writer.add_scalar('z_losses/ELBO', loss, step)
+                writer.add_scalar('Distances/MSE(Predicted z | z_GT)', np.array(z_dist), step)
+                writer.add_scalar('Distances/MSE(decoder | projection matrix)', np.array(decoder_dist), step)
 
             print(f'Expected SHD Marginal: {eshd_m} | Empirical: {eshd_e}')
             print(f"GT-MEC: {mec_gt_recovery} | AUROC (empirical and marginal): {auroc_e} {auroc_m}")
