@@ -62,7 +62,7 @@ def train_dibs(target, loader_objs, opt, key):
 
     data = loader_objs['data'] 
     np.random.seed(0)
-    data = np.random.multivariate_normal(loc, cov_matrix, opt.num_samples)
+    # data = np.random.multivariate_normal(loc, cov_matrix, opt.num_samples)
     x = jnp.array(data)
 
     def log_prior(single_w_prob):
@@ -91,7 +91,7 @@ def train_dibs(target, loader_objs, opt, key):
     key, subk = random.split(key)
     print(key, subk)
     particles_g, _, _ = dibs.sample_particles(key=subk, 
-                            n_steps=500, 
+                            n_steps=opt.num_updates, 
                             init_particles_z=init_particles_z,
                             opt_state_z = None, 
                             sf_baseline=None, 
@@ -103,6 +103,7 @@ def train_dibs(target, loader_objs, opt, key):
         return log_lik
 
     eltwise_log_prob = vmap(lambda g: log_likelihood(g), 0, 0)	
+    print(particles_g, type(particles_g))
     dibs_empirical = particle_marginal_empirical(particles_g)
     dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
     eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
@@ -114,6 +115,7 @@ def train_dibs(target, loader_objs, opt, key):
     auroc_empirical = threshold_metrics(dist = dibs_empirical, g=adjacency_matrix)['roc_auc']
     auroc_mixture = threshold_metrics(dist = dibs_mixture, g=adjacency_matrix)['roc_auc']
 
+    print(adjacency_matrix)
     print("ESHD (empirical):", eshd_e)
     print("ESHD (marginal mixture):", eshd_m)
     print("MEC-GT Recovery %", mec_or_gt_count * 100.0/ opt.n_particles)
@@ -232,8 +234,7 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
     z_means, z_covars = loader_objs['means'], loader_objs['covars']
     # ? Prior P(z | G) for KL term - could be sample params or actual params mu and sigma
     p_z_mu, p_z_covar = jnp.array(z_means[opt.z_prior]), jnp.array(z_covars[opt.z_prior])
-    adj_matrix = loader_objs['adj_matrix'].astype(int)
-    print(adj_matrix)
+    
 
     gt_graph = loader_objs['train_dataloader'].graph
     gt_graph_cpdag = graphical_models.DAG.from_nx(gt_graph).cpdag()
@@ -242,7 +243,8 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
     x = jnp.array(loader_objs['projected_data'])
     z_gt = jnp.array(gt_samples) 
     z_gt = device_put(z_gt, jax.devices()[0])
-    gt = utils.adj_mat_to_vec(torch.from_numpy(adj_matrix).unsqueeze(0), opt.num_nodes).numpy().squeeze()
+    adj_matrix = loader_objs['adj_matrix'].astype(int)
+    print(adj_matrix)
     
     m = model()
     inference_model = BGeJAX(mean_obs=jnp.zeros(opt.num_nodes), alpha_mu=1.0, alpha_lambd=opt.num_nodes + 2)
@@ -308,7 +310,7 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
     def no_grad_def_train(state, key, particles_z, sf_baseline, step, dibs_opt_state_z, q_z):
         recons, q_z_mus, q_z_covars, phi_z, soft_g, sf_baseline, key, pred_z = m.apply({'params': state.params}, key, particles_z, sf_baseline, q_z, step)
         dibs_opt_state_z = opt_update(step, phi_z, dibs_opt_state_z)
-        return state, key, q_z_mus, q_z_covars, soft_g, sf_baseline, None, None, phi_z, dibs_opt_state_z
+        return state, key, q_z_mus, q_z_covars, soft_g, sf_baseline, phi_z, dibs_opt_state_z
 
     if opt.algo == 'def':     
         trainer_fn = def_train_step
@@ -327,10 +329,10 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
     print("begin training")
     print()
 
-    decoder_train_steps = 500
+    decoder_train_steps = opt.steps - opt.num_updates
     dibs_update = 0
 
-    for step in range(700):
+    for step in range(opt.steps):
         s = time()
         multiple = step // decoder_train_steps
         even_multiple = ((multiple % 2) == 0)
@@ -345,14 +347,12 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
                 x = jnp.array(data)
             
             t = dibs_update
-            state, subk, q_z_mus, q_z_covars, soft_g, sf_baseline, _, _, phi_z, opt_state_z = no_grad_def_train(state, subk, particles_z, sf_baseline, t, opt_state_z, data)
+            state, subk, q_z_mus, q_z_covars, soft_g, sf_baseline, phi_z, opt_state_z = no_grad_trainer_fn(state, subk, particles_z, sf_baseline, t, opt_state_z, data)
             particles_z = get_params(opt_state_z)
             dibs_update += 1
             
-
-        if (step+1) % 20 == 0:
-            # loss, mse_loss, kl_z_loss = np.array(loss), np.array(mse_loss), np.array(kl_z_loss)
-            soft_g = np.array(soft_g)
+        if (step+1) % 100 == 0:
+            loss, mse_loss, kl_z_loss = np.array(loss), np.array(mse_loss), np.array(kl_z_loss)
 
             if opt.grad_estimator == 'score': particles_g = soft_g
             elif opt.grad_estimator == 'reparam':   particles_g = np.random.binomial(1, soft_g, soft_g.shape)
@@ -393,17 +393,17 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
 
             # ! tensorboard logs
             if len(cpdag_shds) > 0: 
-                writer.add_scalar('Evaluations/CPDAG SHD', np.mean(cpdag_shds), step)
+                writer.add_scalar('Evaluations/CPDAG SHD', np.mean(cpdag_shds), dibs_update)
                 if opt.off_wandb is False: wandb_log_dict['Evaluations/CPDAG SHD'] = np.mean(cpdag_shds)
             
-            if opt.off_wandb is False: wandb.log(wandb_log_dict, step=step)
-
-            writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
-            writer.add_scalar('Evaluations/Exp. SHD (Empirical)', np.array(eshd_e), step)
-            writer.add_scalar('Evaluations/Exp. SHD (Marginal)', np.array(eshd_m), step)
-            writer.add_scalar('Evaluations/MEC or GT recovery %', mec_gt_recovery, step)
-            writer.add_scalar('Evaluations/AUROC (empirical)', auroc_e, step)
-            writer.add_scalar('Evaluations/AUROC (marginal)', auroc_m, step)
+            if opt.off_wandb is False:  wandb.log(wandb_log_dict, step=step)
+            
+            writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, dibs_update, dataformats='HWC')
+            writer.add_scalar('Evaluations/Exp. SHD (Empirical)', np.array(eshd_e), dibs_update)
+            writer.add_scalar('Evaluations/Exp. SHD (Marginal)', np.array(eshd_m), dibs_update)
+            writer.add_scalar('Evaluations/MEC or GT recovery %', mec_gt_recovery, dibs_update)
+            writer.add_scalar('Evaluations/AUROC (empirical)', auroc_e, dibs_update)
+            writer.add_scalar('Evaluations/AUROC (marginal)', auroc_m, dibs_update)
             
             if step < decoder_train_steps: 
                 writer.add_scalar('z_losses/MSE', mse_loss, step)
@@ -421,7 +421,6 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
         print(f'Step {step}[{update_type}] | Loss {loss:4f} | MSE: {mse_loss:4f} | KL: {kl_z_loss} | Time per train step: {(time() - s):2f}s')
         print()
 
-    print(particles_g)
     print("ESHD (empirical):", eshd_e)
     print("ESHD (marginal mixture):", eshd_m)
     print("MEC-GT Recovery %", mec_gt_recovery)
