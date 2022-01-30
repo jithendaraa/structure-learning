@@ -319,7 +319,6 @@ class Decoder_DIBS(nn.Module):
 
         # mask diagonal since it is explicitly not modeled
         g_samples = index_mul(g_samples, index[..., jnp.arange(p.shape[-1]), jnp.arange(p.shape[-1])], 0)
-
         return g_samples
 
     def eltwise_grad_z_likelihood(self, zs, thetas, baselines, t, subkeys, data):
@@ -330,7 +329,7 @@ class Decoder_DIBS(nn.Module):
         else:   
             raise ValueError(f'Unknown gradient estimator `{self.grad_estimator_z}`')
         
-        return vmap(grad_z_likelihood, (0, 0, 0, None, 0, None), (0, 0))(zs, thetas, baselines, t, subkeys, data)
+        return vmap(grad_z_likelihood, (0, 0, 0, None, 0, 0), (0, 0))(zs, thetas, baselines, t, subkeys, data)
 
     def grad_z_likelihood_score_function(self, single_z, single_theta, single_sf_baseline, t, subk, data=None):
         """
@@ -568,23 +567,22 @@ class Decoder_DIBS(nn.Module):
         flattened_g = jnp.array(single_g.reshape(-1))
         q_z_mu, q_z_logcholesky = self.z_net(flattened_g)
         q_z_cholesky = jnp.exp(q_z_logcholesky)
-        return q_z_mu, q_z_cholesky
-
-    def get_posterior_z(self, key, gs):
-        q_z_mus, q_z_choleskys = vmap(self.get_posterior_single_z, (None, 0), (0, 0))(key, gs)
-        q_z_cholesky_across_gs = jnp.mean(q_z_choleskys, axis=0)
 
         tril_indices = jnp.tril_indices(self.num_nodes)
         i, j = tril_indices[0], tril_indices[1]
         cholesky_L = jnp.zeros((self.num_nodes,self.num_nodes), dtype=float)
-        cholesky_L = cholesky_L.at[i, j].set(q_z_cholesky_across_gs)
+        cholesky_L = cholesky_L.at[i, j].set(q_z_cholesky)
 
-        q_z_mu_across_gs = jnp.mean(q_z_mus, axis=0)
-        q_z_covar_across_gs = jnp.matmul(cholesky_L, jnp.transpose(cholesky_L))
-        q_z = reparameterized_multivariate_normal(key, q_z_mu_across_gs, cholesky_L, self.num_samples)
-        return q_z_mu_across_gs, q_z_covar_across_gs, q_z
+        q_z_covar = jnp.matmul(cholesky_L, jnp.transpose(cholesky_L))
+        q_z = reparameterized_multivariate_normal(key, q_z_mu, cholesky_L, self.num_samples)
+        return q_z_mu, q_z_covar, cholesky_L, q_z
+
+    def get_posterior_z(self, key, gs):
+        q_z_mus, q_z_covars, chols, q_zs = vmap(self.get_posterior_single_z, (None, 0), (0, 0, 0, 0))(key, gs)
+        return q_z_mus, q_z_covars, q_zs
 
     def __call__(self, z_rng, particles_z, sf_baseline, data, step=0):
+        
         # ? 1. Sample n_particles graphs from particles_z
         if self.grad_estimator_z == 'score':
             sampled_soft_g = self.particle_to_g_lim(particles_z)
@@ -594,23 +592,19 @@ class Decoder_DIBS(nn.Module):
             sampled_soft_g = self.particle_to_soft_graph(particles_z, eps, step)
 
         # ? 2. Get graph conditioned predictions on z: q(z|G)
-        # (num_samples, n_particles, d) (num_samples, n_particles, d, d)
-        # print(z_rng, sampled_soft_g)
-        q_z_mu, q_z_covariance, q_z = self.get_posterior_z(z_rng, sampled_soft_g)
+        # (n_particles, d) (n_particles, d, d) (n_particles, num_samples, d)
+        q_z_mus, q_z_covars, q_zs = self.get_posterior_z(z_rng, sampled_soft_g)
+
 
         # ? 3. From every distribution q(z_i|G), decode to get reconstructed samples X in higher dimensions. i = 1...num_nodes
         if self.known_ED is False:  decoder = lambda q_z: self.decoder(q_z)
         else:                       decoder = lambda q_z: jnp.matmul(q_z, self.proj_matrix)
-        X_recon = decoder(q_z)
+        X_recons = vmap(decoder, (0), (0))(q_zs)
 
         # ? 4. Calculate phi_z = Mean ( kxx * grad_log P(particles_z | data) + grad kxx ) for updating particles_z
         # ? d/dz log p(data | z) grad log likelihood
-        # oof = 0
-        # if data is not None:
-        #     oof = 1
-        
         if data is None: 
-            data = jax.lax.stop_gradient(q_z)
+            data = jax.lax.stop_gradient(q_zs)
 
         z_rng, *batch_subk = random.split(z_rng, self.n_particles + 1) 
         dz_log_likelihood, sf_baseline = self.eltwise_grad_z_likelihood(particles_z, None, sf_baseline, 
@@ -626,11 +620,7 @@ class Decoder_DIBS(nn.Module):
 
         # ? transformation phi_z(t)(particle m) applied in batch to each particle individually
         phi_z = vmap(self.z_update, (0, 1, None, None), 0)(particles_z, kxx, particles_z, dz_log_prob)
-
-        # if oof == 1:
-        #     import pdb; pdb.set_trace()
-
-        return X_recon, q_z_mu, q_z_covariance, phi_z, sampled_soft_g, sf_baseline, z_rng, q_z
+        return X_recons, q_z_mus, q_z_covars, phi_z, sampled_soft_g, sf_baseline, z_rng, q_zs
 
 
 class Z_mu_logvar_Net(nn.Module):

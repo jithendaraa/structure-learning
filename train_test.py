@@ -58,7 +58,7 @@ def train_dibs(target, loader_objs, opt, key):
     z_means, z_covars = loader_objs['means'], loader_objs['covars']
     p_z_mu, p_z_covar = jnp.array(z_means[opt.z_prior]), jnp.array(z_covars[opt.z_prior])
     no_interv_targets = jnp.zeros(opt.num_nodes).astype(bool) # observational data
-    print(adjacency_matrix)
+    print(adjacency_matrix, interv_targets[:5])
 
     data = loader_objs['data'] 
     np.random.seed(0)
@@ -76,50 +76,50 @@ def train_dibs(target, loader_objs, opt, key):
     # ? SVGD + DiBS hyperparams
     n_particles, n_steps = opt.n_particles, opt.num_updates
     
-	# ? initialize kernel and algorithm
+	# # ? initialize kernel and algorithm
     kernel = FrobeniusSquaredExponentialKernel(h=opt.h_latent)
     dibs = MarginalDiBS(kernel=kernel, target_log_prior=log_prior, 
                         target_log_marginal_prob=log_likelihood, 
                         alpha_linear=opt.alpha_linear, 
                         grad_estimator_z=opt.grad_estimator)
 		
-	# ? initialize particles
-    print("Data:", x)
-    key, subk = random.split(key)
-    init_particles_z = dibs.sample_initial_random_particles(key=subk, n_particles=n_particles, n_vars=opt.num_nodes)
+	# # ? initialize particles
+    # print("Data:", x)
+    # key, subk = random.split(key)
+    # init_particles_z = dibs.sample_initial_random_particles(key=subk, n_particles=n_particles, n_vars=opt.num_nodes)
 
-    key, subk = random.split(key)
-    print(key, subk)
-    particles_g, _, _ = dibs.sample_particles(key=subk, 
-                            n_steps=opt.num_updates, 
-                            init_particles_z=init_particles_z,
-                            opt_state_z = None, 
-                            sf_baseline=None, 
-                            data=x, 
-                            start=0)
+    # key, subk = random.split(key)
+    # print(key, subk)
+    # particles_g, _, _ = dibs.sample_particles(key=subk, 
+    #                         n_steps=opt.num_updates, 
+    #                         init_particles_z=init_particles_z,
+    #                         opt_state_z = None, 
+    #                         sf_baseline=None, 
+    #                         data=x, 
+    #                         start=0)
 
-    def log_likelihood(single_w):
-        log_lik = model.log_marginal_likelihood_given_g(w=single_w, data=x, interv_targets=no_interv_targets)
-        return log_lik
+    # def log_likelihood(single_w):
+    #     log_lik = model.log_marginal_likelihood_given_g(w=single_w, data=x, interv_targets=no_interv_targets)
+    #     return log_lik
 
-    eltwise_log_prob = vmap(lambda g: log_likelihood(g), 0, 0)	
-    print(particles_g, type(particles_g))
-    dibs_empirical = particle_marginal_empirical(particles_g)
-    dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
-    eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
-    eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
+    # eltwise_log_prob = vmap(lambda g: log_likelihood(g), 0, 0)	
+    # print(particles_g, type(particles_g))
+    # dibs_empirical = particle_marginal_empirical(particles_g)
+    # dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
+    # eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
+    # eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
     
-    sampled_graph, mec_or_gt_count = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
-    writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, 0, dataformats='HWC')
+    # sampled_graph, mec_or_gt_count = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
+    # writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, 0, dataformats='HWC')
 
-    auroc_empirical = threshold_metrics(dist = dibs_empirical, g=adjacency_matrix)['roc_auc']
-    auroc_mixture = threshold_metrics(dist = dibs_mixture, g=adjacency_matrix)['roc_auc']
+    # auroc_empirical = threshold_metrics(dist = dibs_empirical, g=adjacency_matrix)['roc_auc']
+    # auroc_mixture = threshold_metrics(dist = dibs_mixture, g=adjacency_matrix)['roc_auc']
 
-    print(adjacency_matrix)
-    print("ESHD (empirical):", eshd_e)
-    print("ESHD (marginal mixture):", eshd_m)
-    print("MEC-GT Recovery %", mec_or_gt_count * 100.0/ opt.n_particles)
-    print(f"AUROC (Empirical and Marginal): {auroc_empirical} {auroc_mixture}")
+    # print(adjacency_matrix)
+    # print("ESHD (empirical):", eshd_e)
+    # print("ESHD (marginal mixture):", eshd_m)
+    # print("MEC-GT Recovery %", mec_or_gt_count * 100.0/ opt.n_particles)
+    # print(f"AUROC (Empirical and Marginal): {auroc_empirical} {auroc_mixture}")
 
 def train_vae_dibs(model, loader_objs, opt, key):
     particles_g, eltwise_log_prob = None, None
@@ -206,7 +206,7 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
     particles_g, eltwise_log_prob, opt_state_z = None, None, None
     sf_baseline = jnp.zeros(opt.n_particles)
     no_interv_targets = jnp.zeros(opt.num_nodes).astype(bool)
-    log_freq = opt.steps // 100
+    log_freq = opt.steps // 50
     
     np.set_printoptions(precision=120)
     jnp.set_printoptions(precision=120)
@@ -235,7 +235,6 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
     # ? Prior P(z | G) for KL term - could be sample params or actual params mu and sigma
     p_z_mu, p_z_covar = jnp.array(z_means[opt.z_prior]), jnp.array(z_covars[opt.z_prior])
     
-
     gt_graph = loader_objs['train_dataloader'].graph
     gt_graph_cpdag = graphical_models.DAG.from_nx(gt_graph).cpdag()
     projection_matrix = jnp.array(loader_objs['projection_matrix'])
@@ -258,7 +257,6 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
     eltwise_log_prob = vmap(lambda g: log_likelihood(g), 0, 0)
     
     print("Init random particles z", particles_z[-1])
-    # print("Mean and covariance of generated data:", p_z_mu, '\n', p_z_covar)
 
     def get_single_kl(p_z_covar, p_z_mu, q_z_covar, q_z_mu):
         mu_diff = p_z_mu - q_z_mu
@@ -273,34 +271,37 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
 
     def loss_fn(params, z_rng, particles, sf_baseline, step):
         mse_loss, kl_z_loss = 0., 0.
-        recons, q_z_mu, q_z_covar, _, _, _, _, _ = m.apply({'params': params}, z_rng, particles, sf_baseline, None, step)
+        recons, q_z_mus, q_z_covars, _, _, _, _, _ = m.apply({'params': params}, z_rng, particles, sf_baseline, None, step)
+        
         get_mse = lambda recon, x: jnp.mean(jnp.square(recon - x)) 
-        mse_loss += get_mse(recons, x) / opt.proj_dims
-        kl_z_loss += jnp.mean(get_single_kl(p_z_covar, p_z_mu, q_z_covar, q_z_mu)) / opt.num_nodes
+        mse_over_recons = vmap(get_mse, (0, None), 0)(recons, x)
+        mse_loss += jnp.mean(mse_over_recons) / opt.proj_dims
+
+        kl_over_zs = vmap(get_single_kl, (None, None, 0, 0), (0))(p_z_covar, p_z_mu, q_z_covars, q_z_mus)
+        kl_z_loss += jnp.mean(kl_over_zs) / opt.num_nodes
         loss = (mse_loss + (opt.beta * kl_z_loss)) 
         return loss
 
-    def calc_loss(recon, q_z_mu, q_z_covar, pred_z):
+    def calc_loss(recons, q_z_mus, q_z_covars, pred_zs):
         mse_loss, kl_z_loss, z_dist, decoder_dist = 0., 0., 0., 0.
         get_mse = lambda recon, x: jnp.mean(jnp.square(recon - x)) 
-        mse_loss += get_mse(recon, x) / opt.proj_dims
-        kl_z_loss += jnp.mean(get_single_kl(p_z_covar, p_z_mu, q_z_covar, q_z_mu)) / opt.num_nodes
+        mse_over_recons = vmap(get_mse, (0, None), 0)(recons, x)
+        mse_loss += jnp.mean(mse_over_recons) / opt.proj_dims
+
+        kl_over_zs = vmap(get_single_kl, (None, None, 0, 0), (0))(p_z_covar, p_z_mu, q_z_covars, q_z_mus)
+        kl_z_loss += jnp.mean(kl_over_zs) / opt.num_nodes
         loss = (mse_loss + (opt.beta * kl_z_loss))
-        z_dist += get_mse(pred_z, z_gt) 
-        zT = jnp.transpose(pred_z)
-        zTx = jnp.dot(zT, recon)
-        zTz_inv = jnp.linalg.inv(jnp.dot(zT, pred_z))
-        decoder_projection = jnp.dot(zTz_inv, zTx)
-        decoder_dist += jnp.sum(get_mse(decoder_projection, projection_matrix)) / opt.num_nodes
-        return loss, mse_loss, kl_z_loss, z_dist, decoder_dist
+
+        z_dist += jnp.mean(vmap(get_mse, (0, None), 0)(pred_zs, z_gt))
+        return loss, mse_loss, kl_z_loss, z_dist
 
     @jit
     def def_train_step(state, z_rng, particles, sf_baseline, step):
-        recon, q_z_mu, q_z_covar, phi_z, soft_g, sf_baseline, z_rng, pred_z = m.apply({'params': state.params}, z_rng, particles, sf_baseline, None, step)
+        recons, q_z_mus, q_z_covars, phi_z, soft_g, sf_baseline, z_rng, pred_zs = m.apply({'params': state.params}, z_rng, particles, sf_baseline, None, step)
         grads = grad(loss_fn)(state.params, z_rng, particles, sf_baseline, step)   # time per train_step() is 14s with jit and 6.8s without
         res = state.apply_gradients(grads=grads)
-        loss, mse_loss, kl_z_loss, z_dist, decoder_dist = calc_loss(recon, q_z_mu, q_z_covar, pred_z)
-        return res, loss, mse_loss, kl_z_loss, q_z_mu, q_z_covar, soft_g, sf_baseline, z_dist, decoder_dist, phi_z, pred_z
+        loss, mse_loss, kl_z_loss, z_dist = calc_loss(recons, q_z_mus, q_z_covars, pred_zs)
+        return res, loss, mse_loss, kl_z_loss, q_z_mus, q_z_covars, soft_g, sf_baseline, z_dist, phi_z, pred_zs
 
     dibs_optimizer = optimizers.rmsprop(opt.dibs_lr)
     opt_init, opt_update, get_params = dibs_optimizer
@@ -308,7 +309,7 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
 
     @jit
     def no_grad_def_train(state, key, particles_z, sf_baseline, step, dibs_opt_state_z, q_z):
-        recons, q_z_mus, q_z_covars, phi_z, soft_g, sf_baseline, key, pred_z = m.apply({'params': state.params}, key, particles_z, sf_baseline, q_z, step)
+        recons, q_z_mus, q_z_covars, phi_z, soft_g, sf_baseline, key, _ = m.apply({'params': state.params}, key, particles_z, sf_baseline, q_z, step)
         dibs_opt_state_z = opt_update(step, phi_z, dibs_opt_state_z)
         return state, key, q_z_mus, q_z_covars, soft_g, sf_baseline, phi_z, dibs_opt_state_z
 
@@ -337,20 +338,26 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
         multiple = step // decoder_train_steps
         even_multiple = ((multiple % 2) == 0)
         
-        if step < decoder_train_steps:         
-            state, loss, mse_loss, kl_z_loss, q_z_mus, q_z_covars, soft_g, _, z_dist, decoder_dist, phi_z, q_z = trainer_fn(state, rng, particles_z, sf_baseline, 0)
-            
+        if step < decoder_train_steps:
+            state, loss, mse_loss, kl_z_loss, q_z_mus, q_z_covars, soft_g, _, z_dist, phi_z, q_z = trainer_fn(state, rng, particles_z, sf_baseline, 0)
+
         else:
             if step == decoder_train_steps:
                 q_z_mus, q_z_covars = np.array(q_z_mus), np.array(q_z_covars)
-                data = np.random.multivariate_normal(q_z_mus, q_z_covars, opt.num_samples)
-                x = jnp.array(data)
-            
+
+                def gen_data(q_z_mu, q_z_covar, num_samples):
+                    q_z_mu = jnp.expand_dims(q_z_mu, 0).repeat(num_samples, axis=0)
+                    q_z_covar = jnp.expand_dims(q_z_covar, 0).repeat(num_samples, axis=0)
+                    data = random.multivariate_normal(rng, q_z_mu, q_z_covar)
+                    return data
+
+                data = vmap(gen_data, (0, 0, None), 0)(q_z_mus, q_z_covars, opt.num_samples)    
+
             t = dibs_update
             state, subk, q_z_mus, q_z_covars, soft_g, sf_baseline, phi_z, opt_state_z = no_grad_trainer_fn(state, subk, particles_z, sf_baseline, t, opt_state_z, data)
             particles_z = get_params(opt_state_z)
             dibs_update += 1
-            
+
         if (step+1) % 100 == 0:
             loss, mse_loss, kl_z_loss = np.array(loss), np.array(mse_loss), np.array(kl_z_loss)
 
@@ -398,19 +405,19 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
             
             if opt.off_wandb is False:  wandb.log(wandb_log_dict, step=step)
             
-            writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, dibs_update, dataformats='HWC')
-            writer.add_scalar('Evaluations/Exp. SHD (Empirical)', np.array(eshd_e), dibs_update)
-            writer.add_scalar('Evaluations/Exp. SHD (Marginal)', np.array(eshd_m), dibs_update)
-            writer.add_scalar('Evaluations/MEC or GT recovery %', mec_gt_recovery, dibs_update)
-            writer.add_scalar('Evaluations/AUROC (empirical)', auroc_e, dibs_update)
-            writer.add_scalar('Evaluations/AUROC (marginal)', auroc_m, dibs_update)
+            writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, step, dataformats='HWC')
+            writer.add_scalar('Evaluations/Exp. SHD (Empirical)', np.array(eshd_e), step)
+            writer.add_scalar('Evaluations/Exp. SHD (Marginal)', np.array(eshd_m), step)
+            writer.add_scalar('Evaluations/MEC or GT recovery %', mec_gt_recovery, step)
+            writer.add_scalar('Evaluations/AUROC (empirical)', auroc_e, step)
+            writer.add_scalar('Evaluations/AUROC (marginal)', auroc_m, step)
             
             if step < decoder_train_steps: 
                 writer.add_scalar('z_losses/MSE', mse_loss, step)
                 writer.add_scalar('z_losses/KL', kl_z_loss, step)
                 writer.add_scalar('z_losses/ELBO', loss, step)
                 writer.add_scalar('Distances/MSE(Predicted z | z_GT)', np.array(z_dist), step)
-                writer.add_scalar('Distances/MSE(decoder | projection matrix)', np.array(decoder_dist), step)
+                # writer.add_scalar('Distances/MSE(decoder | projection matrix)', np.array(decoder_dist), step)
 
             print(f'Expected SHD Marginal: {eshd_m} | Empirical: {eshd_e}')
             print(f"GT-MEC: {mec_gt_recovery} | AUROC (empirical and marginal): {auroc_e} {auroc_m}")
