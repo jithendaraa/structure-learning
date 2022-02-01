@@ -18,8 +18,11 @@ class Generator(torch.utils.data.Dataset):
 		self.num_samples = num_samples
 		self.mu_prior = mu_prior
 		self.sigma_prior = sigma_prior
+
+
 		if seed is not None:
 			self.reseed(seed)
+
 		if not "self.weighted_adjacency_matrix" in locals():
 			self.sample_weights()
 			self.build_graph()
@@ -80,7 +83,6 @@ class Generator(torch.utils.data.Dataset):
 		graph: networkx DiGraph
 		node: If intervention is performed, specify which node
 		value: value set to node after intervention
-
 		Outputs: Observations [num_samples x num_nodes]
 		"""
 		if graph is None:	graph = self.graph
@@ -117,14 +119,12 @@ class Generator(torch.utils.data.Dataset):
 				curr += noise
 				samples[:, i] = curr
 			
-			actual_means[i] = actual_mean.item()
 			actual_vars[i] = actual_var.item()
 			sample_means[i] = samples[:, i].mean().item()
-			# sample_vars[i] = torch.var(samples[:, i], dim=0, unbiased=False).item() # ? Don't use Bessel's correction
 		
 		sample_covariance = torch.cov(torch.transpose(samples, 0, 1))
 		# TODO: Calculate and return `actual covariance` instead of np.sqrt(actual_vars)
-		return samples, actual_means, np.sqrt(actual_vars), sample_means, sample_covariance # (num_samples * num_nodes)
+		return samples, None, None, sample_means, sample_covariance # (num_samples * num_nodes)
 
 	def intervene(self, num_samples, node = None, value = None):
 		
@@ -137,7 +137,7 @@ class Generator(torch.utils.data.Dataset):
 			value = torch.tensor(2.0)
 
 		mutated_graph = self.adjacency_matrix.copy()
-		mutated_graph[:, node] = 0. #Cut off all the parents
+		mutated_graph[:, node] = 0. # Cut off all the parents
 
 		return self.sample(num_samples, nx.DiGraph(mutated_graph), node.item(), value.item()), node, value
 	

@@ -1,5 +1,5 @@
 #!/bin/bash
-exp_id=$1   # [0 - 6]
+exp_id=$1   # [0 - 6, 6s]
 dataset=${2:-'clevr'}  # ['clevr', 'er']
 train=${3:-'train'}
 def_time='23:00:00'

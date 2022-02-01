@@ -214,9 +214,7 @@ class BGeJAX:
         Returns:
             BGe score for node j
         """
-
         N, d = data.shape
-
         isj = jnp.arange(d) == j
         parents = w[:, j] == 1
         parents_and_j = parents | isj
@@ -249,9 +247,9 @@ class BGeJAX:
         Same inputs as `log_marginal_likelihood_given_g_single`,
         but batched over `j` and `n_parents` dimensions
         """
-        return vmap(self.log_marginal_likelihood_given_g_single, (0, 0, None, None, None, None), 0)(*args)
+        return vmap(self.log_marginal_likelihood_given_g_single, (0, 0, None, None, 0, None), 0)(*args)
 
-    def log_marginal_likelihood_given_g(self, *, w, data, interv_targets=None):
+    def log_marginal_likelihood_given_g(self, *, w, data, interv_targets):
         """Computes BGe marignal likelihood  log p(x | G) in closed form 
 
         Args:	
@@ -263,11 +261,15 @@ class BGeJAX:
         Returns:
             [1, ] BGe Score
         """
+
+        if len(data.shape) == 1:
+            data = jnp.reshape(data, (1, data.shape[0]))
         
         N, d = data.shape        
         if interv_targets is None:
             interv_targets = jnp.zeros(d).astype(bool)
-
+        import pdb; pdb.set_trace()
+        
         # pre-compute matrices
         small_t = (self.alpha_mu * (self.alpha_lambd - d - 1)) / \
             (self.alpha_mu + 1)

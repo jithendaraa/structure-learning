@@ -9,11 +9,11 @@ keys=("seed" "exp_edges" "lr" "dibs_lr" "num_updates" "steps" "num_samples")
 
 seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
 exp_edges=(1.0)
-lrs=(0.0003)
-dibs_lrs=(0.0003)
+lrs=(0.001)
+dibs_lrs=(0.005)
 num_samples=(500)
-num_updates=(500)
-steps=(5000)
+num_updates=(200)
+steps=(1000)
 
 array_len=$(( ${#seeds[@]} * ${#exp_edges[@]} * ${#lrs[@]} * ${#dibs_lrs[@]} * ${#num_updates[@]} * ${#steps[@]} * ${#num_samples[@]} ))
 echo $array_len

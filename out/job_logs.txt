@@ -1,8 +1,61 @@
 [Completed]
 
 [Failed]
-Job ID 26891561 -> train_clevr_sa_img 
 
 [Running]
-Job ID 27231778 -> train_clevr_sa_img
-Job ID 27231780 -> train_clevr_vcn_img
+Job ID 1486786 -> decoder_dibs_er 
+Job ID 1486810 -> decoder_dibs_er 
+Job ID 1486811 -> decoder_dibs_er 
+Job ID 1486812 -> decoder_dibs_er 
+Job ID 1486813 -> decoder_dibs_er 
+Job ID 1486814 -> decoder_dibs_er 
+Job ID 1486815 -> decoder_dibs_er 
+Job ID 1486816 -> decoder_dibs_er 
+Job ID 1486817 -> decoder_dibs_er 
+Job ID 1486818 -> decoder_dibs_er 
+Job ID 1486819 -> decoder_dibs_er 
+Job ID 1486820 -> decoder_dibs_er 
+Job ID 1486821 -> decoder_dibs_er 
+Job ID 1486822 -> decoder_dibs_er 
+Job ID 1486823 -> decoder_dibs_er 
+Job ID 1486825 -> decoder_dibs_er 
+Job ID 1486826 -> decoder_dibs_er 
+Job ID 1486827 -> decoder_dibs_er 
+Job ID 1486828 -> decoder_dibs_er 
+Job ID 1486829 -> decoder_dibs_er 
+Job ID 1486830 -> decoder_dibs_er 
+Job ID 1486831 -> decoder_dibs_er 
+Job ID 1486832 -> decoder_dibs_er 
+Job ID 1486833 -> decoder_dibs_er 
+Job ID 1486835 -> decoder_dibs_er 
+Job ID 1486836 -> decoder_dibs_er 
+Job ID 1487520 -> decoder_dibs_er 
+Job ID 1487521 -> decoder_dibs_er 
+Job ID 1487522 -> decoder_dibs_er 
+Job ID 1487523 -> decoder_dibs_er 
+Job ID 1487524 -> decoder_dibs_er 
+Job ID 1487525 -> decoder_dibs_er 
+Job ID 1487526 -> decoder_dibs_er 
+Job ID 1487527 -> decoder_dibs_er 
+Job ID 1487528 -> decoder_dibs_er 
+Job ID 1487529 -> decoder_dibs_er 
+Job ID 1487530 -> decoder_dibs_er 
+Job ID 1487531 -> decoder_dibs_er 
+Job ID 1487532 -> decoder_dibs_er 
+Job ID 1487534 -> decoder_dibs_er 
+Job ID 1487535 -> decoder_dibs_er 
+Job ID 1487536 -> decoder_dibs_er 
+Job ID 1487537 -> decoder_dibs_er 
+Job ID 1487538 -> decoder_dibs_er 
+Job ID 1487539 -> decoder_dibs_er 
+Job ID 1487540 -> decoder_dibs_er 
+Job ID 1487541 -> decoder_dibs_er 
+Job ID 1487542 -> decoder_dibs_er 
+Job ID 1487543 -> decoder_dibs_er 
+Job ID 1487544 -> decoder_dibs_er 
+Job ID 1487545 -> decoder_dibs_er 
+Job ID 1487546 -> decoder_dibs_er 
+Job ID 1487547 -> decoder_dibs_er 
+Job ID 1487548 -> decoder_dibs_er 
+Job ID 1487549 -> decoder_dibs_er 
+Job ID 1487550 -> decoder_dibs_er 

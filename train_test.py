@@ -53,73 +53,91 @@ def train_dibs(target, loader_objs, opt, key):
     writer.add_image('graph_structure(GT-pred)/Ground truth', gt_graph_image, 0, dataformats='HWC')
 
     model = target.inference_model
+    data_ = []
+
+    # num_interv_data = int(opt.interv_percent * opt.num_samples)
+    # interv_idxs = np.random.choice(len(target.x_interv), num_interv_data).tolist()
+    # interv_data = np.array(target.x_interv)[interv_idxs]
+    no_interv_targets = np.zeros((opt.num_samples, opt.num_nodes)).astype(bool) # observational data
+    
+    # for i in range(num_interv_data):
+    #     for node in [*interv_data[i][0]]: no_interv_targets[i][node] = True
+    #     num_interv_data_samples = interv_data[i][1].shape[0]
+    #     data_.append(interv_data[i][1][np.random.choice(num_interv_data_samples)])
+    # data_, no_interv_targets = jnp.array(data_), jnp.array(no_interv_targets)
+
     gt_graph = loader_objs['train_dataloader'].graph
     adjacency_matrix = loader_objs['adj_matrix'].astype(int)
     z_means, z_covars = loader_objs['means'], loader_objs['covars']
     p_z_mu, p_z_covar = jnp.array(z_means[opt.z_prior]), jnp.array(z_covars[opt.z_prior])
-    no_interv_targets = jnp.zeros(opt.num_nodes).astype(bool) # observational data
-    print(adjacency_matrix, interv_targets[:5])
+    print()
+    print("Adjacency matrix:")
+    print(adjacency_matrix)
+    print()
+    print(f'Interventional targets: {no_interv_targets}')
 
-    data = loader_objs['data'] 
     np.random.seed(0)
-    # data = np.random.multivariate_normal(loc, cov_matrix, opt.num_samples)
-    x = jnp.array(data)
+    data = jnp.array(loader_objs['data'])
+    # data = data.at[:num_interv_data].set(data_)
+    x = data
 
     def log_prior(single_w_prob):
         """log p(G) using edge probabilities as G"""    
         return target.graph_model.unnormalized_log_prob_soft(soft_g=single_w_prob)
 
-    def log_likelihood(single_w, data):
-        log_lik = model.log_marginal_likelihood_given_g(w=single_w, data=data, interv_targets=no_interv_targets)
+    def log_likelihood(single_w, data, no_interv_target):
+        log_lik = model.log_marginal_likelihood_given_g(w=single_w, data=data, interv_targets=no_interv_target)
         return log_lik
 
     # ? SVGD + DiBS hyperparams
     n_particles, n_steps = opt.n_particles, opt.num_updates
     
-	# # ? initialize kernel and algorithm
+	# ? initialize kernel and algorithm
     kernel = FrobeniusSquaredExponentialKernel(h=opt.h_latent)
     dibs = MarginalDiBS(kernel=kernel, target_log_prior=log_prior, 
                         target_log_marginal_prob=log_likelihood, 
                         alpha_linear=opt.alpha_linear, 
                         grad_estimator_z=opt.grad_estimator)
 		
-	# # ? initialize particles
-    # print("Data:", x)
-    # key, subk = random.split(key)
-    # init_particles_z = dibs.sample_initial_random_particles(key=subk, n_particles=n_particles, n_vars=opt.num_nodes)
+	# ? initialize particles
+    print("Data:", x)
+    key, subk = random.split(key)
+    init_particles_z = dibs.sample_initial_random_particles(key=subk, n_particles=n_particles, n_vars=opt.num_nodes)
 
-    # key, subk = random.split(key)
-    # print(key, subk)
-    # particles_g, _, _ = dibs.sample_particles(key=subk, 
-    #                         n_steps=opt.num_updates, 
-    #                         init_particles_z=init_particles_z,
-    #                         opt_state_z = None, 
-    #                         sf_baseline=None, 
-    #                         data=x, 
-    #                         start=0)
+    key, subk = random.split(key)
+    print(key, subk)
 
-    # def log_likelihood(single_w):
-    #     log_lik = model.log_marginal_likelihood_given_g(w=single_w, data=x, interv_targets=no_interv_targets)
-    #     return log_lik
+    particles_g, _, _ = dibs.sample_particles(key=subk, 
+                            n_steps=opt.num_updates, 
+                            init_particles_z=init_particles_z,
+                            opt_state_z = None, 
+                            sf_baseline=None, 
+                            interv_targets=no_interv_targets,
+                            data=x, 
+                            start=0)
 
-    # eltwise_log_prob = vmap(lambda g: log_likelihood(g), 0, 0)	
-    # print(particles_g, type(particles_g))
-    # dibs_empirical = particle_marginal_empirical(particles_g)
-    # dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
-    # eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
-    # eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
+    def log_likelihood(single_w):
+        log_lik = model.log_marginal_likelihood_given_g(w=single_w, data=x, interv_targets=no_interv_targets)
+        return log_lik
+
+    eltwise_log_prob = vmap(lambda g: log_likelihood(g), 0, 0)	
+    print(particles_g, type(particles_g))
+    dibs_empirical = particle_marginal_empirical(particles_g)
+    dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
+    eshd_e = expected_shd(dist=dibs_empirical, g=adjacency_matrix)
+    eshd_m = expected_shd(dist=dibs_mixture, g=adjacency_matrix)
     
-    # sampled_graph, mec_or_gt_count = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
-    # writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, 0, dataformats='HWC')
+    sampled_graph, mec_or_gt_count = utils.log_dags(particles_g, gt_graph, eshd_e, eshd_m, dag_file)
+    writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, 0, dataformats='HWC')
 
-    # auroc_empirical = threshold_metrics(dist = dibs_empirical, g=adjacency_matrix)['roc_auc']
-    # auroc_mixture = threshold_metrics(dist = dibs_mixture, g=adjacency_matrix)['roc_auc']
+    auroc_empirical = threshold_metrics(dist = dibs_empirical, g=adjacency_matrix)['roc_auc']
+    auroc_mixture = threshold_metrics(dist = dibs_mixture, g=adjacency_matrix)['roc_auc']
 
-    # print(adjacency_matrix)
-    # print("ESHD (empirical):", eshd_e)
-    # print("ESHD (marginal mixture):", eshd_m)
-    # print("MEC-GT Recovery %", mec_or_gt_count * 100.0/ opt.n_particles)
-    # print(f"AUROC (Empirical and Marginal): {auroc_empirical} {auroc_mixture}")
+    print(adjacency_matrix)
+    print("ESHD (empirical):", eshd_e)
+    print("ESHD (marginal mixture):", eshd_m)
+    print("MEC-GT Recovery %", mec_or_gt_count * 100.0/ opt.n_particles)
+    print(f"AUROC (Empirical and Marginal): {auroc_empirical} {auroc_mixture}")
 
 def train_vae_dibs(model, loader_objs, opt, key):
     particles_g, eltwise_log_prob = None, None

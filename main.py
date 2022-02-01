@@ -95,7 +95,7 @@ def build_model(opt, device, loader_objs):
     from models.dibs.eval.target import make_linear_gaussian_equivalent_model
 
     key = random.PRNGKey(123)
-    model = make_linear_gaussian_equivalent_model(key =  key, 
+    model = make_linear_gaussian_equivalent_model(key = key, 
       n_vars = opt.num_nodes, 
       graph_prior_str = opt.datatype,
       obs_noise = opt.noise_sigma, 

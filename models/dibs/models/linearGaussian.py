@@ -239,9 +239,9 @@ class LinearGaussianJAX:
         """
         n_samples, n_vars = data.shape
 
-        # sum scores for all nodes
+        # sum scores for all (unintervened) nodes; intervened nodes contribute 0 to the scores
         return jnp.sum(
-            jnp.where(
+            jnp.where(              # where (intervention is) true yield 0.0, else yield log marginal likelihood
                 interv_targets,
                 0.0,
                 self.log_marginal_likelihood_given_g_j(jnp.arange(n_vars), w, data)

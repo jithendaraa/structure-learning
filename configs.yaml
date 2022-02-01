@@ -221,7 +221,6 @@ train_dibs_er:
   dataset: 'er'
   datatype: 'er'
   batch_size: 1000
-  seed: 10
   data_seed: 1
   lr: 5e-3
   num_nodes: 4
@@ -231,6 +230,7 @@ train_dibs_er:
   num_samples: 500
   grad_estimator: 'score' # ['score', 'reparam']
   n_particles: 20
+  interv_percent: 0.0
 
 
 # ? 8. VAE_DIBS
@@ -270,13 +270,13 @@ decoder_dibs_er:
   algo: 'def'
   known_ED: False
   num_nodes: 4
-  proj_dims: 8
+  proj_dims: 10
   exp_edges: 1.0
   data_seed: 1
   dibs_lr: 5e-3
-  lr: 1e-3
-  steps: 2000
-  num_updates: 200
+  lr: 8e-4
+  steps: 1000
+  num_updates: 500
   num_samples: 500
   projection: 'random'
 

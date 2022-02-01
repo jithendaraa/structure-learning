@@ -263,20 +263,23 @@ class DiBS:
     Estimators for scores of log p(theta, D | Z) 
     """
 
-    def eltwise_log_joint_prob(self, gs, data=None):
+    def eltwise_log_joint_prob(self, gs, data, interv_targets):
         """
         log p(data | G, theta) batched over samples of G
 
         Args:
             gs: batch of graphs [n_graphs, d, d]
-            single_theta: single parameter PyTree
-            rng:  [1, ]
+            data: [N, d]
+            interv_targets: [N, d]
 
         Returns:
             batch of logprobs [n_graphs, ]
         """
 
-        return vmap(self.target_log_joint_prob, (0, None), 0)(gs, data)
+        vmapped_g_tljp = vmap(self.target_log_joint_prob, (0, None, None), 0)
+        vmapped_g_data_tjlp = vmap(vmapped_g_tljp, (None, 0, 0), 0)
+
+        return vmapped_g_data_tjlp(gs, data, interv_targets)
 
     
 
@@ -299,6 +302,7 @@ class DiBS:
 
         """
         soft_g_sample = self.particle_to_soft_graph(single_z, eps, t)
+        # TODO: might require arg fix for target_log_joint_prob (might have to add interv_targets)
         return self.target_log_joint_prob(soft_g_sample, single_theta, subk, data)
     
 
@@ -307,7 +311,7 @@ class DiBS:
     # (i.e. w.r.t the latent embeddings Z for graph G)
     #
 
-    def eltwise_grad_z_likelihood(self,  zs, thetas, baselines, t, subkeys, data=None):
+    def eltwise_grad_z_likelihood(self,  zs, thetas, baselines, t, subkeys, interv_targets, data):
         """
         Computes batch of estimators for score
             
@@ -336,11 +340,11 @@ class DiBS:
             raise ValueError(f'Unknown gradient estimator `{self.grad_estimator_z}`')
 
         # vmap
-        return vmap(grad_z_likelihood, (0, 0, 0, None, 0, None), (0, 0))(zs, thetas, baselines, t, subkeys, data)
+        return vmap(grad_z_likelihood, (0, 0, 0, None, 0, None, None), (0, 0))(zs, thetas, baselines, t, subkeys, interv_targets, data)
 
 
 
-    def grad_z_likelihood_score_function(self, single_z, single_theta, single_sf_baseline, t, subk, data=None):
+    def grad_z_likelihood_score_function(self, single_z, single_theta, single_sf_baseline, t, subk, interv_targets, data):
         """
         Score function estimator (aka REINFORCE) for the score d/dZ log p(theta, D | Z) 
         This does not use d/dG log p(theta, D | G) and is hence applicable when not defined.
@@ -352,6 +356,8 @@ class DiBS:
             single_sf_baseline: [1, ]
             t: step
             subk: rng key
+            interv_targets: [N, d]
+            data: [N, d]
         
         Returns:
             tuple gradient, baseline  [d, k, 2], [1, ]
@@ -372,7 +378,7 @@ class DiBS:
 
         # [n_grad_mc_samples, ] 
         subk, subk_ = random.split(subk)
-        logprobs_numerator = self.eltwise_log_joint_prob(g_samples, data)
+        logprobs_numerator = self.eltwise_log_joint_prob(g_samples, data, interv_targets)
         logprobs_denominator = logprobs_numerator
 
         # variance_reduction
@@ -508,6 +514,7 @@ class DiBS:
             parameter gradient PyTree
 
         """
+        print('function grad_theta_likelihood in models/dibs/inference/dibs.py needs target_log_joint_prob arg fix')
 
         # [d, d]
         p = self.edge_probs(single_z, t)
@@ -521,6 +528,7 @@ class DiBS:
 
         # [n_mc_numerator, ] 
         subk, subk_ = random.split(subk)
+        # TODO: needs argfix
         logprobs_numerator = self.eltwise_log_joint_prob(g_samples, single_theta, subk_)
         logprobs_denominator = logprobs_numerator
 
@@ -528,6 +536,7 @@ class DiBS:
         # d/dtheta log p(theta, D | G) for a batch of G samples
         # use the same minibatch of data as for other log prob evaluation (if using minibatching)
         grad_theta_log_joint_prob = grad(self.target_log_joint_prob, 1)
+        # TODO: Fix args being passed in; add interv_targets
         grad_theta = vmap(grad_theta_log_joint_prob, (0, None, None), 0)(g_samples, single_theta, subk_)
 
         # stable computation of exp/log/divide and PyTree compatible

@@ -1,9 +1,7 @@
 #!/bin/bash
 #SBATCH --time=27:00:00
-#SBATCH --account=rrg-ebrahimi
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:1
-#SBATCH --job-name=MovingMNIST
 #SBATCH --cpus-per-task=6
 #SBATCH --mail-user=jithen.subra@gmail.com
 #SBATCH --mail-type=BEGIN
@@ -14,16 +12,16 @@
 
 seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
 exp_edges=(1.0)
-lrs=(0.0003)
-dibs_lrs=(0.0003)
-num_samples=(500)
+lrs=(0.001)
+dibs_lrs=(0.005)
+num_samples=(1000)
 num_updates=(500)
-steps=(5000)
+steps=(1500)
 
-num_nodes=4
-proj_dims=8
+num_nodes=20
+proj_dims=1000
 algo='def'
-n_particles=2
+n_particles=20
 
 array_len=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#dibs_lrs[@]} * ${#num_updates[@]} * ${#steps[@]} * ${#num_samples[@]} ))
 

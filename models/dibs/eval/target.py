@@ -115,7 +115,6 @@ def make_synthetic_bayes_net(*,
     # list of (interv dict, x)
     x_interv = []
     for idx in range(n_intervention_sets):
-    
         # random intervention
         key, subk = random.split(key)
         n_interv = jnp.ceil(n_vars * perc_intervened).astype(jnp.int32)
