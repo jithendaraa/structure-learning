@@ -268,11 +268,11 @@ def train_decoder_dibs(model, loader_objs, exp_config_dict, opt, key):
     key, rng = random.split(key)
     particles_z = utils.sample_initial_random_particles(rng, opt.n_particles, opt.num_nodes)
 
-    def log_likelihood(single_w):
-        log_lik = inference_model.log_marginal_likelihood_given_g(w=single_w, data=z_gt, interv_targets=no_interv_targets)
+    def log_likelihood(single_w, interv_targets):
+        log_lik = inference_model.log_marginal_likelihood_given_g(w=single_w, data=z_gt, interv_targets=interv_targets)
         return log_lik
     
-    eltwise_log_prob = vmap(lambda g: log_likelihood(g), 0, 0)
+    eltwise_log_prob = vmap(lambda g, interv_targets: log_likelihood(g, interv_targets), (0, None), 0)
     
     print("Init random particles z", particles_z[-1])
 
