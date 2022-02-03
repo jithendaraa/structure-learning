@@ -16,6 +16,35 @@ from jax import random, jit
 from vcn_utils import adj_mat_to_vec
 from sklearn import metrics
 
+import argparse
+import ruamel.yaml as yaml
+import sys
+import pathlib
+
+def load_yaml_dibs(configs):
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--configs', nargs='+', default='defaults dibs')
+    
+    args, remaining = parser.parse_known_args()
+    defaults = {}
+    for name in ['defaults', 'dibs']:
+        defaults.update(configs[name])
+
+    parser = argparse.ArgumentParser()
+    for key, value in sorted(defaults.items(), key=lambda x: x[0]):
+      arg_type = args_type(value)
+      parser.add_argument(f'--{key}', type=arg_type, default=arg_type(value))
+    
+    opt = parser.parse_args(remaining)
+    opt = set_opts(opt)
+    exp_config = {}
+
+    for arg in vars(opt):
+      val = getattr(opt, arg)
+      exp_config[arg] = val
+      
+    return opt, exp_config
+
 def set_opts(opt):
     print()
     # Set logdir and create dirs along the way
