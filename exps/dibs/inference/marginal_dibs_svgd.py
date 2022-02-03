@@ -175,7 +175,7 @@ class MarginalDiBS(DiBS):
 
 
     # this is the crucial @jit
-    # @functools.partial(jit, static_argnums=(0,))
+    @functools.partial(jit, static_argnums=(0,))
     def svgd_step(self, opt_state_z, key, sf_baseline, t, interv_targets, data=None):
         """
         Performs a single SVGD step in the DiBS framework, updating all Z particles jointly.
