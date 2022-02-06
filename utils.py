@@ -251,7 +251,7 @@ def set_tb_logdir(opt):
   elif opt.model in ['Slot_VCN_img']:
     logdir += f'_({opt.num_nodes}-{opt.slot_size})_seed{opt.seed}_{opt.data_seed}_factorised{opt.factorised}_proj{opt.proj}{opt.proj_dims}_expedges{opt.exp_edges}'
   elif opt.model in ['DIBS']:
-    logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_dibsupdates{opt.num_updates}_interv{opt.interv_percent}'
+    logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_dibsupdates{opt.num_updates}_obsdata_{opt.obs_data}_intervdata{opt.num_samples - opt.obs_data}'
   elif opt.model in ['VAE_DIBS']:
     logdir += f'_({opt.num_nodes})_seed{opt.seed}_{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_sftcnstrnt_{opt.soft_constraint}_dibsupdates{opt.num_updates}_knownED{opt.known_ED}'
   
