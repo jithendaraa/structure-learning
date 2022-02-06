@@ -13,4 +13,5 @@ def generate_data(opt, logdir):
 
     nx.draw(train_dataloader.graph, with_labels=True, font_weight='bold', node_size=1000, font_size=25, arrowsize=40, node_color='#FFFF00') # save ground truth graph
     plt.savefig(join(logdir,'gt_graph.png'))
+
     return train_dataloader
