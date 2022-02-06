@@ -119,7 +119,7 @@ def make_synthetic_bayes_net(*,
     return data
     
 
-def make_graph_model(*, n_vars, graph_prior_str, edges_per_node=2):
+def make_graph_model(*, n_vars, graph_prior_str, edges_per_node=1):
     """
     Instantiates graph model
 
