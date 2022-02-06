@@ -359,7 +359,6 @@ class JointDiBS(DiBS):
         """Execute particle update steps for all particles in parallel using `vmap` functions"""
         it = tqdm.tqdm(range(n_steps), desc='DiBS', disable=not self.verbose)
         for t in it:
-
             # perform one SVGD step (compiled with @jit)
             opt_state_z, opt_state_theta, key, sf_baseline  = self.svgd_step(
                 opt_state_z, opt_state_theta, key, t, sf_baseline)
@@ -379,4 +378,20 @@ class JointDiBS(DiBS):
         # return transported particles
         z_final = self.get_params(opt_state_z)
         theta_final = self.get_params(opt_state_theta)
-        return z_final, theta_final
+
+        if self.grad_estimator_z == 'reparam':
+            z_rng = random.PRNGKey(123)
+            eps = random.logistic(z_rng, shape=(n_particles, n_dim, n_dim))  
+            soft_g = self.particle_to_soft_graph(z_final, eps, t)
+            soft_g = np.array(soft_g)
+            particles_g = np.random.binomial(1, soft_g, soft_g.shape)
+            
+            for sg, g in zip(soft_g, particles_g):
+                print(sg)
+                print(g)
+                print()
+        
+        elif self.grad_estimator_z == 'score':
+            particles_g = self.particle_to_g_lim(z_final)
+
+        return particles_g, z_final, theta_final, opt_state_z, sf_baseline
