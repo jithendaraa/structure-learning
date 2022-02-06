@@ -263,7 +263,6 @@ class MarginalDiBS(DiBS):
                 callback(dibs=self, t=t, zs=z)
 
         z_final = self.get_params(opt_state_z)
-        print("particles_z: ", z_final[-1])
             
         if self.grad_estimator_z == 'reparam':
             z_rng = random.PRNGKey(123)
@@ -280,4 +279,4 @@ class MarginalDiBS(DiBS):
         elif self.grad_estimator_z == 'score':
             particles_g = self.particle_to_g_lim(z_final)
 
-        return particles_g, opt_state_z, sf_baseline
+        return particles_g, z_final, opt_state_z, sf_baseline
