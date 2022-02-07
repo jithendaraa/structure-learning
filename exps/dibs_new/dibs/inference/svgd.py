@@ -311,7 +311,7 @@ class MarginalDiBS(DiBS):
         """Execute particle update steps for all particles in parallel using `vmap` functions"""
         # faster if for-loop is functionally pure and compiled, so only interrupt for callback
         callback_every = callback_every or steps
-        for t in range(0, steps, callback_every):
+        for t in range(start, start+steps, callback_every):
 
             # perform sequence of SVGD steps
             opt_state_z, key, sf_baseline, _, _ = self._svgd_loop(t, callback_every, (opt_state_z, key, sf_baseline, interv_targets, data))
