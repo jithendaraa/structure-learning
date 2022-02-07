@@ -82,6 +82,7 @@ def run_dibs_bge_old(key, opt, n_intervention_sets, dag_file, writer):
                 n_observations = opt.num_samples, n_ho_observations = opt.num_samples)
     model = target.inference_model
     obs_data = target.x[:opt.obs_data]
+    nx.draw(target.graph, with_labels=True, font_weight='bold', node_size=1000, font_size=25, arrowsize=40, node_color='#FFFF00') # save ground truth graph
 
     interv_data, no_interv_targets = datagen.generate_interv_data(opt, n_intervention_sets, target)
     x = jnp.concatenate((obs_data, interv_data), axis=0)
