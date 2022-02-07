@@ -1,4 +1,4 @@
-import sys, os
+import sys, os, graphical_models
 sys.path.append('..')
 
 from jax import vmap, random, jit, grad
@@ -14,7 +14,18 @@ from dibs.eval.metrics import expected_shd, threshold_metrics
 
 import datagen, utils
 
-def evaluate(data, log_likelihood, interv_targets, particles_g, steps, gt_graph, dag_file, adjacency_matrix, writer, opt, tb_plots=False):
+def evaluate(data, log_likelihood, interv_targets, particles_g, 
+            steps, gt_graph, dag_file, adjacency_matrix, writer, 
+            opt, gt_graph_cpdag, tb_plots=False):
+    """
+        Evaluates DAG predictions by 
+            = emprical SHD, 
+            - marginal SHD, 
+            - empirical AUROC, 
+            - marginal AUROC, 
+            - CPDAG SHD  
+            - MEC-GT recovery %
+    """
     eltwise_log_prob = vmap(lambda g: log_likelihood(g, data, interv_targets), (0), 0)
     dibs_empirical = particle_marginal_empirical(particles_g)
     dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
@@ -44,33 +55,42 @@ def evaluate(data, log_likelihood, interv_targets, particles_g, steps, gt_graph,
         except:
             pass
 
-    if len(cpdag_shds) > 0: writer.add_scalar('Evaluations/CPDAG SHD', np.mean(cpdag_shds), steps)
-
     print()
     print(f"Metrics after {int(steps)} steps")
     print()
     print("ESHD (empirical):", eshd_e)
     print("ESHD (marginal mixture):", eshd_m)
+    
+    if len(cpdag_shds) > 0: 
+        print("Expected CPDAG SHD:", np.mean(cpdag_shds))
+        writer.add_scalar('Evaluations/CPDAG SHD', np.mean(cpdag_shds), steps)
+
     print("MEC-GT Recovery %", mec_or_gt_count * 100.0/ opt.n_particles)
     print(f"AUROC (Empirical and Marginal): {auroc_empirical} {auroc_mixture}")
+    
 
-
-def run_dibs_bge_old(train_dataloader, key, opt, n_intervention_sets, gt_graph, dag_file, writer):
+def run_dibs_bge_old(key, opt, n_intervention_sets, dag_file, writer):
     num_interv_data = opt.num_samples - opt.obs_data
-    n_steps = opt.num_updates / n_intervention_sets if num_interv_data > 0 else opt.num_updates
+    n_steps = opt.num_updates
+    interv_data_per_set = int(num_interv_data / n_intervention_sets)
     
     kernel = FrobeniusSquaredExponentialKernel(h=opt.h_latent)
-
     target = make_linear_gaussian_equivalent_model(key = key, n_vars = opt.num_nodes, 
-                graph_prior_str = opt.datatype, obs_noise = opt.noise_sigma, 
+                graph_prior_str = opt.datatype, edges_per_node = opt.exp_edges,
+                obs_noise = opt.noise_sigma, 
                 mean_edge = opt.theta_mu, sig_edge = opt.theta_sigma, 
                 n_observations = opt.num_samples, n_ho_observations = opt.num_samples)
     model = target.inference_model
+    obs_data = target.x[:opt.obs_data]
 
-    data_, no_interv_targets = datagen.generate_interv_data(opt, n_intervention_sets, target)
-    data = jnp.array(train_dataloader.samples)[:opt.obs_data]
-    data = jnp.concatenate((data, data_), axis=0)
-    x = data
+    interv_data, no_interv_targets = datagen.generate_interv_data(opt, n_intervention_sets, target)
+    x = jnp.concatenate((obs_data, interv_data), axis=0)
+    adj_matrix = target.g.astype(int)    
+    gt_graph = nx.from_numpy_matrix(np.array(adj_matrix), create_using=nx.DiGraph)    
+    
+    print()
+    print("Adjacency matrix")  
+    print(adj_matrix)  
 
     def log_prior(single_w_prob):
         """log p(G) using edge probabilities as G"""    
@@ -95,5 +115,34 @@ def run_dibs_bge_old(train_dataloader, key, opt, n_intervention_sets, gt_graph, 
                                                                 interv_targets=no_interv_targets[:opt.obs_data],
                                                                 data=x[:opt.obs_data], 
                                                                 start=0)
-    adj_matrix = train_dataloader.adjacency_matrix.astype(int)                                                            
-    evaluate(x[:opt.obs_data], log_likelihood, no_interv_targets[:opt.obs_data], particles_g, n_steps, gt_graph, dag_file, adj_matrix, writer, opt)   
+    
+    gt_graph_cpdag = graphical_models.DAG.from_nx(gt_graph).cpdag()
+
+    evaluate(x[:opt.obs_data], log_likelihood, no_interv_targets[:opt.obs_data], 
+            particles_g, n_steps, gt_graph, dag_file, 
+            adj_matrix, writer, opt, gt_graph_cpdag) 
+
+    print(f"Trained on observational data for {n_steps} steps")
+    print()
+
+    start_ = n_steps
+    if num_interv_data > 0:
+        for i in range(n_intervention_sets):
+            interv_targets = no_interv_targets[:opt.obs_data + ((i+1)*interv_data_per_set)]
+            data = x[:opt.obs_data + ((i+1)*interv_data_per_set)]
+
+            particles_g, particles_z, opt_state_z, sf_baseline = dibs.sample_particles(key=subk, 
+                                                                n_steps=n_steps, 
+                                                                init_particles_z=particles_z,
+                                                                opt_state_z = opt_state_z, 
+                                                                sf_baseline= sf_baseline, 
+                                                                interv_targets=interv_targets,
+                                                                data=data, 
+                                                                start=start_)
+            
+            start_ += n_steps
+            evaluate(data, log_likelihood, interv_targets, 
+                    particles_g, int(start_), gt_graph, dag_file, 
+                    adj_matrix, writer, opt, gt_graph_cpdag, True)
+
+      

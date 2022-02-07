@@ -14,31 +14,28 @@ import jax.numpy as jnp
 from dibs_bge_old import run_dibs_bge_old
 from dibs_bge_new import run_dibs_bge_new
 
-# Set seeds
-np.random.seed(0)
-key = random.PRNGKey(123)
-n_intervention_sets = 10
-
+# ? Parse args
 configs = yaml.safe_load((pathlib.Path('..') / 'configs.yaml').read_text())
 opt, exp_config = utils.load_yaml_dibs(configs)
 
+# ? Set seeds
+np.random.seed(0)
+key = random.PRNGKey(123+opt.data_seed)
+n_intervention_sets = 10
+
+# ? Set logdir
 logdir = utils.set_tb_logdir(opt)
 dag_file = join(logdir, 'sampled_dags.png')
 writer = SummaryWriter(join('..', logdir))
 
-train_dataloader = datagen.generate_data(opt, logdir)
-gt_graph = train_dataloader.graph
-adjacency_matrix = train_dataloader.adjacency_matrix.astype(int)
-gt_graph_cpdag = graphical_models.DAG.from_nx(gt_graph).cpdag()
+# 
+
 num_interv_data = opt.num_samples - opt.obs_data
 interv_data_per_set = int(num_interv_data / n_intervention_sets)  
-gt_graph_image = np.asarray(imageio.imread(join(logdir, 'gt_graph.png')))
-writer.add_image('graph_structure(GT-pred)/Ground truth', gt_graph_image, 0, dataformats='HWC')
+# gt_graph_image = np.asarray(imageio.imread(join(logdir, 'gt_graph.png')))
+# writer.add_image('graph_structure(GT-pred)/Ground truth', gt_graph_image, 0, dataformats='HWC')
 n_steps = opt.num_updates / n_intervention_sets if num_interv_data > 0 else opt.num_updates
 
-print()
-print("Adjacency matrix:")
-print(adjacency_matrix)
 print()
 print(f'Observational data: {opt.obs_data}')
 print(f'Interventional data: {num_interv_data}')
@@ -86,27 +83,8 @@ def run_dibs_nonlinear_old(key, opt):
     evaluate(x[:opt.obs_data], log_likelihood, no_interv_targets[:opt.obs_data], particles_g, n_steps)
 
 if opt.likelihood == 'bge':
-    run_dibs_bge_old(train_dataloader, key, opt, n_intervention_sets, gt_graph, dag_file, writer)
+    run_dibs_bge_old(key, opt, n_intervention_sets, dag_file, writer)
+    # run_dibs_bge_new(key, opt, n_intervention_sets, dag_file, writer)
 
-    # run_dibs_bge_new(train_dataloader, key, opt, n_intervention_sets, gt_graph, dag_file, writer)
-
-elif opt.likelihood == 'nonlinear':
-    run_dibs_nonlinear_old(key, opt)
-
-
-# start_ = n_steps
-# if num_interv_data > 0:
-#     for i in range(n_intervention_sets):
-#         interv_targets = no_interv_targets[:opt.obs_data + ((i+1)*interv_data_per_set)]
-#         data = x[:opt.obs_data + ((i+1)*interv_data_per_set)]
-
-#         particles_g, particles_z, opt_state_z, sf_baseline = dibs.sample_particles(key=subk, 
-#                                                             n_steps=n_steps, 
-#                                                             init_particles_z=particles_z,
-#                                                             opt_state_z = opt_state_z, 
-#                                                             sf_baseline= sf_baseline, 
-#                                                             interv_targets=interv_targets,
-#                                                             data=data, 
-#                                                             start=start_)
-#         start_ += n_steps
-#         evaluate(data, interv_targets, particles_g, int(start_), True)
+# elif opt.likelihood == 'nonlinear':
+#     run_dibs_nonlinear_old(key, opt)
