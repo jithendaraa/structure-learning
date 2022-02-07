@@ -16,7 +16,7 @@ import datagen, utils
 
 def evaluate(data, log_likelihood, interv_targets, particles_g, 
             steps, gt_graph, dag_file, adjacency_matrix, writer, 
-            opt, gt_graph_cpdag, tb_plots=False):
+            opt, tb_plots=False):
     """
         Evaluates DAG predictions by 
             = emprical SHD, 
@@ -26,6 +26,7 @@ def evaluate(data, log_likelihood, interv_targets, particles_g,
             - CPDAG SHD  
             - MEC-GT recovery %
     """
+    gt_graph_cpdag = graphical_models.DAG.from_nx(gt_graph).cpdag()
     eltwise_log_prob = vmap(lambda g: log_likelihood(g, data, interv_targets), (0), 0)
     dibs_empirical = particle_marginal_empirical(particles_g)
     dibs_mixture = particle_marginal_mixture(particles_g, eltwise_log_prob)
@@ -117,11 +118,10 @@ def run_dibs_bge_old(key, opt, n_intervention_sets, dag_file, writer):
                                                                 data=x[:opt.obs_data], 
                                                                 start=0)
     
-    gt_graph_cpdag = graphical_models.DAG.from_nx(gt_graph).cpdag()
 
     evaluate(x[:opt.obs_data], log_likelihood, no_interv_targets[:opt.obs_data], 
             particles_g, n_steps, gt_graph, dag_file, 
-            adj_matrix, writer, opt, gt_graph_cpdag) 
+            adj_matrix, writer, opt) 
 
     print(f"Trained on observational data for {n_steps} steps")
     print()
@@ -144,6 +144,6 @@ def run_dibs_bge_old(key, opt, n_intervention_sets, dag_file, writer):
             start_ += n_steps
             evaluate(data, log_likelihood, interv_targets, 
                     particles_g, int(start_), gt_graph, dag_file, 
-                    adj_matrix, writer, opt, gt_graph_cpdag, True)
+                    adj_matrix, writer, opt, True)
 
       
