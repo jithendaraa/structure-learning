@@ -41,7 +41,15 @@ def evaluate(target, dibs, gs, steps, dag_file, writer, opt, tb_plots=False):
     negll_m = neg_ave_log_marginal_likelihood(dist=dibs_mixture, eltwise_log_marginal_likelihood=dibs.eltwise_log_marginal_likelihood, 
                                                 x=target.x_ho, unique=False)
     
-    
+    if tb_plots:
+        writer.add_scalar('Evaluations/AUROC (empirical)', auroc_e, steps)
+        writer.add_scalar('Evaluations/AUROC (marginal)', auroc_m, steps)
+        writer.add_scalar('Evaluations/Exp. SHD (Empirical)', eshd_e, steps)
+        writer.add_scalar('Evaluations/Exp. SHD (Marginal)', eshd_m, steps)
+        writer.add_scalar('Evaluations/MEC or GT recovery %', mec_or_gt_count * 100.0/ opt.n_particles, steps)
+        writer.add_scalar('Evaluations/NLL (empirical)', negll_e, steps)
+        writer.add_scalar('Evaluations/NLL (marginal)', negll_m, steps)
+
     sampled_graph, mec_or_gt_count = utils.log_dags(gs, gt_graph, eshd_e, eshd_m, dag_file)
 
     print()
