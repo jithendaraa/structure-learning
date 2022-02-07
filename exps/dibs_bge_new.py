@@ -15,7 +15,7 @@ from dibs_new.dibs.utils import visualize_ground_truth
 from dibs_new.dibs.target import make_linear_gaussian_equivalent_model
 from dibs_new.dibs.metrics import expected_shd, threshold_metrics, neg_ave_log_marginal_likelihood
 
-def evaluate(target, dibs, gs, steps, dag_file, writer, opt, tb_plots=False):
+def evaluate(target, dibs, gs, steps, dag_file, writer, opt, data, interv_targets, tb_plots=False):
     gt_graph = nx.from_numpy_matrix(np.array(target.g), create_using=nx.DiGraph)
     gt_graph_cpdag = graphical_models.DAG.from_nx(gt_graph).cpdag()
 
@@ -30,7 +30,7 @@ def evaluate(target, dibs, gs, steps, dag_file, writer, opt, tb_plots=False):
             pass
 
     dibs_empirical = dibs.get_empirical(gs)
-    dibs_mixture = dibs.get_mixture(gs) 
+    dibs_mixture = dibs.get_mixture(gs, data, interv_targets) 
     eshd_e = expected_shd(dist=dibs_empirical, g=target.g, unique=True)     
     eshd_m = expected_shd(dist=dibs_mixture, g=target.g, unique=False)     
     auroc_e = threshold_metrics(dist=dibs_empirical, g=target.g, unique=True)['roc_auc']
@@ -84,11 +84,41 @@ def run_dibs_bge_new(key, opt, n_intervention_sets, dag_file, writer):
     obs_data = jnp.array(target.x)[:opt.obs_data]
     x = jnp.concatenate((obs_data, interv_data), axis=0)
 
-    dibs = MarginalDiBS(x=obs_data, inference_model=model)
+    dibs = MarginalDiBS(n_vars=opt.num_nodes, 
+                        inference_model=model,
+                        alpha_linear=opt.alpha_linear,
+                        grad_estimator_z=opt.grad_estimator)
     key, subk = random.split(key)
-    gs = dibs.sample(key=subk, n_particles=opt.n_particles, 
-                        steps=n_steps, 
-                        callback_every=50, 
-                        callback=dibs.visualize_callback())
+    gs, z_final, opt_state_z, sf_baseline = dibs.sample(steps=n_steps,
+                                            key=subk, 
+                                            data=obs_data,
+                                            interv_targets=no_interv_targets[:opt.obs_data],
+                                            n_particles=opt.n_particles,
+                                            opt_state_z=None,
+                                            z=None,
+                                            sf_baseline=None,
+                                            callback_every=100, 
+                                            callback=dibs.visualize_callback(),
+                                            start=0)
     
-    evaluate(target, dibs, gs, n_steps, dag_file, writer, opt)
+    evaluate(target, dibs, gs, n_steps, dag_file, writer, opt, obs_data, no_interv_targets[:opt.obs_data])
+
+    # start_ = n_steps
+    # if num_interv_data > 0:
+    #     for i in range(n_intervention_sets):
+    #         interv_targets = no_interv_targets[:opt.obs_data + ((i+1)*interv_data_per_set)]
+    #         data = x[:opt.obs_data + ((i+1)*interv_data_per_set)]
+
+    #         particles_g, particles_z, opt_state_z, sf_baseline = dibs.sample_particles(key=subk, 
+    #                                                             n_steps=n_steps, 
+    #                                                             init_particles_z=particles_z,
+    #                                                             opt_state_z = opt_state_z, 
+    #                                                             sf_baseline= sf_baseline, 
+    #                                                             interv_targets=interv_targets,
+    #                                                             data=data, 
+    #                                                             start=start_)
+            
+    #         start_ += n_steps
+    #         evaluate(data, log_likelihood, interv_targets, 
+    #                 particles_g, int(start_), gt_graph, dag_file, 
+    #                 adj_matrix, writer, opt, True)
