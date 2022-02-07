@@ -72,10 +72,11 @@ def make_synthetic_bayes_net(*,
     """
 
     # remember random key
-    passed_key = key.copy()
+    key, rng = random.split(key)
 
     # generate ground truth observations
     key, subk = random.split(key)
+    print("subk", subk)
     g_gt = graph_dist.sample_G(subk)
     g_gt_mat = jnp.array(graph_to_mat(g_gt))
 
@@ -106,7 +107,7 @@ def make_synthetic_bayes_net(*,
 
     # return and save generated target object
     data = Data(
-        passed_key=passed_key,
+        passed_key=key,
         n_vars=n_vars,
         n_observations=n_observations,
         n_ho_observations=n_ho_observations,
@@ -150,8 +151,8 @@ def make_graph_model(*, n_vars, graph_prior_str, edges_per_node=1):
 
 
 def make_linear_gaussian_equivalent_model(*, key, n_vars=20, graph_prior_str='sf', 
-    obs_noise=0.1, mean_edge=0.0, sig_edge=1.0, n_observations=100,
-    n_ho_observations=100):
+    edges_per_node=1, obs_noise=0.1, mean_edge=0.0, 
+    sig_edge=1.0, n_observations=100, n_ho_observations=100):
     """
     Samples a synthetic linear Gaussian BN instance 
     with Bayesian Gaussian equivalent (BGe) marginal likelihood 
@@ -176,7 +177,9 @@ def make_linear_gaussian_equivalent_model(*, key, n_vars=20, graph_prior_str='sf
     """
 
     # init models
-    graph_dist = make_graph_model(n_vars=n_vars, graph_prior_str=graph_prior_str)
+    graph_dist = make_graph_model(n_vars=n_vars, 
+                                graph_prior_str=graph_prior_str,
+                                edges_per_node=edges_per_node)
 
     generative_model = LinearGaussian(
         obs_noise=obs_noise, mean_edge=mean_edge, 

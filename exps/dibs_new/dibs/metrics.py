@@ -1,5 +1,6 @@
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
+import numpy as onp
 
 from dibs_new.dibs.utils.tree import tree_mul, tree_select
 from dibs_new.dibs.graph_utils import elwise_acyclic_constr_nograd
@@ -53,7 +54,7 @@ def pairwise_structural_hamming_distance(*, x, y):
     return shd
 
 
-def expected_shd(*, dist, g):
+def expected_shd(*, dist, g, unique=False):
     """
     Computes expected structural hamming distance metric, defined as
 
@@ -68,14 +69,20 @@ def expected_shd(*, dist, g):
     """
     n_vars = g.shape[0]
 
+    if unique:
+        unique_gs, _ = onp.unique(dist.g, axis=0, return_counts=True)
+        is_dag = elwise_acyclic_constr_nograd(unique_gs, n_vars) == 0
+        particles = unique_gs[is_dag, :, :]
+    else:
+        is_dag = elwise_acyclic_constr_nograd(dist.g, n_vars) == 0
+        particles = dist.g[is_dag, :, :]
+
     # select acyclic graphs
-    is_dag = elwise_acyclic_constr_nograd(dist.g, n_vars) == 0
+    log_weights = dist.logp[is_dag] - logsumexp(dist.logp[is_dag])
+
     if is_dag.sum() == 0:
         # score as "wrong on every edge"
         return n_vars * (n_vars - 1) / 2
-    
-    particles = dist.g[is_dag, :, :]
-    log_weights = dist.logp[is_dag] - logsumexp(dist.logp[is_dag])
     
     # compute shd for each graph
     shds = pairwise_structural_hamming_distance(x=particles, y=g[None]).squeeze(1)
@@ -128,7 +135,7 @@ def expected_edges(*, dist):
     return edges
 
 
-def threshold_metrics(*, dist, g):
+def threshold_metrics(*, dist, g, unique=False):
     """
     Computes various threshold metrics (e.g. ROC, precision-recall, ...)
 
@@ -142,8 +149,16 @@ def threshold_metrics(*, dist, g):
     n_vars = g.shape[0]
     g_flat = g.reshape(-1)
 
+    if unique:
+        unique_gs, _ = onp.unique(dist.g, axis=0, return_counts=True)
+        is_dag = elwise_acyclic_constr_nograd(unique_gs, n_vars) == 0
+        particles = unique_gs[is_dag, :, :]
+
+    else:
+        is_dag = elwise_acyclic_constr_nograd(dist.g, n_vars) == 0
+        particles = dist.g[is_dag, :, :]
+
     # select acyclic graphs
-    is_dag = elwise_acyclic_constr_nograd(dist.g, n_vars) == 0
     if is_dag.sum() == 0:
         # score as random/junk classifier
         # for AUROC: 0.5
@@ -154,7 +169,6 @@ def threshold_metrics(*, dist, g):
             'ave_prec': (g.sum() / (n_vars * (n_vars - 1))).item(),
         }
 
-    particles = dist.g[is_dag, :, :]
     log_weights = dist.logp[is_dag] - logsumexp(dist.logp[is_dag])
 
     # P(G_ij = 1) = sum_G w_G 1[G = G] in log space
@@ -185,7 +199,7 @@ def threshold_metrics(*, dist, g):
     }
 
 
-def neg_ave_log_marginal_likelihood(*, dist, eltwise_log_marginal_likelihood, x):
+def neg_ave_log_marginal_likelihood(*, dist, eltwise_log_marginal_likelihood, x, unique=False):
     """
     Computes neg. ave log marginal likelihood for a marginal posterior over :math:`G`, defined as
 
@@ -205,15 +219,22 @@ def neg_ave_log_marginal_likelihood(*, dist, eltwise_log_marginal_likelihood, x)
     """
     n_ho_observations, n_vars = x.shape
 
-    # select acyclic graphs
-    is_dag = elwise_acyclic_constr_nograd(dist.g, n_vars) == 0
+    if unique:
+        unique_gs, _ = onp.unique(dist.g, axis=0, return_counts=True)
+        is_dag = elwise_acyclic_constr_nograd(unique_gs, n_vars) == 0
+        particles = unique_gs[is_dag, :, :]
+        g = unique_gs[is_dag, :, :]
+
+    else:
+        is_dag = elwise_acyclic_constr_nograd(dist.g, n_vars) == 0
+        g = dist.g[is_dag, :, :]
+
     if is_dag.sum() == 0:
         # score as empty graph only
         g = jnp.zeros((1, n_vars, n_vars), dtype=dist.g.dtype)
         log_weights = jnp.array([0.0], dtype=dist.logp.dtype)
 
     else:
-        g = dist.g[is_dag, :, :]
         log_weights = dist.logp[is_dag] - logsumexp(dist.logp[is_dag])
         
     log_likelihood = eltwise_log_marginal_likelihood(g, x)

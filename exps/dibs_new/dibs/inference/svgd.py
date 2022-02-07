@@ -782,7 +782,6 @@ class JointDiBS(DiBS):
             :class:`~dibs.metrics.ParticleDistribution`:
             particle distribution of graph and parameter samples and associated log probabilities
         """
-
         N, _, _ = g.shape
 
         # since theta continuous, each particle (G, theta) is unique always
@@ -805,7 +804,6 @@ class JointDiBS(DiBS):
             particle distribution of graph and parameter samples and associated log probabilities
 
         """
-
         N, _, _ = g.shape
 
         # mixture weighted by respective joint probabilities
