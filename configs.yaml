@@ -83,6 +83,7 @@ defaults:
 
   # ? DIBS
   h_latent: 5.0
+  h_theta: 1.0
   alpha_linear: 0.1
   num_updates: 1000
   n_particles: 20
@@ -215,7 +216,7 @@ train_vcn_nonlinearproj:
 
 # ? 7. DIBS
 # ! python main.py --config defaults experimental train_dibs_er
-train_dibs_er:
+dibs:
   ckpt_id: 'train_dibs_er'
   model: 'DIBS'
   dataset: 'er'
@@ -224,14 +225,45 @@ train_dibs_er:
   data_seed: 1
   lr: 5e-3
   num_nodes: 4
-  exp_edges: 1.0
+  exp_edges: 0.5
   proj: 'no'
-  num_updates: 200
-  num_samples: 500
-  grad_estimator: 'score' # ['score', 'reparam']
+  num_updates: 300
+  num_samples: 50
+  grad_estimator: 'score'  # ['score', 'reparam'] 
   n_particles: 20
-  interv_percent: 0.0
+  obs_data: 50
+  likelihood: 'bge'  # ['bge', 'nonlinear']
+  datagen: 'linear'
 
+
+# ? 9. Decoder_DIBS
+# ! python main.py --config defaults decoder_dibs_er experimental
+decoder_dibs_er:
+  ckpt_id: 'decoder_dibs_er'
+  model: 'Decoder_DIBS'
+  dataset: 'er'
+  datatype: 'er'
+  batch_size: 1000
+  proj: 'linear'
+  soft_constraint: False
+  linear_decoder: False
+
+  # ? TODO has to be changed to 'reparam' later
+  grad_estimator: 'score' # ['score', 'reparam']
+  z_prior: 'sample'   # TODO: 'actual' needs fixing from std to covar so use 'sample for now' | ['actual', 'sample'] 
+  n_particles: 20
+  algo: 'def'
+  known_ED: False
+  num_nodes: 4
+  proj_dims: 10
+  exp_edges: 1.0
+  data_seed: 1
+  dibs_lr: 5e-3
+  lr: 8e-4
+  steps: 1000
+  num_updates: 500
+  num_samples: 500
+  projection: 'random'
 
 # ? 8. VAE_DIBS
 # ! python main.py --config defaults experimental linear_vaedibs_er
@@ -253,32 +285,7 @@ linear_vaedibs_er:
   num_samples: 3000
   soft_constraint: False
 
-# ? 9. Decoder_DIBS
-# ! python main.py --config defaults decoder_dibs_er experimental
-decoder_dibs_er:
-  ckpt_id: 'decoder_dibs_er'
-  model: 'Decoder_DIBS'
-  dataset: 'er'
-  datatype: 'er'
-  batch_size: 1000
-  proj: 'linear'
-  soft_constraint: False
-  linear_decoder: False
-  grad_estimator: 'score' # ['score', 'reparam']
-  z_prior: 'sample'   # TODO: 'actual' needs fixing from std to covar so use 'sample for now' | ['actual', 'sample'] 
-  n_particles: 20
-  algo: 'def'
-  known_ED: False
-  num_nodes: 4
-  proj_dims: 10
-  exp_edges: 1.0
-  data_seed: 1
-  dibs_lr: 5e-3
-  lr: 8e-4
-  steps: 1000
-  num_updates: 500
-  num_samples: 500
-  projection: 'random'
+
 
 experimental:
   off_wandb: True
