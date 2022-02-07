@@ -59,7 +59,7 @@ class MarginalDiBS(DiBS):
     """
 
     def __init__(self, *,
-                 x,
+                 n_vars,
                  inference_model,
                  kernel=AdditiveFrobeniusSEKernel,
                  kernel_param=None,
@@ -83,7 +83,6 @@ class MarginalDiBS(DiBS):
 
         # init DiBS superclass methods
         super(MarginalDiBS, self).__init__(
-            x=x,
             log_graph_prior=inference_model.log_graph_prior,
             log_joint_prob=inference_model.observational_log_marginal_prob,
             alpha_linear=alpha_linear,
@@ -99,7 +98,7 @@ class MarginalDiBS(DiBS):
 
         self.inference_model = inference_model
         self.eltwise_log_marginal_likelihood = vmap(lambda g, x_ho:
-            inference_model.observational_log_marginal_prob(g, None, x_ho, None), (0, None), 0)
+            inference_model.observational_log_marginal_prob(g, None, x_ho, None, None), (0, None), 0)
 
         self.kernel = kernel(**kernel_param)
 
@@ -110,6 +109,9 @@ class MarginalDiBS(DiBS):
         else:
             raise ValueError()
 
+        self.opt_init, self.opt_update, self.get_params = self.opt
+        self.get_params = jit(self.get_params)
+        self.n_vars = n_vars
 
     def _sample_initial_random_particles(self, *, key, n_particles, n_dim=None):
         """
@@ -212,7 +214,7 @@ class MarginalDiBS(DiBS):
         """
         return vmap(self._z_update, (0, 1, None, None), 0)(*args)
 
-    def _svgd_step(self, t, opt_state_z, key, sf_baseline):
+    def _svgd_step(self, t, opt_state_z, key, sf_baseline, interv_targets, data):
         """
         Performs a single SVGD step in the DiBS framework, updating all :math:`Z` particles jointly.
 
@@ -222,6 +224,9 @@ class MarginalDiBS(DiBS):
             key (ndarray): prng key
             sf_baseline (ndarray): batch of baseline values of shape ``[n_particles, ]``
                 in case score function gradient is used
+            interv_targets
+            data
+            [TODO] add params
 
         Returns:
             the updated inputs ``opt_state_z``, ``key``, ``sf_baseline``
@@ -232,7 +237,8 @@ class MarginalDiBS(DiBS):
 
         # d/dz log p(D | z)
         key, *batch_subk = random.split(key, n_particles + 1)
-        dz_log_likelihood, sf_baseline = self.eltwise_grad_z_likelihood(z, None, sf_baseline, t, jnp.array(batch_subk))
+        dz_log_likelihood, sf_baseline = self.eltwise_grad_z_likelihood(z, None, sf_baseline, t, jnp.array(batch_subk), interv_targets, data)
+        
         # here `None` is a placeholder for theta (in the joint inference case)
         # since this is an inherited function from the general `DiBS` class
 
@@ -253,26 +259,30 @@ class MarginalDiBS(DiBS):
         # `x += stepsize * phi`; the phi returned is negated for SVGD
         opt_state_z = self.opt_update(t, phi_z, opt_state_z)
 
-        return opt_state_z, key, sf_baseline
+        return opt_state_z, key, sf_baseline, interv_targets, data
 
     # this is the crucial @jit
     @functools.partial(jit, static_argnums=(0, 2))
     def _svgd_loop(self, start, n_steps, init):
         return jax.lax.fori_loop(start, start + n_steps, lambda i, args: self._svgd_step(i, *args), init)
 
-    def sample(self, *, key, n_particles, steps, n_dim_particles=None, callback=None, callback_every=None):
+    def sample(self, *, steps, key, data, interv_targets, n_particles,
+                opt_state_z=None, z=None, sf_baseline=None, 
+                n_dim_particles=None, callback=None, 
+                callback_every=None, start=0):
         """
         Use SVGD with DiBS to sample ``n_particles`` particles :math:`G` from the marginal posterior
         :math:`p(G | D)` as defined by the BN model ``self.inference_model``
 
         Arguments:
+            steps (int): number of SVGD steps performed
             key (ndarray): prng key
             n_particles (int): number of particles to sample
-            steps (int): number of SVGD steps performed
             n_dim_particles (int): latent dimensionality :math:`k` of particles :math:`Z = \{ U, V \}`
                 with :math:`U, V \\in \\mathbb{R}^{k \\times d}`. Default is ``n_vars``
             callback: function to be called every ``callback_every`` steps of SVGD.
             callback_every: if ``None``, ``callback`` is only called after particle updates have finished
+            [TODO] args
 
         Returns:
             batch of samples :math:`G \\sim p(G | D)` of shape ``[n_particles, n_vars, n_vars]``
@@ -281,11 +291,14 @@ class MarginalDiBS(DiBS):
 
         # randomly sample initial particles
         key, subk = random.split(key)
-        init_z = self._sample_initial_random_particles(key=subk, n_particles=n_particles, n_dim=n_dim_particles)
+        
+        if z is None:
+            z = self._sample_initial_random_particles(key=subk, n_particles=n_particles, n_dim=n_dim_particles)
 
         # initialize score function baseline (one for each particle)
-        n_particles, _, n_dim, _ = init_z.shape
-        sf_baseline = jnp.zeros(n_particles)
+        n_particles, _, n_dim, _ = z.shape
+        if sf_baseline is None: 
+            sf_baseline = jnp.zeros(n_particles)
 
         if self.latent_prior_std is None:
             self.latent_prior_std = 1.0 / jnp.sqrt(n_dim)
@@ -293,7 +306,7 @@ class MarginalDiBS(DiBS):
         # maintain updated particles with optimizer state
         opt_init, self.opt_update, get_params = self.opt
         self.get_params = jit(get_params)
-        opt_state_z = opt_init(init_z)
+        if opt_state_z is None: opt_state_z = opt_init(z)
 
         """Execute particle update steps for all particles in parallel using `vmap` functions"""
         # faster if for-loop is functionally pure and compiled, so only interrupt for callback
@@ -301,8 +314,7 @@ class MarginalDiBS(DiBS):
         for t in range(0, steps, callback_every):
 
             # perform sequence of SVGD steps
-            opt_state_z, key, sf_baseline = self._svgd_loop(t, callback_every, (opt_state_z, key, sf_baseline))
-
+            opt_state_z, key, sf_baseline, _, _ = self._svgd_loop(t, callback_every, (opt_state_z, key, sf_baseline, interv_targets, data))
             # callback
             if callback:
                 z = self.get_params(opt_state_z)
@@ -317,7 +329,7 @@ class MarginalDiBS(DiBS):
 
         # as alpha is large, we can convert the latents Z to their corresponding graphs G
         g_final = self.particle_to_g_lim(z_final)
-        return g_final
+        return g_final, z_final, opt_state_z, sf_baseline
 
     def get_empirical(self, g):
         """
@@ -339,14 +351,15 @@ class MarginalDiBS(DiBS):
 
         return ParticleDistribution(logp=logp, g=g)
 
-    def get_mixture(self, g):
+    def get_mixture(self, g, data, interv_targets):
         """
         Converts batch of binary (adjacency) matrices into *mixture* particle distribution,
         where mixture weights correspond to unnormalized target (i.e. posterior) probabilities
 
         Args:
             g (ndarray): batch of graph samples ``[n_particles, d, d]`` with binary values
-
+            data (ndarray): (n_samples, d)
+            interv_targets (ndarray): bool targets (n_samples, d)
         Returns:
             :class:`~dibs.metrics.ParticleDistribution`:
             particle distribution of graph samples and associated log probabilities
@@ -356,7 +369,7 @@ class MarginalDiBS(DiBS):
         N, _, _ = g.shape
 
         # mixture weighted by respective marginal probabilities
-        eltwise_log_marginal_target = vmap(lambda single_g: self.log_joint_prob(single_g, None, self.x, None), 0, 0)
+        eltwise_log_marginal_target = vmap(lambda single_g: self.log_joint_prob(single_g, None, data, None, interv_targets), 0, 0)
         logp = eltwise_log_marginal_target(g)
         logp -= logsumexp(logp)
 

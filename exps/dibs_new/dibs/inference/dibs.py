@@ -50,7 +50,6 @@ class DiBS:
     """
 
     def __init__(self, *,
-                 x,
                  log_graph_prior,
                  log_joint_prob,
                  alpha_linear=0.05,
@@ -64,8 +63,6 @@ class DiBS:
                  verbose=False):
         super(DiBS, self).__init__()
 
-        self.x = x
-        self.n_vars = x.shape[-1]
         self.log_graph_prior = log_graph_prior
         self.log_joint_prob = log_joint_prob
         self.alpha = lambda t: (alpha_linear * t)
@@ -290,7 +287,7 @@ class DiBS:
     Estimators for scores of log p(theta, D | Z) 
     """
 
-    def eltwise_log_joint_prob(self, gs, single_theta, rng):
+    def eltwise_log_joint_prob(self, gs, single_theta, rng, data, interv_targets):
         """
         Joint likelihood :math:`\\log p(\\Theta, D | G)` batched over samples of :math:`G`
 
@@ -298,12 +295,13 @@ class DiBS:
             gs (ndarray): batch of graphs ``[n_graphs, d, d]``
             single_theta (Any): single parameter PyTree
             rng (ndarray): for mini-batching ``x`` potentially
+            data: [N, d]
+            interv_targets: [N, d]
 
         Returns:
             batch of logprobs of shape ``[n_graphs, ]``
-        """
-
-        return vmap(self.log_joint_prob, (0, None, None, None), 0)(gs, single_theta, self.x, rng)
+        """ 
+        return vmap(self.log_joint_prob, (0, None, None, None, None), 0)(gs, single_theta, data, rng, interv_targets)
 
     
 
@@ -332,7 +330,7 @@ class DiBS:
     # (i.e. w.r.t the latent embeddings Z for graph G)
     #
 
-    def eltwise_grad_z_likelihood(self,  zs, thetas, baselines, t, subkeys):
+    def eltwise_grad_z_likelihood(self,  zs, thetas, baselines, t, subkeys, interv_targets, data):
         """
         Computes batch of estimators for score :math:`\\nabla_Z \\log p(\\Theta, D | Z)`
         Selects corresponding estimator used for the term :math:`\\nabla_Z E_{p(G|Z)}[ p(\\Theta, D | G) ]`
@@ -342,6 +340,7 @@ class DiBS:
             zs (ndarray): batch of latent tensors :math:`Z` ``[n_particles, d, k, 2]``
             thetas (Any): batch of parameters PyTree with ``n_particles`` as leading dim
             baselines (ndarray): array of score function baseline values of shape ``[n_particles, ]``
+            [TODO] add args
 
         Returns:
             tuple batch of (gradient estimates, baselines) of shapes ``[n_particles, d, k, 2], [n_particles, ]``
@@ -358,11 +357,11 @@ class DiBS:
             raise ValueError(f'Unknown gradient estimator `{self.grad_estimator_z}`')
 
         # vmap
-        return vmap(grad_z_likelihood, (0, 0, 0, None, 0), (0, 0))(zs, thetas, baselines, t, subkeys)
+        return vmap(grad_z_likelihood, (0, 0, 0, None, 0, None, None), (0, 0))(zs, thetas, baselines, t, subkeys, interv_targets, data)
 
 
 
-    def grad_z_likelihood_score_function(self, single_z, single_theta, single_sf_baseline, t, subk):
+    def grad_z_likelihood_score_function(self, single_z, single_theta, single_sf_baseline, t, subk, interv_targets, data):
         """
         Score function estimator (aka REINFORCE) for the score :math:`\\nabla_Z \\log p(\\Theta, D | Z)`
         Uses the same :math:`G \\sim p(G | Z)` samples for expectations in numerator and denominator.
@@ -376,6 +375,8 @@ class DiBS:
             single_sf_baseline (ndarray): ``[1, ]``
             t (int): step
             subk (ndarray): rng key
+            interv_targets: [N, d]
+            data: [N, d]
         
         Returns:
             tuple of gradient, baseline  ``[d, k, 2], [1, ]``
@@ -396,7 +397,7 @@ class DiBS:
 
         # [n_grad_mc_samples, ] 
         subk, subk_ = random.split(subk)
-        logprobs_numerator = self.eltwise_log_joint_prob(g_samples, single_theta, subk_)
+        logprobs_numerator = self.eltwise_log_joint_prob(g_samples, single_theta, subk_, data, interv_targets)
         logprobs_denominator = logprobs_numerator
 
         # variance_reduction
@@ -724,7 +725,7 @@ class DiBS:
                 f'iteration {kwargs["t"]:6d}'
                 f' | alpha {self.alpha(kwargs["t"]):6.1f}'
                 f' | beta {self.beta(kwargs["t"]):6.1f}'
-                f' | #cyclic {(constraint(gs, self.n_vars) > 0).sum().item():3d}'
+                f' | #cyclic {(constraint(gs, zs.shape[1]) > 0).sum().item():3d}'
             )
             return
 

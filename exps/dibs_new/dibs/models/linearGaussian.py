@@ -142,14 +142,14 @@ class BGe:
         """
         return vmap(self._log_marginal_likelihood_single, (0, 0, None, None, None, None), 0)(*args)
 
-    def log_marginal_likelihood(self, *, g, x, interv_targets=None):
+    def log_marginal_likelihood(self, *, g, x, interv_targets):
         """Computes BGe marginal likelihood :math:`\\log p(D | G)`` in closed-form;
         ``jax.jit``-compatible
 
         Args:
             g (ndarray): adjacency matrix of shape ``[d, d]``
-            x (ndarray): observations of shape ``[N, d]``
-            interv_targets (ndarray, optional): boolean mask of shape ``[d, ]`` of whether or not
+            x (ndarray): data of shape ``[N, d]``
+            interv_targets (ndarray, optional): boolean mask of shape ``[N, d]`` of whether or not
                 a node was intervened upon. Intervened nodes are ignored in likelihood computation
 
         Returns:
@@ -192,13 +192,15 @@ class BGe:
         # compute number of parents for each node
         n_parents_all = g.sum(axis=0)
 
+        res = self._eltwise_log_marginal_likelihood_single(
+                    jnp.arange(d), n_parents_all, R, g, x, log_gamma_terms)
+        
         # sum scores for all nodes
         return jnp.sum(
             jnp.where(
-                interv_targets,
+                interv_targets[None, ...],
                 0.0,
-                self._eltwise_log_marginal_likelihood_single(
-                    jnp.arange(d), n_parents_all, R, g, x, log_gamma_terms)
+                res
             )
         )
 
@@ -218,9 +220,10 @@ class BGe:
         """
         return self.graph_dist.unnormalized_log_prob_soft(soft_g=g_prob)
 
-    def observational_log_marginal_prob(self, g, _, x, rng):
+    def observational_log_marginal_prob(self, g, _, data, rng, interv_targets):
         """Computes observational marginal likelihood :math:`\\log p(D | G)`` in closed-form;
         ``jax.jit``-compatible
+        [TODO] this function is just log joint prob. 
 
         To unify the function signatures for the marginal and joint inference classes
         :class:`~dibs.inference.MarginalDiBS` and :class:`~dibs.inference.JointDiBS`,
@@ -231,13 +234,16 @@ class BGe:
             g (ndarray): graph adjacency matrix of shape ``[n_vars, n_vars]``.
                 Entries must be binary and of type ``jnp.int32``
             _:
-            x (ndarray): observational data of shape ``[n_observations, n_vars]``
+            data (ndarray): data of shape ``[n_samples, n_vars]``
             rng (ndarray): rng; skeleton for minibatching (TBD)
+            interv_targets (ndarray): bool targets ``[n_samples, n_vars]`
 
         Returns:
             BGe score of shape ``[1,]``
         """
-        return self.log_marginal_likelihood(g=g, x=x, interv_targets=self.no_interv_targets)
+        if interv_targets is None:  interv_targets = self.no_interv_targets
+
+        return self.log_marginal_likelihood(g=g, x=data, interv_targets=interv_targets)
 
 
 class LinearGaussian:
@@ -346,7 +352,6 @@ class LinearGaussian:
     """
     The following functions need to be functionally pure and @jit-able
     """
-
     def log_prob_parameters(self, *, theta, g):
         """Computes parameter prior :math:`\\log p(\\Theta | G)``
         In this model, the parameter prior is Gaussian.
@@ -366,22 +371,26 @@ class LinearGaussian:
         In this model, the noise per observation and node is additive and Gaussian.
 
         Arguments:
-            x (ndarray): observations of shape ``[n_observations, n_vars]``
+            x (ndarray): observations of shape ``[n_samples, n_vars]``
             theta (ndarray): parameters of shape ``[n_vars, n_vars]``
             g (ndarray): graph adjacency matrix of shape ``[n_vars, n_vars]``
-            interv_targets (ndarray): binary intervention indicator vector of shape ``[n_vars, ]``
+            interv_targets (ndarray): binary intervention indicator vector of shape ``[n_samples, n_vars]``
+            [TODO] check this
 
         Returns:
             log prob
         """
+
+        log_normal = jax_normal.logpdf(x=x, loc=x @ (g * theta), scale=jnp.sqrt(self.obs_noise))
+
         # sum scores for all nodes
         return jnp.sum(
             jnp.where(
-                # [1, n_vars]
-                interv_targets[None, ...],
+                # [n_samples, n_vars]
+                interv_targets,
                 0.0,
-                # [n_observations, n_vars]
-                jax_normal.logpdf(x=x, loc=x @ (g * theta), scale=jnp.sqrt(self.obs_noise))
+                # [n_samples, n_vars]
+                log_normal
             )
         )
 
@@ -403,19 +412,25 @@ class LinearGaussian:
         return self.graph_dist.unnormalized_log_prob_soft(soft_g=g_prob)
 
 
-    def observational_log_joint_prob(self, g, theta, x, rng):
+    def observational_log_joint_prob(self, g, theta, data, rng, interv_targets):
         """Computes observational joint likelihood :math:`\\log p(\\Theta, D | G)``
+        [TODO] this function is just log joint prob. 
+        It is not "observational" anymore since we have added interv_targets support
+        Should probably change the name
 
         Arguments:
             g (ndarray): graph adjacency matrix of shape ``[n_vars, n_vars]``
             theta (ndarray): parameter matrix of shape ``[n_vars, n_vars]``
-            x (ndarray): observational data of shape ``[n_observations, n_vars]``
+            data (ndarray): data of shape ``[n_samples, n_vars]``
             rng (ndarray): rng; skeleton for minibatching (TBD)
+            interv_targets (bool ndarray): shape ``[n_samples, n_vars]``
 
         Returns:
             log prob of shape ``[1,]``
         """
+        if interv_targets is None:  interv_targets = self.no_interv_targets
+
         log_prob_theta = self.log_prob_parameters(g=g, theta=theta)
-        log_likelihood = self.log_likelihood(g=g, theta=theta, x=x, interv_targets=self.no_interv_targets)
+        log_likelihood = self.log_likelihood(x=data, theta=theta, g=g,  interv_targets=interv_targets)
         return log_prob_theta + log_likelihood
 
