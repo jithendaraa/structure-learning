@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from os.path import join
 import numpy as np
 from jax import numpy as jnp
-
+import torch
 
 def generate_interv_data(opt, n_intervention_sets, target):
     data_ = []
@@ -26,3 +26,23 @@ def generate_interv_data(opt, n_intervention_sets, target):
 
     data_, no_interv_targets = jnp.array(data_).reshape(-1, opt.num_nodes), jnp.array(no_interv_targets)
     return data_, no_interv_targets
+
+def get_data(opt, n_intervention_sets, target):
+    interv_data, no_interv_targets = generate_interv_data(opt, n_intervention_sets, target)
+    obs_data = jnp.array(target.x)[:opt.obs_data]
+    x = jnp.concatenate((obs_data, interv_data), axis=0)
+
+    if opt.proj == 'linear': 
+        projection_matrix = torch.rand(opt.num_nodes, opt.proj_dims)
+        P = projection_matrix.numpy()
+        P_T = np.transpose(P)
+        PP_T = P @ P_T
+        PP_T_inv = np.linalg.inv(PP_T)
+        true_encoder = P_T @ PP_T_inv
+        true_decoder = P
+        projected_samples = x @ P
+        print(f'Data matrix after linear projection from {opt.num_nodes} dims to {opt.proj_dims} dims: {projected_samples.shape}')  
+        sample_mean = np.mean(x, axis=0)
+        sample_covariance = torch.cov(torch.transpose(torch.tensor(np.array(x)), 0, 1))
+
+    return obs_data, interv_data, x, no_interv_targets, projected_samples, sample_mean, sample_covariance
