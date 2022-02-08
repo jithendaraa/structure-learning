@@ -11,8 +11,7 @@ import numpy as np
 import jax.numpy as jnp
 
 # experiments
-from dibs_bge_old import run_dibs_bge_old
-from dibs_bge_new import run_dibs_bge_new
+from dibs_bge import run_dibs_bge
 from dibs_nonlinear import run_dibs_nonlinear
 
 # ? Parse args
@@ -43,7 +42,7 @@ print(f'Intervention sets {n_intervention_sets} with {interv_data_per_set} data 
 full_train = False
 
 if opt.likelihood == 'bge':
-    run_dibs_bge_new(key, opt, n_intervention_sets, dag_file, writer)
+    run_dibs_bge_new(key, opt, n_intervention_sets, dag_file, writer, full_train)
 
 elif opt.likelihood == 'nonlinear':
     run_dibs_nonlinear(key, opt, n_intervention_sets, dag_file, writer, full_train)
