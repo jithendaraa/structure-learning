@@ -31,6 +31,7 @@ class MarginalDiBS(DiBS):
     :math:`\\phi(v) \\propto \\sum_{u} k(v, u) \\nabla_u \\log p(u) + \\nabla_u k(u, v)`
 
     Args:
+        [TODO]
         x (ndarray): observations of shape ``[n_observations, n_vars]``
         inference_model: Bayes net inference model defining prior :math:`\\log p(G)`
             and marginal likelihood :math:`\\log p(D | G)`` underlying the inferred posterior.
@@ -390,7 +391,7 @@ class JointDiBS(DiBS):
     :math:`\\phi(v) \\propto \\sum_{u} k(v, u) \\nabla_u \\log p(u) + \\nabla_u k(u, v)`
 
     Args:
-        x (ndarray): observations of shape ``[n_observations, n_vars]``
+        [TODO]
         inference_model: Bayes net inference model defining prior :math:`\\log p(G)`
             and joint likelihood :math:`\\log p(\\Theta, D | G) = \\log p(\\Theta | G) + \\log p(D | G, \\Theta``
             underlying the inferred posterior. Object *has to implement two methods*:
@@ -419,7 +420,7 @@ class JointDiBS(DiBS):
     """
 
     def __init__(self, *,
-                 x,
+                 n_vars,
                  inference_model,
                  kernel=JointAdditiveFrobeniusSEKernel,
                  kernel_param=None,
@@ -443,7 +444,6 @@ class JointDiBS(DiBS):
 
         # init DiBS superclass methods
         super(JointDiBS, self).__init__(
-            x=x,
             log_graph_prior=inference_model.log_graph_prior,
             log_joint_prob=inference_model.observational_log_joint_prob,
             alpha_linear=alpha_linear,
@@ -469,6 +469,10 @@ class JointDiBS(DiBS):
             self.opt = optimizers.rmsprop(optimizer_param['stepsize'])
         else:
             raise ValueError()
+
+        self.opt_init, self.opt_update, self.get_params = self.opt
+        self.get_params = jit(self.get_params)
+        self.n_vars = n_vars
        
 
     def _sample_initial_random_particles(self, *, key, n_particles, n_dim=None):
@@ -658,7 +662,7 @@ class JointDiBS(DiBS):
         return vmap(self._theta_update, (0, 0, 1, None, None, None), 0)(*args)
 
 
-    def _svgd_step(self, t, opt_state_z, opt_state_theta, key, sf_baseline):
+    def _svgd_step(self, t, opt_state_z, opt_state_theta, key, sf_baseline, data, interv_targets):
         """
         Performs a single SVGD step in the DiBS framework, updating all :math:`(Z, \\Theta)` particles jointly.
 
@@ -670,22 +674,22 @@ class JointDiBS(DiBS):
             key (ndarray): prng key
             sf_baseline (ndarray): batch of baseline values of shape ``[n_particles, ]``
                 in case score function gradient is used
+            [TODO] add args
 
         Returns:
             the updated inputs ``opt_state_z``, ``opt_state_theta``, ``key``, ``sf_baseline``
         """
-
         z = self.get_params(opt_state_z) # [n_particles, d, k, 2]
         theta = self.get_params(opt_state_theta) # PyTree with `n_particles` leading dim
         n_particles = z.shape[0]
 
         # d/dtheta log p(theta, D | z)
         key, subk = random.split(key)
-        dtheta_log_prob = self.eltwise_grad_theta_likelihood(z, theta, t, subk)
+        dtheta_log_prob = self.eltwise_grad_theta_likelihood(z, theta, t, subk, data, interv_targets)
 
         # d/dz log p(theta, D | z)
         key, *batch_subk = random.split(key, n_particles + 1)
-        dz_log_likelihood, sf_baseline = self.eltwise_grad_z_likelihood(z, theta, sf_baseline, t, jnp.array(batch_subk))
+        dz_log_likelihood, sf_baseline = self.eltwise_grad_z_likelihood(z, theta, sf_baseline, t, jnp.array(batch_subk), interv_targets, data)
 
         # d/dz log p(z) (acyclicity)
         key, *batch_subk = random.split(key, n_particles + 1)
@@ -705,8 +709,7 @@ class JointDiBS(DiBS):
         # `x += stepsize * phi`; the phi returned is negated for SVGD
         opt_state_z = self.opt_update(t, phi_z, opt_state_z)
         opt_state_theta = self.opt_update(t, phi_theta, opt_state_theta)
-
-        return opt_state_z, opt_state_theta, key, sf_baseline
+        return opt_state_z, opt_state_theta, key, sf_baseline, data, interv_targets
     
     
     # this is the crucial @jit
@@ -715,7 +718,9 @@ class JointDiBS(DiBS):
         return jax.lax.fori_loop(start, start + n_steps, lambda i, args: self._svgd_step(i, *args), init)
 
 
-    def sample(self, *, key, n_particles, steps, n_dim_particles=None, callback=None, callback_every=None):
+    def sample(self, *, steps, key, data, interv_targets, n_particles, 
+                opt_state_z=None, z=None, theta=None, sf_baseline=None,
+                n_dim_particles=None, callback=None, callback_every=None, start=0):
         """
         Use SVGD with DiBS to sample ``n_particles`` particles :math:`(G, \\Theta)` from the joint posterior
         :math:`p(G, \\Theta | D)` as defined by the BN model ``self.inference_model``
@@ -737,30 +742,31 @@ class JointDiBS(DiBS):
 
         # randomly sample initial particles
         key, subk = random.split(key)
-        init_z, init_theta = self._sample_initial_random_particles(key=subk, n_particles=n_particles,
+
+        if z is None and theta is None:
+            z, theta = self._sample_initial_random_particles(key=subk, n_particles=n_particles,
                                                                    n_dim=n_dim_particles)
 
         # initialize score function baseline (one for each particle)
-        n_particles, _, n_dim, _ = init_z.shape
-        sf_baseline = jnp.zeros(n_particles)
+        n_particles, _, n_dim, _ = z.shape
+        if sf_baseline is None:     sf_baseline = jnp.zeros(n_particles)
 
-        if self.latent_prior_std is None:
-            self.latent_prior_std = 1.0 / jnp.sqrt(n_dim)
+        if self.latent_prior_std is None: self.latent_prior_std = 1.0 / jnp.sqrt(n_dim)
 
         # maintain updated particles with optimizer state
         opt_init, self.opt_update, get_params = self.opt
         self.get_params = jit(get_params)
-        opt_state_z = opt_init(init_z)
-        opt_state_theta = opt_init(init_theta)
+        opt_state_z = opt_init(z)
+        opt_state_theta = opt_init(theta)
 
         """Execute particle update steps for all particles in parallel using `vmap` functions"""
         # faster if for-loop is functionally pure and compiled, so only interrupt for callback
         callback_every = callback_every or steps
-        for t in range(0, steps, callback_every):
+        for t in range(start, start+steps, callback_every):
 
             # perform sequence of SVGD steps
-            opt_state_z, opt_state_theta, key, sf_baseline = self._svgd_loop(t, callback_every,
-                                                                             (opt_state_z, opt_state_theta, key, sf_baseline))
+            opt_state_z, opt_state_theta, key, sf_baseline, _, _ = self._svgd_loop(t, callback_every,
+                                                                             (opt_state_z, opt_state_theta, key, sf_baseline, data, interv_targets))
 
             # callback
             if callback:
@@ -779,7 +785,7 @@ class JointDiBS(DiBS):
 
         # as alpha is large, we can convert the latents Z to their corresponding graphs G
         g_final = self.particle_to_g_lim(z_final)
-        return g_final, theta_final
+        return g_final, z_final, theta_final, opt_state_z, opt_state_theta, sf_baseline
 
 
     def get_empirical(self, g, theta):
@@ -803,7 +809,7 @@ class JointDiBS(DiBS):
         return ParticleDistribution(logp=logp, g=g, theta=theta)
 
 
-    def get_mixture(self, g, theta):
+    def get_mixture(self, g, theta, data, interv_targets):
         """
         Converts batch of binary (adjacency) matrices and particles into *mixture* particle distribution,
         where mixture weights correspond to unnormalized target (i.e. posterior) probabilities
@@ -811,6 +817,7 @@ class JointDiBS(DiBS):
         Args:
             g (ndarray): batch of graph samples ``[n_particles, d, d]`` with binary values
             theta (Any): PyTree with leading dim ``n_particles``
+            [TODO]
 
         Returns:
             :class:`~dibs.metrics.ParticleDistribution`:
@@ -821,7 +828,7 @@ class JointDiBS(DiBS):
 
         # mixture weighted by respective joint probabilities
         eltwise_log_joint_target = vmap(lambda single_g, single_theta:
-                                        self.log_joint_prob(single_g, single_theta, self.x, None), (0, 0), 0)
+                                        self.log_joint_prob(single_g, single_theta, data, None, interv_targets), (0, 0), 0)
         logp = eltwise_log_joint_target(g, theta)
         logp -= logsumexp(logp)
 

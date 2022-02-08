@@ -13,6 +13,7 @@ import jax.numpy as jnp
 # experiments
 from dibs_bge_old import run_dibs_bge_old
 from dibs_bge_new import run_dibs_bge_new
+from dibs_nonlinear import run_dibs_nonlinear
 
 # ? Parse args
 configs = yaml.safe_load((pathlib.Path('..') / 'configs.yaml').read_text())
@@ -28,8 +29,6 @@ logdir = utils.set_tb_logdir(opt)
 dag_file = join(logdir, 'sampled_dags.png')
 writer = SummaryWriter(join('..', logdir))
 
-# 
-
 num_interv_data = opt.num_samples - opt.obs_data
 interv_data_per_set = int(num_interv_data / n_intervention_sets)  
 # gt_graph_image = np.asarray(imageio.imread(join(logdir, 'gt_graph.png')))
@@ -41,7 +40,6 @@ print(f'Observational data: {opt.obs_data}')
 print(f'Interventional data: {num_interv_data}')
 print(f'Intervention sets {n_intervention_sets} with {interv_data_per_set} data points per intervention set')
 
-  
 
 def run_dibs_nonlinear_old(key, opt):
     kernel = JointAdditiveFrobeniusSEKernel(h_latent=opt.h_latent, h_theta=opt.h_latent)
@@ -83,8 +81,10 @@ def run_dibs_nonlinear_old(key, opt):
     evaluate(x[:opt.obs_data], log_likelihood, no_interv_targets[:opt.obs_data], particles_g, n_steps)
 
 if opt.likelihood == 'bge':
-    run_dibs_bge_old(key, opt, n_intervention_sets, dag_file, writer)
-    # run_dibs_bge_new(key, opt, n_intervention_sets, dag_file, writer)
+    run_dibs_bge_new(key, opt, n_intervention_sets, dag_file, writer)
 
-# elif opt.likelihood == 'nonlinear':
-#     run_dibs_nonlinear_old(key, opt)
+
+elif opt.likelihood == 'nonlinear':
+    # run_dibs_nonlinear_old(key, opt)
+    run_dibs_nonlinear(key, opt, n_intervention_sets, dag_file, writer)
+

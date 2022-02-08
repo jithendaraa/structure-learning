@@ -170,6 +170,7 @@ def make_linear_gaussian_equivalent_model(*, key, n_vars=20, graph_prior_str='sf
         obs_noise (float): observation noise
         mean_edge (float): edge weight mean
         sig_edge (float): edge weight stddev
+        [TODO] args
     
     Returns:
         tuple(:class:`~dibs.models.BGe`, :class:`~dibs.target.Data`):
@@ -244,7 +245,8 @@ def make_linear_gaussian_model(*, key, n_vars=20, graph_prior_str='sf',
 
 
 def make_nonlinear_gaussian_model(*, key, n_vars=20, graph_prior_str='sf', 
-    obs_noise=0.1, sig_param=1.0, hidden_layers=[5,], n_observations=100,
+    edges_per_node=1, obs_noise=0.1, mean_edge=0.0, 
+    sig_edge=1.0, sig_param=1.0, hidden_layers=[5,], n_observations=100,
     n_ho_observations=100):
     """
     Samples a synthetic nonlinear Gaussian BN instance 
@@ -262,14 +264,15 @@ def make_nonlinear_gaussian_model(*, key, n_vars=20, graph_prior_str='sf',
             i.e. here the neural net weights and biases
         hidden_layers (list): list of ints specifying the hidden layer (sizes)
             of the neural nets parameterizatin the local condtitionals
-    
+        [TODO]
+
     Returns:
         tuple(:class:`~dibs.models.DenseNonlinearGaussian`, :class:`~dibs.metrics.Target`):
         nonlinear Gaussian inference model and observations from a nonlinear Gaussian generative process
     """
 
     # init models
-    graph_dist = make_graph_model(n_vars=n_vars, graph_prior_str=graph_prior_str)
+    graph_dist = make_graph_model(n_vars=n_vars, graph_prior_str=graph_prior_str, edges_per_node=edges_per_node)
 
     generative_model = DenseNonlinearGaussian(
         obs_noise=obs_noise, sig_param=sig_param,

@@ -329,7 +329,7 @@ class DenseNonlinearGaussian:
         return self.graph_dist.unnormalized_log_prob_soft(soft_g=g_prob)
 
 
-    def observational_log_joint_prob(self, g, theta, x, rng):
+    def observational_log_joint_prob(self, g, theta, x, rng, interv_targets):
         """Computes observational joint likelihood :math:`\\log p(\\Theta, D | G)``
 
         Arguments:
@@ -337,12 +337,15 @@ class DenseNonlinearGaussian:
             theta (Any): parameter PyTree
             x (ndarray): observational data of shape ``[n_observations, n_vars]``
             rng (ndarray): rng; skeleton for minibatching (TBD)
+            [TODO]
 
         Returns:
             log prob of shape ``[1,]``
         """
+        if interv_targets is None:  interv_targets = self.no_interv_targets
+
         log_prob_theta = self.log_prob_parameters(g=g, theta=theta)
-        log_likelihood = self.log_likelihood(g=g, theta=theta, x=x, interv_targets=self.no_interv_targets)
+        log_likelihood = self.log_likelihood(g=g, theta=theta, x=x, interv_targets=interv_targets)
         return log_prob_theta + log_likelihood
 
 

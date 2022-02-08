@@ -505,7 +505,7 @@ class DiBS:
     # (i.e. w.r.t the conditional distribution parameters)
     #
 
-    def eltwise_grad_theta_likelihood(self, zs, thetas, t, subk):
+    def eltwise_grad_theta_likelihood(self, zs, thetas, t, subk, data, interv_targets):
         """
         Computes batch of estimators for the score   :math:`\\nabla_{\\Theta} \\log p(\\Theta, D | Z)`,
         i.e. w.r.t the conditional distribution parameters.
@@ -518,15 +518,16 @@ class DiBS:
         Args:
             zs (ndarray): batch of latent tensors Z of shape ``[n_particles, d, k, 2]``
             thetas (Any): batch of parameter PyTree with ``n_mc_samples`` as leading dim
+            [TODO]
 
         Returns:
             batch of gradients in form of ``thetas`` PyTree with ``n_particles`` as leading dim
 
         """
-        return vmap(self.grad_theta_likelihood, (0, 0, None, None), 0)(zs, thetas, t, subk)
+        return vmap(self.grad_theta_likelihood, (0, 0, None, None, None, None), 0)(zs, thetas, t, subk, data, interv_targets)
 
 
-    def grad_theta_likelihood(self, single_z, single_theta, t, subk):
+    def grad_theta_likelihood(self, single_z, single_theta, t, subk, data, interv_targets):
         """
         Computes Monte Carlo estimator for the score  :math:`\\nabla_{\\Theta} \\log p(\\Theta, D | Z)`
 
@@ -538,6 +539,7 @@ class DiBS:
             single_theta (Any): single parameter PyTree
             t (int): step
             subk (ndarray): rng key
+            [TODO]
 
         Returns:
             parameter gradient PyTree
@@ -556,14 +558,14 @@ class DiBS:
 
         # [n_mc_numerator, ] 
         subk, subk_ = random.split(subk)
-        logprobs_numerator = self.eltwise_log_joint_prob(g_samples, single_theta, subk_)
+        logprobs_numerator = self.eltwise_log_joint_prob(g_samples, single_theta, subk_, data, interv_targets)
         logprobs_denominator = logprobs_numerator
 
         # PyTree  shape of `single_theta` with additional leading dimension [n_mc_numerator, ...]
         # d/dtheta log p(theta, D | G) for a batch of G samples
         # use the same minibatch of data as for other log prob evaluation (if using minibatching)
         grad_theta_log_joint_prob = grad(self.log_joint_prob, 1)
-        grad_theta = vmap(grad_theta_log_joint_prob, (0, None, None, None), 0)(g_samples, single_theta, self.x, subk_)
+        grad_theta = vmap(grad_theta_log_joint_prob, (0, None, None, None, None), 0)(g_samples, single_theta, data, subk_, interv_targets)
 
         # stable computation of exp/log/divide and PyTree compatible
         # sums over MC graph samples dimension to get MC gradient estimate of theta
