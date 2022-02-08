@@ -34,38 +34,38 @@ def evaluate(target, dibs, gs, thetas, steps, dag_file, writer, opt, data,
     dibs_empirical = dibs.get_empirical(gs, thetas)
     dibs_mixture = dibs.get_mixture(gs, thetas, data, interv_targets) 
     
-    eshd_e = expected_shd(dist=dibs_empirical, g=target.g)     
-    eshd_m = expected_shd(dist=dibs_mixture, g=target.g)     
+    eshd_e = np.array(expected_shd(dist=dibs_empirical, g=target.g))     
+    eshd_m = np.array(expected_shd(dist=dibs_mixture, g=target.g))     
     auroc_e = threshold_metrics(dist=dibs_empirical, g=target.g)['roc_auc']
     auroc_m = threshold_metrics(dist=dibs_mixture, g=target.g)['roc_auc']
     
     sampled_graph, mec_or_gt_count = utils.log_dags(gs, gt_graph, eshd_e, eshd_m, dag_file)
     
     if tb_plots:
-        writer.add_scalar('Evaluations/AUROC (empirical)', auroc_e, steps)
-        writer.add_scalar('Evaluations/AUROC (marginal)', auroc_m, steps)
-        writer.add_scalar('Evaluations/Exp. SHD (Empirical)', eshd_e, steps)
-        writer.add_scalar('Evaluations/Exp. SHD (Marginal)', eshd_m, steps)
-        writer.add_scalar('Evaluations/MEC or GT recovery %', mec_or_gt_count * 100.0/ opt.n_particles, steps)
+        writer.add_scalar('(Interventional) Evaluations/AUROC (empirical)', auroc_e, len(data) - opt.obs_data)
+        writer.add_scalar('(Interventional) Evaluations/AUROC (marginal)', auroc_m, len(data) - opt.obs_data)
+        writer.add_scalar('(Interventional) Evaluations/Exp. SHD (Empirical)', eshd_e, len(data) - opt.obs_data)
+        writer.add_scalar('(Interventional) Evaluations/Exp. SHD (Marginal)', eshd_m, len(data) - opt.obs_data)
+        writer.add_scalar('(Interventional) Evaluations/MEC or GT recovery %', mec_or_gt_count * 100.0/ opt.n_particles, len(data) - opt.obs_data)
     #     writer.add_scalar('Evaluations/NLL (empirical)', negll_e, steps)
     #     writer.add_scalar('Evaluations/NLL (marginal)', negll_m, steps)
 
 
     print()
-    print(f"Metrics after {int(steps)} steps")
+    print(f"Metrics after {int(steps)} steps training on {opt.obs_data} obs data and {len(data) - opt.obs_data} interv. data")
     print()
     print("ESHD (empirical):", eshd_e)
     print("ESHD (marginal mixture):", eshd_m)
     if len(cpdag_shds) > 0: 
         print("Expected CPDAG SHD:", np.mean(cpdag_shds))
-        writer.add_scalar('Evaluations/CPDAG SHD', np.mean(cpdag_shds), steps)
+        writer.add_scalar('(Interventional) Evaluations/CPDAG SHD', np.mean(cpdag_shds), steps)
     print("MEC-GT Recovery %", mec_or_gt_count * 100.0/ opt.n_particles)
     print(f"AUROC (Empirical and Marginal): {auroc_e} {auroc_m}")
     # print(f"Neg. log likelihood (Empirical and Marginal): {negll_e} {negll_m}")
     print()
 
 
-def run_dibs_nonlinear(key, opt, n_intervention_sets, dag_file, writer):
+def run_dibs_nonlinear(key, opt, n_intervention_sets, dag_file, writer, full_train=False):
     num_interv_data = opt.num_samples - opt.obs_data
     n_steps = opt.num_updates
     interv_data_per_set = int(num_interv_data / n_intervention_sets)
@@ -84,22 +84,47 @@ def run_dibs_nonlinear(key, opt, n_intervention_sets, dag_file, writer):
     interv_data, no_interv_targets = datagen.generate_interv_data(opt, n_intervention_sets, target)
     obs_data = jnp.array(target.x)[:opt.obs_data]
     x = jnp.concatenate((obs_data, interv_data), axis=0)
-
-    dibs = JointDiBS(n_vars=opt.num_nodes, 
+    key, subk = random.split(key)
+    
+    if full_train:
+        dibs = JointDiBS(n_vars=opt.num_nodes, 
                         inference_model=model,
                         alpha_linear=opt.alpha_linear,
                         grad_estimator_z=opt.grad_estimator)
     
-    key, subk = random.split(key)
-    print("Loaded JointDiBS")
-    gs, z_final, theta_final, opt_state_z, opt_state_theta, sf_baseline = dibs.sample(steps=n_steps,
+        gs, z_final, theta_final, opt_state_z, opt_state_theta, sf_baseline = dibs.sample(steps=n_steps,
                                                                             key=subk, 
-                                                                            data=obs_data,
-                                                                            interv_targets=no_interv_targets[:opt.obs_data],
+                                                                            data=x,
+                                                                            interv_targets=no_interv_targets,
                                                                             n_particles=opt.n_particles,
-                                                                            opt_state_z=None, z=None, theta=None,
-                                                                            sf_baseline=None, callback_every=100, 
-                                                                            callback=dibs.visualize_callback(),
-                                                                            start=0)
+                                                                            callback_every=100, 
+                                                                            callback=dibs.visualize_callback(),)
+    else:
+        z_final, sf_baseline, opt_state_z, theta_final = None, None, None, None
 
-    evaluate(target, dibs, gs, theta_final, n_steps, dag_file, writer, opt, obs_data, no_interv_targets[:opt.obs_data])
+        for i in range(n_intervention_sets + 1):
+            dibs = JointDiBS(n_vars=opt.num_nodes, inference_model=model, alpha_linear=opt.alpha_linear, grad_estimator_z=opt.grad_estimator)
+
+            if i == 0:
+                interv_targets = no_interv_targets[:opt.obs_data]
+                data = x[:opt.obs_data]
+            else:
+                interv_targets = no_interv_targets[:opt.obs_data + (i*interv_data_per_set)]
+                data = x[:opt.obs_data + (i*interv_data_per_set)]
+
+            gs, z_final, theta_final, opt_state_z, opt_state_theta, sf_baseline = dibs.sample(steps=n_steps, key=subk, 
+                                                                    data=data,
+                                                                    interv_targets=interv_targets,
+                                                                    n_particles=opt.n_particles,
+                                                                    opt_state_z=opt_state_z,
+                                                                    z=z_final, theta=theta_final, sf_baseline=sf_baseline,
+                                                                    callback_every=100, 
+                                                                    callback=dibs.visualize_callback(),
+                                                                    start=0)
+
+
+            evaluate(target, dibs, gs, theta_final, int(n_steps*(i+1)), dag_file, 
+                    writer, opt, data, interv_targets, True)
+            if num_interv_data == 0: break
+
+
