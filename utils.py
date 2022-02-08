@@ -23,11 +23,11 @@ import pathlib
 
 def load_yaml_dibs(configs):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--configs', nargs='+', default='defaults dibs')
+    parser.add_argument('--configs', nargs='+', default='defaults joint_decoder_dibs_er')
     
     args, remaining = parser.parse_known_args()
     defaults = {}
-    for name in ['defaults', 'dibs']:
+    for name in ['defaults', 'joint_decoder_dibs_er']:
         defaults.update(configs[name])
 
     parser = argparse.ArgumentParser()
@@ -134,19 +134,8 @@ def set_batch_dict(opt, data_dict, batch_dict):
   return batch_dict
   
 def get_next_batch(data_dict, opt):
-    # device = get_device(data_dict["observed_data"])
     batch_dict = get_dict_template(opt)
     batch_dict = set_batch_dict(opt, data_dict, batch_dict)
-    
-    # input_t = data_dict["observed_data"].size()[1]
-    # output_t = data_dict["data_to_predict"].size()[1]
-    # total_t = input_t + output_t
-
-    # Flow motion magnitude labels
-    # batch_dict["timesteps"] = torch.tensor(np.arange(0, total_t) / total_t).to(device)
-    # batch_dict["observed_tp"] = torch.tensor(batch_dict["timesteps"][:input_t]).to(device)
-    # batch_dict["tp_to_predict"] = torch.tensor(batch_dict["timesteps"][input_t:]).to(device)
-
     return batch_dict
 
 
@@ -251,15 +240,15 @@ def set_tb_logdir(opt):
   elif opt.model in ['Slot_VCN_img']:
     logdir += f'_({opt.num_nodes}-{opt.slot_size})_seed{opt.seed}_{opt.data_seed}_factorised{opt.factorised}_proj{opt.proj}{opt.proj_dims}_expedges{opt.exp_edges}'
   elif opt.model in ['DIBS']:
-    logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_dibsupdates{opt.num_updates}_obsdata_{opt.obs_data}_intervdata{opt.num_samples - opt.obs_data}'
+    logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_samples{opt.num_samples}_expedges{opt.exp_edges}_updates{opt.num_updates}_obsdata_{opt.obs_data}_intervdata{opt.num_samples - opt.obs_data}_{opt.likelihood}_datagen({opt.datagen})'
   elif opt.model in ['VAE_DIBS']:
     logdir += f'_({opt.num_nodes})_seed{opt.seed}_{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_sftcnstrnt_{opt.soft_constraint}_dibsupdates{opt.num_updates}_knownED{opt.known_ED}'
   
-  elif opt.model in ['Decoder_DIBS']:
+  elif opt.model in ['Decoder_DIBS', 'Decoder_JointDiBS']:
     if opt.algo == 'def':
-      logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_steps{opt.steps}_knownED{opt.known_ED}_lindecode{opt.linear_decoder}_algo{opt.algo}_particles{opt.n_particles}_dibslr{opt.dibs_lr}'
+      logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_steps{opt.steps}_knownED{opt.known_ED}_lindecode{opt.linear_decoder}_algo{opt.algo}_particles{opt.n_particles}_dibslr{opt.dibs_lr}_datagen({opt.datagen})'
     elif opt.algo == 'fast-slow':
-      logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_steps{opt.steps}_dibsupdates{opt.num_updates}_knownED{opt.known_ED}_lindecode{opt.linear_decoder}_algo{opt.algo}_particles{opt.n_particles}_dibslr{opt.dibs_lr}'
+      logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_steps{opt.steps}_dibsupdates{opt.num_updates}_knownED{opt.known_ED}_lindecode{opt.linear_decoder}_algo{opt.algo}_particles{opt.n_particles}_dibslr{opt.dibs_lr}_datagen({opt.datagen})'
       
 
 

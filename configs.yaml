@@ -1,7 +1,8 @@
 defaults:
-  batch_size: 16
+  batch_size: 1000
   model: 'SlotAttention_img'
-  dataset: 'clevr'
+  dataset: 'er'
+  datatype: 'er'
   ckpt_id: 'train_clevr_sa_img'
 
   # ? Directories
@@ -88,12 +89,15 @@ defaults:
   num_updates: 1000
   n_particles: 20
   z_prior: 'sample'   # TODO: 'actual' needs fixing from std to covar so use 'sample for now' | ['actual', 'sample'] 
+  
 
   # ? VAE DIBS
-  soft_constraint: True
+  # soft_constraint: True
 
   # ? Decoder DIBS
   beta: 1.0
+  dibs_lr: 5e-3
+  soft_constraint: False
 
 # ? 1. Vanilla Slot attention
 train_clevr_sa_img:
@@ -173,7 +177,6 @@ train_vaevcn_linearproj:
   ckpt_id: 'train_vaevcn_linearproj' 
   dataset: 'er'
   datatype: 'er'
-  batch_size: 1000
   seed: 10
   data_seed: 1
   lr: 1e-3
@@ -185,9 +188,6 @@ train_vaevcn_linearproj:
 # ? 6b VAE_VCN: linear projection to higher dims (numerical) with known decoder == projection matrix
 train_vaevcn_linearproj_knownED:
   ckpt_id: 'train_vaevcn_linearproj_knownED'
-  dataset: 'er'
-  datatype: 'er'
-  batch_size: 1000
   seed: 10
   data_seed: 1
   lr: 1e-3
@@ -200,8 +200,6 @@ train_vaevcn_linearproj_knownED:
 # ? 6c Vanilla VCN: nonlinear projection to higher dims (numerical)
 train_vcn_nonlinearproj:
   ckpt_id: 'train_vcn_nonlinearproj' 
-  dataset: 'er'
-  batch_size: 1000
   seed: 10
   data_seed: 1
   lr: 1e-2
@@ -219,20 +217,16 @@ train_vcn_nonlinearproj:
 dibs:
   ckpt_id: 'train_dibs_er'
   model: 'DIBS'
-  dataset: 'er'
-  datatype: 'er'
-  batch_size: 1000
-  data_seed: 1
+  data_seed: 5
   lr: 5e-3
   num_nodes: 4
   exp_edges: 0.5
-  proj: 'no'
-  num_updates: 300
-  num_samples: 50
+  num_updates: 500
+  num_samples: 400
   grad_estimator: 'score'  # ['score', 'reparam'] 
   n_particles: 20
-  obs_data: 50
-  likelihood: 'bge'  # ['bge', 'nonlinear']
+  obs_data: 200
+  likelihood: 'nonlinear'  # ['bge', 'nonlinear']
   datagen: 'linear'
 
 
@@ -241,29 +235,50 @@ dibs:
 decoder_dibs_er:
   ckpt_id: 'decoder_dibs_er'
   model: 'Decoder_DIBS'
-  dataset: 'er'
-  datatype: 'er'
-  batch_size: 1000
   proj: 'linear'
-  soft_constraint: False
   linear_decoder: False
-
   # ? TODO has to be changed to 'reparam' later
   grad_estimator: 'score' # ['score', 'reparam']
   z_prior: 'sample'   # TODO: 'actual' needs fixing from std to covar so use 'sample for now' | ['actual', 'sample'] 
-  n_particles: 20
   algo: 'def'
-  known_ED: False
+  n_particles: 20
   num_nodes: 4
-  proj_dims: 10
-  exp_edges: 1.0
-  data_seed: 1
-  dibs_lr: 5e-3
   lr: 8e-4
+
   steps: 1000
   num_updates: 500
-  num_samples: 500
+  proj_dims: 10
+  data_seed: 1
+  exp_edges: 0.5
+  num_samples: 200
+  obs_data: 200
   projection: 'random'
+  likelihood: 'nonlinear'  # ['bge', 'nonlinear']
+  datagen: 'linear'
+
+joint_decoder_dibs_er:
+  ckpt_id: 'joint_decoder_dibs_er'
+  model: 'Decoder_JointDiBS'
+  proj: 'linear'
+  linear_decoder: False
+  # ? TODO has to be changed to 'reparam' later
+  grad_estimator: 'score' # ['score', 'reparam']
+  z_prior: 'sample'   # TODO: 'actual' needs fixing from std to covar so use 'sample for now' | ['actual', 'sample'] 
+  algo: 'def'
+  n_particles: 20
+  num_nodes: 4
+  lr: 8e-4
+
+  steps: 1000
+  num_updates: 500
+  proj_dims: 10
+  data_seed: 1
+  exp_edges: 0.5
+  num_samples: 200
+  obs_data: 200
+  projection: 'random'
+  likelihood: 'nonlinear'  # ['bge', 'nonlinear']
+  datagen: 'linear'
 
 # ? 8. VAE_DIBS
 # ! python main.py --config defaults experimental linear_vaedibs_er
@@ -272,7 +287,6 @@ linear_vaedibs_er:
   model: 'VAE_DIBS'
   dataset: 'er'
   datatype: 'er'
-  batch_size: 1000
   data_seed: 12
   lr: 9e-4
   num_nodes: 4
