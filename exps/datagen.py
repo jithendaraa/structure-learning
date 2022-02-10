@@ -6,6 +6,7 @@ from os.path import join
 import numpy as np
 from jax import numpy as jnp
 import torch
+from jax import random
 
 def generate_interv_data(opt, n_intervention_sets, target):
     data_ = []
@@ -43,6 +44,13 @@ def get_data(opt, n_intervention_sets, target):
         projected_samples = x @ P
         print(f'Data matrix after linear projection from {opt.num_nodes} dims to {opt.proj_dims} dims: {projected_samples.shape}')  
         sample_mean = np.mean(x, axis=0)
-        sample_covariance = torch.cov(torch.transpose(torch.tensor(np.array(x)), 0, 1))
+        sample_covariance = jnp.array(torch.cov(torch.transpose(torch.tensor(np.array(x)), 0, 1)))
 
     return obs_data, interv_data, x, no_interv_targets, projected_samples, sample_mean, sample_covariance
+
+def gen_data_from_dist(rng, q_z_mu, q_z_covar, num_samples):
+    q_z_mu = jnp.expand_dims(q_z_mu, 0).repeat(num_samples, axis=0)
+    q_z_covar = jnp.expand_dims(q_z_covar, 0).repeat(num_samples, axis=0)
+    data = random.multivariate_normal(rng, q_z_mu, q_z_covar)
+    return data
+
