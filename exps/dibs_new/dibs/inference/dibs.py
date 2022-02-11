@@ -665,7 +665,7 @@ class DiBS:
         return self.log_graph_prior(single_soft_g)
 
 
-    def eltwise_grad_latent_prior(self, zs, subkeys, t):
+    def eltwise_grad_latent_prior(self, zs, subkeys, t, latent_prior=None):
         """
         Computes batch of estimators for the score :math:`\\nabla_Z \\log p(Z)`
         with
@@ -678,6 +678,7 @@ class DiBS:
         Args:
             zs (ndarray): single latent tensor  ``[n_particles, d, k, 2]``
             subkeys (ndarray): batch of rng keys ``[n_particles, ...]``
+            [TODO]
 
         Returns:
             batch of gradients of shape ``[n_particles, d, k, 2]``
@@ -695,8 +696,10 @@ class DiBS:
         # [n_particles, d, k, 2], [n_particles,], [1,] -> [n_particles, d, k, 2]
         eltwise_grad_constraint = vmap(self.grad_constraint_gumbel, (0, 0, None), 0)(zs, subkeys, t)
 
+        if latent_prior is None: latent_prior = self.latent_prior_std
+
         return - self.beta(t) * eltwise_grad_constraint \
-               - zs / (self.latent_prior_std ** 2.0) \
+               - zs / (latent_prior ** 2.0) \
                + grad_prior_z 
             
 

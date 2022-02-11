@@ -713,7 +713,7 @@ class JointDiBS(DiBS):
     
     
     # this is the crucial @jit
-    @functools.partial(jit, static_argnums=(0, 2))
+    # @functools.partial(jit, static_argnums=(0, 2))
     def _svgd_loop(self, start, n_steps, init):
         return jax.lax.fori_loop(start, start + n_steps, lambda i, args: self._svgd_step(i, *args), init)
 
@@ -746,7 +746,6 @@ class JointDiBS(DiBS):
         if z is None and theta is None:
             z, theta = self._sample_initial_random_particles(key=subk, n_particles=n_particles,
                                                                    n_dim=n_dim_particles)
-
         # initialize score function baseline (one for each particle)
         n_particles, _, n_dim, _ = z.shape
         if sf_baseline is None:     sf_baseline = jnp.zeros(n_particles)
