@@ -20,7 +20,8 @@ mse_over_recons = lambda recons, x: jnp.mean(vmap(get_mse, (0, None), 0)(recons,
 def get_mse_and_kls(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt):
     mse_loss, kl_z_loss, loss = 0., 0., 0.
     mse_loss += mse_over_recons(recons, x) / opt.proj_dims
-    kl_z_loss += kl_over_zs(p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt) / opt.num_nodes
+    if opt.supervised is True:
+        kl_z_loss += kl_over_zs(p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt) / opt.num_nodes
     loss = (mse_loss + (opt.beta * kl_z_loss)) 
     return mse_loss, kl_z_loss, loss
 

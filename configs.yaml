@@ -217,14 +217,14 @@ train_vcn_nonlinearproj:
 dibs:
   ckpt_id: 'train_dibs_er'
   model: 'DIBS'
-  data_seed: 5
+  data_seed: 1
   lr: 5e-3
   num_nodes: 4
-  exp_edges: 0.5
   num_updates: 500
-  num_samples: 400
   grad_estimator: 'score'  # ['score', 'reparam'] 
   n_particles: 20
+  exp_edges: 0.5
+  num_samples: 300
   obs_data: 200
   likelihood: 'nonlinear'  # ['bge', 'nonlinear']
   datagen: 'linear'
@@ -269,16 +269,17 @@ joint_decoder_dibs_er:
   num_nodes: 4
   lr: 8e-4
 
-  steps: 1000
-  num_updates: 500
+  steps: 3000
+  num_updates: 1000
   proj_dims: 10
   data_seed: 1
   exp_edges: 0.5
-  num_samples: 200
+  num_samples: 400
   obs_data: 200
   projection: 'random'
   likelihood: 'nonlinear'  # ['bge', 'nonlinear']
   datagen: 'linear'
+  supervised: False
 
 # ? 8. VAE_DIBS
 # ! python main.py --config defaults experimental linear_vaedibs_er

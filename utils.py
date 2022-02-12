@@ -248,7 +248,7 @@ def set_tb_logdir(opt):
   
   elif opt.model in ['Decoder_DIBS', 'Decoder_JointDiBS']:
     if opt.algo == 'def':
-      logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_steps{opt.steps}_lindecode{opt.linear_decoder}_particles{opt.n_particles}_dibslr{opt.dibs_lr}_datagen({opt.datagen})_interv{opt.num_samples - opt.obs_data}'
+      logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_steps{opt.steps}_lindecode{opt.linear_decoder}_particles{opt.n_particles}_dibslr{opt.dibs_lr}_datagen({opt.datagen})_interv{opt.num_samples - opt.obs_data}_supervised({str(opt.supervised)[:1]})'
     elif opt.algo == 'fast-slow':
       logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_steps{opt.steps}_dibsupdates{opt.num_updates}_knownED{opt.known_ED}_lindecode{opt.linear_decoder}_algo{opt.algo}_particles{opt.n_particles}_dibslr{opt.dibs_lr}_datagen({opt.datagen})'
       
