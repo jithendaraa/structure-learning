@@ -86,13 +86,12 @@ def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writ
     decoder_train_steps = opt.steps - opt.num_updates
     dibs_update = 0
     z_final, theta_final, sf_baseline = None, None, None
-    decoder_train_steps = 3000
 
     dibs_optimizer = optimizers.rmsprop(opt.dibs_lr)
     opt_init, opt_update, get_params = dibs_optimizer
-    interv_targets = no_interv_targets[:opt.obs_data]
+    interv_targets = no_interv_targets
     
-    for step in range(3500):
+    for step in range(opt.steps):
         if step < decoder_train_steps:
             state, particles, loss, mse_loss, kl_z_loss, q_z_mus, q_z_covars, gs, _, z_dist, q_z, particles = train_causal_vars(state, rng, z_final, theta_final, 
                                                                                                     sf_baseline, data=None, interv_targets=interv_targets, step=step)
