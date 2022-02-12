@@ -1,4 +1,5 @@
 from flax import linen as nn
+from jax import numpy as jnp
 
 class Z_mu_logvar_Net(nn.Module):
     latent_dims: int
