@@ -230,6 +230,8 @@ def set_tb_logdir(opt):
 
   if opt.model not in ['DIBS']:
     logdir = os.path.join(opt.logdir, opt.ckpt_id + '_' + str(opt.batch_size) + '_' + str(opt.lr) + '_' + str(opt.steps))
+  elif opt.model in ['Decoder_JointDiBS']:
+    logdir = os.path.join(opt.logdir, opt.ckpt_id + '_' + str(opt.lr) + '_' + str(opt.steps))
   else:
     logdir = os.path.join(opt.logdir, opt.ckpt_id)
 
@@ -246,7 +248,7 @@ def set_tb_logdir(opt):
   
   elif opt.model in ['Decoder_DIBS', 'Decoder_JointDiBS']:
     if opt.algo == 'def':
-      logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_steps{opt.steps}_knownED{opt.known_ED}_lindecode{opt.linear_decoder}_algo{opt.algo}_particles{opt.n_particles}_dibslr{opt.dibs_lr}_datagen({opt.datagen})'
+      logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_steps{opt.steps}_lindecode{opt.linear_decoder}_particles{opt.n_particles}_dibslr{opt.dibs_lr}_datagen({opt.datagen})_interv{opt.num_samples - opt.obs_data}'
     elif opt.algo == 'fast-slow':
       logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_steps{opt.steps}_dibsupdates{opt.num_updates}_knownED{opt.known_ED}_lindecode{opt.linear_decoder}_algo{opt.algo}_particles{opt.n_particles}_dibslr{opt.dibs_lr}_datagen({opt.datagen})'
       
