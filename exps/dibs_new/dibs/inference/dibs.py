@@ -382,7 +382,6 @@ class DiBS:
             tuple of gradient, baseline  ``[d, k, 2], [1, ]``
 
         """
-
         # [d, d]
         p = self.edge_probs(single_z, t)
         n_vars, n_dim = single_z.shape[0:2]
