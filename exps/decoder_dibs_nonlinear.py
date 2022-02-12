@@ -55,7 +55,7 @@ def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writ
     
     state = train_state.TrainState.create(
         apply_fn=dibs.apply,
-        params=dibs.init(rng, rng, None, None, None, obs_data, no_interv_targets[:opt.obs_data], 0)['params'],
+        params=dibs.init(rng, rng, None, None, None, None, no_interv_targets[:opt.obs_data], 0)['params'],
         tx=optax.adam(opt.lr)
     )
 
@@ -64,9 +64,9 @@ def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writ
     def train_causal_vars(state, key, z, theta, 
                     sf_baseline, data, interv_targets, step=0):
         
-        recons, particles, q_z_mus, q_z_covars, _, gs, sf_baseline, _, pred_zs = dibs.apply({'params': state.params}, 
-                                                                                                key, z, theta, sf_baseline, 
-                                                                                                data, interv_targets, step)
+        recons, particles, q_z_mus, q_z_covars, _, gs, sf_baseline, pred_zs = dibs.apply({'params': state.params}, 
+                                                                                            key, z, theta, sf_baseline, 
+                                                                                            data, interv_targets, step)
         grads = grad(loss_fns.loss_fn)(state.params, key, z, theta, sf_baseline, data, interv_targets, 
                     step, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, dibs)
         res = state.apply_gradients(grads=grads)
@@ -75,48 +75,52 @@ def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writ
 
     @jit
     def train_causal_graph(state, key, z, theta, sf_baseline, data, interv_targets, step, opt_states):
-
-        recons, _, q_z_mus, q_z_covars, dibs_grads, gs, sf_baseline, key, _ = dibs.apply({'params': state.params}, 
-                                                                                                key, z, theta, sf_baseline, 
-                                                                                                data, interv_targets, step)
+        recons, _, q_z_mus, q_z_covars, dibs_grads, gs, sf_baseline, _ = dibs.apply({'params': state.params}, 
+                                                                                        key, z, theta, sf_baseline, 
+                                                                                        data, interv_targets, step)
         opt_state_z, opt_state_theta = opt_states
         opt_state_z = opt_update(step, dibs_grads['phi_z'], opt_state_z)
         opt_state_theta = opt_update(step, dibs_grads['phi_theta'], opt_state_theta)
-        
         return opt_state_z, opt_state_theta, gs, sf_baseline
 
     decoder_train_steps = opt.steps - opt.num_updates
     dibs_update = 0
     z_final, theta_final, sf_baseline = None, None, None
+    decoder_train_steps = 3000
 
     dibs_optimizer = optimizers.rmsprop(opt.dibs_lr)
     opt_init, opt_update, get_params = dibs_optimizer
     interv_targets = no_interv_targets[:opt.obs_data]
     
-
-    for step in range(opt.steps):
-
+    for step in range(3500):
         if step < decoder_train_steps:
             state, particles, loss, mse_loss, kl_z_loss, q_z_mus, q_z_covars, gs, _, z_dist, q_z, particles = train_causal_vars(state, rng, z_final, theta_final, 
-                                                                                                    sf_baseline, obs_data, interv_targets, step)
-            if step == 0:   opt_state_z, opt_state_theta = opt_init(particles[0]), opt_init(particles[1])
-        
+                                                                                                    sf_baseline, data=None, interv_targets=interv_targets, step=step)
+            if step == 0:   
+                opt_state_z, opt_state_theta = opt_init(particles[0]), opt_init(particles[1])
+
+            if (step+1) % 50 == 0:
+                writer.add_scalar('z_losses/ELBO', np.array(loss), step)
+                writer.add_scalar('z_losses/MSE', np.array(mse_loss), step)
+                writer.add_scalar('z_losses/KL', np.array(kl_z_loss), step)
+                writer.add_scalar('Distances/MSE(Predicted z | z_GT)', np.array(z_dist), step)
+
         else:
-            if step == 1:
+            if step == decoder_train_steps:
                 q_z_mus, q_z_covars = np.array(q_z_mus), np.array(q_z_covars)
                 data = vmap(datagen.gen_data_from_dist, (None, 0, 0, None), 0)(rng, q_z_mus, q_z_covars, opt.num_samples)  
-
+# # jnp.repeat(obs_data[jnp.newaxis,...]
             t = dibs_update
             opt_state_z, opt_state_theta, gs, sf_baseline = train_causal_graph(state, rng, z_final, theta_final, sf_baseline, 
-                                                            obs_data, interv_targets, t, (opt_state_z, opt_state_theta))
+                                                            data, interv_targets, t, (opt_state_z, opt_state_theta))
             z_final, theta_final = get_params(opt_state_z), get_params(opt_state_theta)
             dibs_update += 1
 
-        
         if step >= decoder_train_steps and (step+1) % 50 == 0:
             evaluate(target, writer, joint_dibs_model, gs, theta_final, obs_data, interv_targets, 
                     gt_graph, dag_file, opt, step, True)
-
+    print(q_z_covars)
+    print(p_z_covar)
 
 
 def evaluate(target, writer, joint_dibs_model, gs, theta, data, interv_targets, 
@@ -163,5 +167,4 @@ def evaluate(target, writer, joint_dibs_model, gs, theta, data, interv_targets,
     
     print("MEC-GT Recovery %", mec_or_gt_count * 100.0/ opt.n_particles)
     print(f"AUROC (Empirical and Marginal): {auroc_e} {auroc_m}")
-    # print(f"Neg. log likelihood (Empirical and Marginal): {negll_e} {negll_m}")
     print()
