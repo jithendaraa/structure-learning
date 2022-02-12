@@ -228,7 +228,7 @@ def log_encodings_per_node_to_tb(opt, writer, enc_inp, step):
 
 def set_tb_logdir(opt):
 
-  if opt.model not in ['DIBS']:
+  if opt.model not in ['DIBS', 'Decoder_JointDiBS']:
     logdir = os.path.join(opt.logdir, opt.ckpt_id + '_' + str(opt.batch_size) + '_' + str(opt.lr) + '_' + str(opt.steps))
   elif opt.model in ['Decoder_JointDiBS']:
     logdir = os.path.join(opt.logdir, opt.ckpt_id + '_' + str(opt.lr) + '_' + str(opt.steps))
