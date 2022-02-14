@@ -267,12 +267,12 @@ joint_decoder_dibs_er:
   algo: 'def'
   n_particles: 20
   num_nodes: 4
-  lr: 8e-4
+  lr: 1e-3
 
-  steps: 3000
+  steps: 10000
   num_updates: 1000
   proj_dims: 10
-  data_seed: 1
+  data_seed: 3
   exp_edges: 0.5
   num_samples: 400
   obs_data: 200
@@ -280,6 +280,7 @@ joint_decoder_dibs_er:
   likelihood: 'nonlinear'  # ['bge', 'nonlinear']
   datagen: 'linear'
   supervised: False
+  across_interv: True
 
 # ? 8. VAE_DIBS
 # ! python main.py --config defaults experimental linear_vaedibs_er

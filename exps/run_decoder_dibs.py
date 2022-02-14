@@ -11,6 +11,7 @@ import numpy as np
 import jax.numpy as jnp
 
 from decoder_dibs_nonlinear import run_decoder_joint_dibs
+from decoder_dibs_nonlinear_with_interv_data import run_decoder_joint_dibs_across_interv_data
 
 # ? Parse args
 configs = yaml.safe_load((pathlib.Path('..') / 'configs.yaml').read_text())
@@ -38,4 +39,7 @@ print(f'Interventional data: {num_interv_data}')
 print(f'Intervention sets {n_intervention_sets} with {interv_data_per_set} data points per intervention set')
 
 if opt.likelihood == 'nonlinear':
-    run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writer)
+    if opt.across_interv is True:
+        run_decoder_joint_dibs_across_interv_data(key, opt, logdir, n_intervention_sets, dag_file, writer)
+    else:
+        run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writer)

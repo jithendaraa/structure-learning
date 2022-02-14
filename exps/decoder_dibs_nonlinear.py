@@ -55,7 +55,7 @@ def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writ
     
     state = train_state.TrainState.create(
         apply_fn=dibs.apply,
-        params=dibs.init(rng, rng, None, None, None, None, no_interv_targets[:opt.obs_data], 0)['params'],
+        params=dibs.init(rng, rng, None, None, None, None, no_interv_targets, 0)['params'],
         tx=optax.adam(opt.lr)
     )
 
@@ -63,10 +63,10 @@ def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writ
     @jit
     def train_causal_vars(state, key, z, theta, 
                     sf_baseline, data, interv_targets, step=0):
-        
         recons, particles, q_z_mus, q_z_covars, _, gs, sf_baseline, pred_zs = dibs.apply({'params': state.params}, 
                                                                                             key, z, theta, sf_baseline, 
                                                                                             data, interv_targets, step)
+        
         grads = grad(loss_fns.loss_fn)(state.params, key, z, theta, sf_baseline, data, interv_targets, 
                     step, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, dibs)
         res = state.apply_gradients(grads=grads)
@@ -99,16 +99,17 @@ def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writ
                 opt_state_z, opt_state_theta = opt_init(particles[0]), opt_init(particles[1])
 
             if (step+1) % 50 == 0:
-                writer.add_scalar('z_losses/ELBO', np.array(loss), step)
+                if opt.supervised is True:
+                    writer.add_scalar('z_losses/ELBO', np.array(loss), step)
+                    writer.add_scalar('z_losses/KL', np.array(kl_z_loss), step)
                 writer.add_scalar('z_losses/MSE', np.array(mse_loss), step)
-                writer.add_scalar('z_losses/KL', np.array(kl_z_loss), step)
                 writer.add_scalar('Distances/MSE(Predicted z | z_GT)', np.array(z_dist), step)
 
         else:
             if step == decoder_train_steps:
                 q_z_mus, q_z_covars = np.array(q_z_mus), np.array(q_z_covars)
                 data = vmap(datagen.gen_data_from_dist, (None, 0, 0, None), 0)(rng, q_z_mus, q_z_covars, opt.num_samples)  
-# # jnp.repeat(obs_data[jnp.newaxis,...]
+
             t = dibs_update
             opt_state_z, opt_state_theta, gs, sf_baseline = train_causal_graph(state, rng, z_final, theta_final, sf_baseline, 
                                                             data, interv_targets, t, (opt_state_z, opt_state_theta))
@@ -116,10 +117,9 @@ def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writ
             dibs_update += 1
 
         if step >= decoder_train_steps and (step+1) % 50 == 0:
-            evaluate(target, writer, joint_dibs_model, gs, theta_final, obs_data, interv_targets, 
+            evaluate(target, writer, joint_dibs_model, gs, theta_final, x, None, 
                     gt_graph, dag_file, opt, step, True)
-    print(q_z_covars)
-    print(p_z_covar)
+    
 
 
 def evaluate(target, writer, joint_dibs_model, gs, theta, data, interv_targets, 
@@ -136,34 +136,41 @@ def evaluate(target, writer, joint_dibs_model, gs, theta, data, interv_targets,
             cpdag_shds.append(shd)
         except:
             pass
-    
+    # import pdb; pdb.set_trace()
     dibs_empirical = joint_dibs_model.get_empirical(gs, data)
-    dibs_mixture = joint_dibs_model.get_mixture(gs, theta, data, interv_targets)
     
-    eshd_e = np.array(expected_shd(dist=dibs_empirical, g=target.g))     
-    eshd_m = np.array(expected_shd(dist=dibs_mixture, g=target.g))     
+        
+    eshd_e = np.array(expected_shd(dist=dibs_empirical, g=target.g)) 
     auroc_e = threshold_metrics(dist=dibs_empirical, g=target.g)['roc_auc']
-    auroc_m = threshold_metrics(dist=dibs_mixture, g=target.g)['roc_auc']
-    sampled_graph, mec_or_gt_count = utils.log_dags(gs, gt_graph, eshd_e, eshd_m, dag_file)
+    try:
+        dibs_mixture = joint_dibs_model.get_mixture(gs, theta, data, interv_targets)
+        eshd_m = np.array(expected_shd(dist=dibs_mixture, g=target.g))     
+        auroc_m = threshold_metrics(dist=dibs_mixture, g=target.g)['roc_auc']
+        sampled_graph, mec_or_gt_count = utils.log_dags(gs, gt_graph, eshd_e, eshd_m, dag_file)
+        writer.add_scalar('Evaluations/Exp. SHD (Marginal)', eshd_m, steps)
+        writer.add_scalar('Evaluations/AUROC (marginal)', auroc_m, steps)
+
+    except:
+        sampled_graph, mec_or_gt_count = utils.log_dags(gs, gt_graph, eshd_e, eshd_e, dag_file)
+
     
     if tb_plots:
         writer.add_scalar('Evaluations/AUROC (empirical)', auroc_e, steps)
-        writer.add_scalar('Evaluations/AUROC (marginal)', auroc_m, steps)
         writer.add_scalar('Evaluations/Exp. SHD (Empirical)', eshd_e, steps)
-        writer.add_scalar('Evaluations/Exp. SHD (Marginal)', eshd_m, steps)
         writer.add_scalar('Evaluations/MEC or GT recovery %', mec_or_gt_count * 100.0 / opt.n_particles, steps)
-
 
     print()
     print(f"Metrics after {int(steps)} steps training on {opt.obs_data} obs data and {len(data) - opt.obs_data} interv. data")
     print()
     print("ESHD (empirical):", eshd_e)
-    print("ESHD (marginal mixture):", eshd_m)
+    # if eshd_m:  print("ESHD (marginal mixture):", eshd_m)
     
     if len(cpdag_shds) > 0: 
         print("Expected CPDAG SHD:", np.mean(cpdag_shds))
         writer.add_scalar('Evaluations/CPDAG SHD', np.mean(cpdag_shds), steps)
     
     print("MEC-GT Recovery %", mec_or_gt_count * 100.0/ opt.n_particles)
-    print(f"AUROC (Empirical and Marginal): {auroc_e} {auroc_m}")
+    print(f"AUROC (Empirical): {auroc_e}")
+    # if auroc_m: print(f"AUROC (Empirical): {auroc_m}")
+
     print()
