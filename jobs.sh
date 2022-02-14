@@ -1,5 +1,5 @@
 #!/bin/bash
-exp_id=$1   # [0 - 6, 6s]
+exp_id=$1   # [0 - 6, 6s, 7s]
 dataset=${2:-'clevr'}  # ['clevr', 'er']
 train=${3:-'train'}
 def_time='23:00:00'
@@ -31,4 +31,7 @@ then
 elif [ ${exp_id} == '6s' ]   # ! Search over hyperparams Decoder DIBS
 then
     bash script_runners/temp.sh ${dataset} ${train} 'Decoder_DIBS' ${time}
+elif [ ${exp_id} == '7s' ]   # ! Search over hyperparams Decoder Joint DIBS (across interv data)
+then
+    bash script_runners/decoder_joint_dibs_interv_job_run.sh ${dataset} ${train} 'Decoder_JointDiBS' ${time}
 fi
