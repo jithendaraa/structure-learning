@@ -43,7 +43,7 @@ class Decoder_JointDiBS(nn.Module):
         self.z_net = Z_mu_logvar_Net(self.num_nodes, self.proj_dims)
         print("Loaded Decoder Joint DIBS")
     
-    def reparameterized_multivariate_normal(self, rng, mean, cholesky_L):
+    def reparameterized_multivariate_normal(self, rng, mean, cholesky_L, samples):
         """
         [TODO]
             # Cholesky decomposition: Σ = LL.T where L is lower triangular
@@ -51,9 +51,9 @@ class Decoder_JointDiBS(nn.Module):
         """
         d = cholesky_L.shape[0]
         unit_cov_matrix = jnp.identity(d)
-        unit_cov_matrix = jnp.expand_dims(unit_cov_matrix, 0).repeat(self.num_samples, axis=0)
+        unit_cov_matrix = jnp.expand_dims(unit_cov_matrix, 0).repeat(samples, axis=0)
         
-        standard_mean = jnp.zeros((self.num_samples, d))
+        standard_mean = jnp.zeros((samples, d))
         eps = random.multivariate_normal(rng, standard_mean, unit_cov_matrix)
         return mean + jnp.matmul(eps, cholesky_L)
 
@@ -103,11 +103,13 @@ class Decoder_JointDiBS(nn.Module):
                 res[idx] = squeezed_tuple
         return res
 
-    def eltwise_get_posterior_z(self, key, g):
+    def eltwise_get_posterior_z(self, key, g, theta, samples):
         """
         [TODO]
         """
         flattened_g = jnp.array(g.reshape(-1))
+        flattened_theta = jnp.concatenate((theta[0][0].flatten(), theta[0][1].flatten(), theta[2][0].flatten(), theta[2][1].flatten()), axis=0)
+        g_thetas = jnp.concatenate((flattened_g, flattened_theta), axis=0)
         q_z_mu, q_z_logcholesky = self.z_net(flattened_g)
         q_z_cholesky = jnp.exp(q_z_logcholesky)
 
@@ -117,7 +119,7 @@ class Decoder_JointDiBS(nn.Module):
         cholesky_L = cholesky_L.at[i, j].set(q_z_cholesky)
 
         q_z_covar = jnp.matmul(cholesky_L, jnp.transpose(cholesky_L))
-        q_z = self.reparameterized_multivariate_normal(key, q_z_mu, cholesky_L)
+        q_z = self.reparameterized_multivariate_normal(key, q_z_mu, cholesky_L, samples)
         return q_z_mu, q_z_covar, cholesky_L, q_z
 
     def eltwise_get_grad_dibs_params(self, key, z, theta, t, data, interv_targets, sf_baseline):
@@ -171,6 +173,7 @@ class Decoder_JointDiBS(nn.Module):
         step: int
         """
 
+        samples = len(interv_targets)
         # ? 1. Sample n_particles graphs from particles_z
         if sf_baseline is None:     sf_baseline = jnp.zeros(self.n_particles)
         if particles_z is None and particles_theta is None:
@@ -178,9 +181,9 @@ class Decoder_JointDiBS(nn.Module):
 
         if self.grad_estimator == 'score': gs = self.dibs.particle_to_g_lim(particles_z)
 
-        # ? 2. Get graph conditioned predictions on z: q(z|G)
-        get_posterior_z = vmap(self.eltwise_get_posterior_z, (None, 0), (0, 0, 0, 0))
-        q_z_mus, q_z_covars, _, q_zs = get_posterior_z(key, gs)
+        # ? 2. Get graph conditioned predictions on z: q(z|G, theta)
+        get_posterior_z = vmap(self.eltwise_get_posterior_z, (None, 0, 0, None), (0, 0, 0, 0))
+        q_z_mus, q_z_covars, _, q_zs = get_posterior_z(key, gs, particles_theta, samples)
 
         # ? 3. From every distribution q(z_i|G_i), decode to get reconstructed samples X in higher dimensions. i = 1...num_nodes
         if self.known_ED is False:  decoder = lambda q_z: self.decoder(q_z)

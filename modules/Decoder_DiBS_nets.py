@@ -7,28 +7,34 @@ class Z_mu_logvar_Net(nn.Module):
 
     @nn.compact
     def __call__(self, g):
-        z = nn.Dense(20, name='encoder_0')(g)
+        z = nn.Dense(10 * self.latent_dims * self.latent_dims, name='encoder_0')(g)
         z = nn.relu(z)
-        z = nn.Dense(3 * self.latent_dims, name='encoder_1')(z)
+        z = nn.Dense(10 * self.latent_dims * self.latent_dims, name='encoder_1')(z)
         z = nn.relu(z)
-        z = nn.Dense(3 * self.latent_dims, name='encoder_2')(z)
+        z = nn.Dense(self.latent_dims * self.latent_dims, name='encoder_2')(z)
+        z = nn.relu(z)
+        z = nn.Dense(self.latent_dims * self.latent_dims, name='encoder_3')(z)
         z = nn.relu(z)
         
-        z_mu = nn.Dense(3 * self.latent_dims, name='mu_encoder_0')(z)
+        z_mu = nn.Dense(10 * self.latent_dims, name='mu_encoder_0')(z)
         z_mu = nn.relu(z_mu)
-        z_mu = nn.Dense(3 * self.latent_dims, name='mu_encoder_2')(z_mu)
+        z_mu = nn.Dense(10 * self.latent_dims, name='mu_encoder_1')(z)
         z_mu = nn.relu(z_mu)
-        z_mu = nn.Dense(3 * self.latent_dims, name='mu_encoder_3')(z_mu)
+        z_mu = nn.Dense(self.latent_dims, name='mu_encoder_2')(z_mu)
         z_mu = nn.relu(z_mu)
-        z_mu = nn.Dense(self.latent_dims, name='mu_encoder_1')(z_mu)
+        z_mu = nn.Dense(self.latent_dims, name='mu_encoder_3')(z_mu)
+        z_mu = nn.relu(z_mu)
+        z_mu = nn.Dense(self.latent_dims, name='mu_encoder_4')(z_mu)
 
         z_logcholesky = nn.Dense(self.latent_dims*self.latent_dims, name='logcovar_encoder_0')(z)
+        z_logcholesky = nn.relu(z_logcholesky)
+        z_logcholesky = nn.Dense(self.latent_dims*self.latent_dims, name='logcovar_encoder_1')(z)
         z_logcholesky = nn.relu(z_logcholesky)
         z_logcholesky = nn.Dense(self.latent_dims*self.latent_dims, name='logcovar_encoder_2')(z_logcholesky)
         z_logcholesky = nn.relu(z_logcholesky)
         z_logcholesky = nn.Dense(self.latent_dims*self.latent_dims, name='logcovar_encoder_3')(z_logcholesky)
         z_logcholesky = nn.relu(z_logcholesky)
-        z_logcholesky = nn.Dense(self.num_cholesky_terms, name='logcovar_encoder_1')(z_logcholesky)
+        z_logcholesky = nn.Dense(self.num_cholesky_terms, name='logcovar_encoder_4')(z_logcholesky)
 
         return jnp.asarray(z_mu), jnp.asarray(z_logcholesky)
 
