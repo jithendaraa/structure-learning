@@ -272,10 +272,10 @@ joint_decoder_dibs_er:
   steps: 10000
   num_updates: 1000
   proj_dims: 10
-  data_seed: 3
+  data_seed: 2
   exp_edges: 0.5
-  num_samples: 400
-  obs_data: 200
+  num_samples: 2200
+  obs_data: 0
   projection: 'random'
   likelihood: 'nonlinear'  # ['bge', 'nonlinear']
   datagen: 'linear'

@@ -29,8 +29,6 @@ writer = SummaryWriter(join('..', logdir))
 
 num_interv_data = opt.num_samples - opt.obs_data
 interv_data_per_set = int(num_interv_data / n_intervention_sets)  
-# gt_graph_image = np.asarray(imageio.imread(join(logdir, 'gt_graph.png')))
-# writer.add_image('graph_structure(GT-pred)/Ground truth', gt_graph_image, 0, dataformats='HWC')
 n_steps = opt.num_updates / n_intervention_sets if num_interv_data > 0 else opt.num_updates
 
 print()
@@ -40,6 +38,6 @@ print(f'Intervention sets {n_intervention_sets} with {interv_data_per_set} data 
 
 if opt.likelihood == 'nonlinear':
     if opt.across_interv is True:
-        run_decoder_joint_dibs_across_interv_data(key, opt, logdir, n_intervention_sets, dag_file, writer)
+        run_decoder_joint_dibs_across_interv_data(key, opt, logdir, n_intervention_sets, dag_file, writer, exp_config)
     else:
         run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writer)
