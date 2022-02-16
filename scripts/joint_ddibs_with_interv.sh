@@ -14,13 +14,16 @@ seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
 exp_edges=(0.5)
 lrs=(0.001)
 dibs_lrs=(0.005)
-num_samples=(20000)
+num_samples=(200)
 num_updates=(1000)
 steps=(10000)
 
-num_obs_data=0
+num_obs_data=200
 num_nodes=4
 proj_dims=10
+across_interv='False'
+datagen='linear'
+
 algo='def'
 n_particles=20
 
@@ -50,10 +53,10 @@ echo "Script"
 act_causal
 module load python/3.7
 echo `date` "Python starting"
-echo "python run_decoder_dibs.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_update} --steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --algo ${algo} --n_particles ${n_particles} --obs_data ${num_obs_data}"
+echo "python run_decoder_dibs.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_update} --steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --algo ${algo} --n_particles ${n_particles} --obs_data ${num_obs_data} --across_interv ${across_interv} --datagen ${datagen}"
 
 cd exps
-python run_decoder_dibs.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_update} --steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --algo ${algo} --n_particles ${n_particles} --obs_data ${num_obs_data}
+python run_decoder_dibs.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_update} --steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --algo ${algo} --n_particles ${n_particles} --obs_data ${num_obs_data} --across_interv ${across_interv} --datagen ${datagen}
 cd ..
 
 echo $end

@@ -62,7 +62,7 @@ def hparam_dict_to_str(d):
 
 
 def make_synthetic_bayes_net(*,
-    key1,
+    key,
     n_vars,
     graph_model,
     generative_model,
@@ -72,7 +72,7 @@ def make_synthetic_bayes_net(*,
     n_intervention_sets=10,
     perc_intervened=0.1,
     verbose=False,
-):
+    ):
     """
     Returns an instance of `Target` for evaluation of a method against 
     a ground truth synthetic Bayesian network
@@ -95,10 +95,11 @@ def make_synthetic_bayes_net(*,
     """
 
     # remember random key
-    key, rng = random.split(key1)
+    key, rng = random.split(key)
 
     # generate ground truth observations
     key, subk = random.split(key)
+    print("subk", subk)
     g_gt = graph_model.sample_G(subk)
     g_gt_mat = jnp.array(graph_to_mat(g_gt))
 
@@ -130,9 +131,9 @@ def make_synthetic_bayes_net(*,
         print(f'Sampled BN with {jnp.sum(g_gt_mat).item()}-edge DAG :\t {adjmat_to_str(g_gt_mat)}')
 
     # return and save generated target object
-    print("Calling target", key1)
+    print("Calling target", key)
     obj = Target(
-        passed_key=key1,
+        passed_key=key,
         graph_model=graph_model,
         generative_model=generative_model,
         inference_model=inference_model,
@@ -178,8 +179,8 @@ def make_graph_model(*, n_vars, graph_prior_str, edges_per_node=1):
 
 
 def make_linear_gaussian_equivalent_model(*, key, n_vars=20, graph_prior_str='sf', 
-    obs_noise=0.1, mean_edge=0.0, sig_edge=1.0, n_observations=100,
-    n_ho_observations=100):
+    edges_per_node=1.0, obs_noise=0.1, mean_edge=0.0, 
+    sig_edge=1.0, n_observations=100, n_ho_observations=100):
     """
     Samples a synthetic linear Gaussian BN instance 
     with Bayesian Gaussian equivalent (BGe) marginal likelihood 
@@ -201,7 +202,7 @@ def make_linear_gaussian_equivalent_model(*, key, n_vars=20, graph_prior_str='sf
     """
 
     # init models
-    graph_model = make_graph_model(n_vars=n_vars, graph_prior_str=graph_prior_str)
+    graph_model = make_graph_model(n_vars=n_vars, graph_prior_str=graph_prior_str, edges_per_node=edges_per_node)
 
     generative_model = LinearGaussian(
         obs_noise=obs_noise, mean_edge=mean_edge, 
@@ -214,7 +215,7 @@ def make_linear_gaussian_equivalent_model(*, key, n_vars=20, graph_prior_str='sf
     # sample synthetic BN and observations
     key, subk = random.split(key)
     target = make_synthetic_bayes_net(
-        key1=subk, n_vars=n_vars,
+        key=subk, n_vars=n_vars,
         graph_model=graph_model,
         generative_model=generative_model,
         inference_model=inference_model,

@@ -306,7 +306,7 @@ class JointDiBS(DiBS):
     
     
 
-    def sample_particles(self, *, n_steps, init_particles_z, init_particles_theta, key, callback=None, callback_every=0):
+    def sample_particles(self, *, key, n_steps, init_particles_z, init_particles_theta, opt_state_z, sf_baseline, interv_targets, data, start, callback=None, callback_every=0):
         """
         Deterministically transforms particles to minimize KL to target using SVGD
 

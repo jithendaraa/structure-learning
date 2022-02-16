@@ -90,7 +90,6 @@ class ErdosReniDAGDistribution(GraphDistribution):
         self.n_vars = n_vars
         self.n_edges = n_edges or 2 * n_vars
         self.p = self.n_edges / ((self.n_vars * (self.n_vars - 1)) / 2)
-
         self.verbose = verbose
 
     def sample_G(self, key, return_mat=False):

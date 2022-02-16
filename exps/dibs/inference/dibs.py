@@ -322,7 +322,8 @@ class DiBS:
             zs: batch of latent tensors Z [n_particles, d, k, 2]
             thetas: batch of parameters PyTree with `n_particles` as leading dim
             baselines: array of score function baseline values of shape [n_particles, ]
-
+            [TODO]
+            
         Returns:
             tuple: batch of (gradient estimates, baselines) of shapes [n_particles, d, k, 2], [n_particles, ]        
         """
