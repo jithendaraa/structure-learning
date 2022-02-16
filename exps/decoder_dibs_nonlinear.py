@@ -15,9 +15,25 @@ import jax.scipy.stats as dist
 import optax, loss_fns
 
 from models.Decoder_JointDiBS import Decoder_JointDiBS
-from dibs_new.dibs.target import make_nonlinear_gaussian_model
+from dibs_new.dibs.target import make_nonlinear_gaussian_model, make_linear_gaussian_model
 from dibs_new.dibs.metrics import expected_shd, threshold_metrics, neg_ave_log_marginal_likelihood
 from dibs_new.dibs.inference import JointDiBS
+
+def get_target(key, opt):
+
+    if opt.datagen == 'linear':
+        target, model = make_linear_gaussian_model(key = key, n_vars = opt.num_nodes, 
+                graph_prior_str = opt.datatype, edges_per_node = opt.exp_edges,
+                obs_noise = opt.noise_sigma, mean_edge = opt.theta_mu, sig_edge = opt.theta_sigma, 
+                n_observations = opt.num_samples, n_ho_observations = opt.num_samples)
+    
+    elif opt.datagen == 'nonlinear':
+        target, model = make_nonlinear_gaussian_model(key = key, n_vars = opt.num_nodes, 
+                graph_prior_str = opt.datatype, edges_per_node = opt.exp_edges,
+                obs_noise = opt.noise_sigma, mean_edge = opt.theta_mu, sig_edge = opt.theta_sigma, 
+                n_observations = opt.num_samples, n_ho_observations = opt.num_samples)
+
+    return target, model
 
 
 def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writer, exp_config_dict):
@@ -25,10 +41,7 @@ def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writ
     n_steps = opt.num_updates
     interv_data_per_set = int(num_interv_data / n_intervention_sets)
 
-    target, model = make_nonlinear_gaussian_model(key = key, n_vars = opt.num_nodes, 
-                graph_prior_str = opt.datatype, edges_per_node = opt.exp_edges,
-                obs_noise = opt.noise_sigma, mean_edge = opt.theta_mu, sig_edge = opt.theta_sigma, 
-                n_observations = opt.num_samples, n_ho_observations = opt.num_samples)
+    target, model = get_target(key, opt)
     key, rng = random.split(key)
 
     gt_graph = nx.from_numpy_matrix(target.g, create_using=nx.DiGraph)

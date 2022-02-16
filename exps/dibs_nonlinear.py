@@ -122,7 +122,6 @@ def run_dibs_nonlinear(key, opt, n_intervention_sets, dag_file, writer, full_tra
                                                                     callback=dibs.visualize_callback(),
                                                                     start=0)
 
-
             evaluate(target, dibs, gs, theta_final, int(n_steps*(i+1)), dag_file, 
                     writer, opt, data, interv_targets, True)
             if num_interv_data == 0: break
