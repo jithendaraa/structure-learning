@@ -40,4 +40,4 @@ if opt.likelihood == 'nonlinear':
     if opt.across_interv is True:
         run_decoder_joint_dibs_across_interv_data(key, opt, logdir, n_intervention_sets, dag_file, writer, exp_config)
     else:
-        run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writer)
+        run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writer, exp_config)

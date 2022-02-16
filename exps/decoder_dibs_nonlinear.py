@@ -20,7 +20,7 @@ from dibs_new.dibs.metrics import expected_shd, threshold_metrics, neg_ave_log_m
 from dibs_new.dibs.inference import JointDiBS
 
 
-def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writer):
+def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writer, exp_config_dict):
     num_interv_data = opt.num_samples - opt.obs_data
     n_steps = opt.num_updates
     interv_data_per_set = int(num_interv_data / n_intervention_sets)
