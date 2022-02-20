@@ -59,10 +59,11 @@ def get_data(opt, n_intervention_sets, target):
 
     return obs_data, interv_data, x, no_interv_targets, projected_samples, sample_mean, sample_covariance
 
-def gen_data_from_dist(rng, q_z_mu, q_z_covar, num_samples, interv_targets):
+def gen_data_from_dist(rng, q_z_mu, q_z_covar, num_samples, interv_targets, clamp=True):
     q_z_mu = jnp.expand_dims(q_z_mu, 0).repeat(num_samples, axis=0)
     q_z_covar = jnp.expand_dims(q_z_covar, 0).repeat(num_samples, axis=0)
     data = random.multivariate_normal(rng, q_z_mu, q_z_covar)
-    data = jnp.where(interv_targets, 0.0, data)
+    if clamp is True:
+        data = jnp.where(interv_targets, 0.0, data)
     return data
 
