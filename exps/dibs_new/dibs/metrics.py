@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 from jax.scipy.special import logsumexp
 import numpy as onp
-
+import pdb
 from dibs_new.dibs.utils.tree import tree_mul, tree_select
 from dibs_new.dibs.graph_utils import elwise_acyclic_constr_nograd
 
@@ -184,6 +184,9 @@ def threshold_metrics(*, dist, g, unique=False):
     # threshold metrics 
     fpr_, tpr_, _ = sklearn_metrics.roc_curve(g_flat, p_edge_flat)
     roc_auc_ = sklearn_metrics.auc(fpr_, tpr_)
+    if onp.isnan(roc_auc_):
+        pdb.set_trace()
+        
     precision_, recall_, _ = sklearn_metrics.precision_recall_curve(g_flat, p_edge_flat)
     prc_auc_ = sklearn_metrics.auc(recall_, precision_)
     ave_prec_ = sklearn_metrics.average_precision_score(g_flat, p_edge_flat)

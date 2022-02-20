@@ -263,7 +263,7 @@ class MarginalDiBS(DiBS):
         return opt_state_z, key, sf_baseline, interv_targets, data
 
     # this is the crucial @jit
-    @functools.partial(jit, static_argnums=(0, 2))
+    # @functools.partial(jit, static_argnums=(0, 2))
     def _svgd_loop(self, start, n_steps, init):
         return jax.lax.fori_loop(start, start + n_steps, lambda i, args: self._svgd_step(i, *args), init)
 

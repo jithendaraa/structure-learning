@@ -65,7 +65,9 @@ def make_synthetic_bayes_net(*,
             for generating interventional data
         perc_intervened (float): percentage of nodes intervened upon (clipped to 0) in
             an intervention.
-
+    
+    TODO
+    
     Returns:
         :class:`~dibs.target.Data`:
         synthetic ground truth generative DAG and parameters as well observations sampled from the model
@@ -76,7 +78,6 @@ def make_synthetic_bayes_net(*,
 
     # generate ground truth observations
     key, subk = random.split(key)
-    print("subk", subk)
     g_gt = graph_dist.sample_G(subk)
     g_gt_mat = jnp.array(graph_to_mat(g_gt))
 
@@ -89,16 +90,13 @@ def make_synthetic_bayes_net(*,
     key, subk = random.split(key)
     x_ho = generative_model.sample_obs(key=subk, n_samples=n_ho_observations, g=g_gt, theta=theta)
 
-    # 10 random 0-clamp interventions where `perc_interv` % of nodes are intervened on
+    # n_intervention_sets (=num_nodes) 0-clamp interventions where each node is intervened on once
     # list of (interv dict, x)
     x_interv = []
     for idx in range(n_intervention_sets):
-    
         # random intervention
         key, subk = random.split(key)
-        n_interv = jnp.ceil(n_vars * perc_intervened).astype(jnp.int32)
-        interv_targets = random.choice(subk, n_vars, shape=(n_interv,), replace=False)
-        interv = {k: 0.0 for k in interv_targets}
+        interv = {idx: 0.0}
 
         # observations from p(x | theta, G, interv) [n_samples, n_vars]
         key, subk = random.split(key)
@@ -222,7 +220,7 @@ def make_linear_gaussian_model(*, key, n_vars=20, graph_prior_str='sf',
     """
 
     # init models
-    graph_dist = make_graph_model(n_vars=n_vars, graph_prior_str=graph_prior_str, edges_per_node=edges_per_node))
+    graph_dist = make_graph_model(n_vars=n_vars, graph_prior_str=graph_prior_str, edges_per_node=edges_per_node)
 
     generative_model = LinearGaussian(
         obs_noise=obs_noise, mean_edge=mean_edge, 
@@ -289,6 +287,7 @@ def make_nonlinear_gaussian_model(*, key, n_vars=20, graph_prior_str='sf',
         graph_dist=graph_dist,
         generative_model=generative_model,
         n_observations=n_observations,
-        n_ho_observations=n_ho_observations)
+        n_ho_observations=n_ho_observations,
+        n_intervention_sets=n_vars)
 
     return data, inference_model

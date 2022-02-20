@@ -39,11 +39,9 @@ print(f'Observational data: {opt.obs_data}')
 print(f'Interventional data: {num_interv_data}')
 print(f'Intervention sets {n_intervention_sets} with {interv_data_per_set} data points per intervention set')
 
-full_train = False
+if opt.likelihood == 'bge':
+    run_dibs_bge(key, opt, n_intervention_sets, dag_file, writer)
 
-# if opt.likelihood == 'bge':
-#     run_dibs_bge(key, opt, n_intervention_sets, dag_file, writer, full_train)
-
-# elif opt.likelihood == 'nonlinear':
-run_dibs_nonlinear(key, opt, n_intervention_sets, dag_file, writer, full_train)
+elif opt.likelihood == 'nonlinear':
+    run_dibs_nonlinear(key, opt, n_intervention_sets, dag_file, writer)
 
