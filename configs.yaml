@@ -220,14 +220,15 @@ dibs:
   data_seed: 1
   lr: 5e-3
   num_nodes: 4
-  num_updates: 500
+  num_updates: 1000
   grad_estimator: 'score'  # ['score', 'reparam'] 
   n_particles: 20
   exp_edges: 0.5
-  num_samples: 300
+  num_samples: 1000
   obs_data: 200
   likelihood: 'nonlinear'  # ['bge', 'nonlinear']
-  datagen: 'linear'
+  datagen: 'nonlinear'
+  full_train: False
 
 
 # ? 9. Decoder_DIBS
@@ -267,20 +268,22 @@ joint_decoder_dibs_er:
   algo: 'def'
   n_particles: 20
   num_nodes: 4
-  lr: 1e-3
+  lr: 8e-4
 
   steps: 10000
   num_updates: 1000
   proj_dims: 10
-  data_seed: 3
+  data_seed: 6
   exp_edges: 0.5
-  num_samples: 1000
+  num_samples: 600
   obs_data: 200
   projection: 'random'
-  likelihood: 'nonlinear'  # ['bge', 'nonlinear']
-  datagen: 'linear'
+  likelihood: 'nonlinear'  # ['bge', 'nonlinear', 'linear']
+  datagen: 'nonlinear'
   supervised: True
-  across_interv: True
+  across_interv: False
+  off_wandb: True
+  clamp: True
 
 # ? 8. VAE_DIBS
 # ! python main.py --config defaults experimental linear_vaedibs_er
