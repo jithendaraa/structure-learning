@@ -44,18 +44,7 @@ class ER(Generator):
 		self.covars = {'actual': actual_covars,'sample': sample_covars}
 
 		if project == 'linear': 
-			# if projection == 'random':
-			# 	pass
-			# elif projection == 'add_k_ones':
-			# 	pass
-			# num_samples = self.samples.shape[0]
-			# additional_dims = self.proj_dims - self.num_nodes
-			# ones_ = torch.ones((num_samples, additional_dims))
-			# self.projected_samples = torch.cat((self.samples, ones_), 1)
-			
 			self.projection_matrix = torch.rand(self.num_nodes, self.proj_dims)
-
-			# * inv(PP_t) * PX_t
 			P = self.projection_matrix.numpy()
 			P_T = np.transpose(P)
 			PP_T = np.matmul(P, P_T)
