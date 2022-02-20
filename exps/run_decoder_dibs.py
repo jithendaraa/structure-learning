@@ -34,10 +34,10 @@ n_steps = opt.num_updates / n_intervention_sets if num_interv_data > 0 else opt.
 print()
 print(f'Observational data: {opt.obs_data}')
 print(f'Interventional data: {num_interv_data}')
-print(f'Intervention sets {n_intervention_sets} with {interv_data_per_set} data points per intervention set')
+print(f'{n_intervention_sets} intervention sets with {interv_data_per_set} data points per intervention set, {int(interv_data_per_set / opt.num_nodes)} points per set per node')
 
 if opt.likelihood == 'nonlinear':
     if opt.across_interv is True:
-        run_decoder_joint_dibs_across_interv_data(key, opt, logdir, n_intervention_sets, dag_file, writer, exp_config)
+        run_decoder_joint_dibs_across_interv_data(key, opt, logdir, dag_file, writer, exp_config, n_intervention_sets)
     else:
         run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writer, exp_config)

@@ -86,7 +86,7 @@ def run_dibs_nonlinear(key, opt, n_intervention_sets, dag_file, writer, full_tra
     x = jnp.concatenate((obs_data, interv_data), axis=0)
     key, subk = random.split(key)
     
-    if full_train:
+    if opt.full_train:
         dibs = JointDiBS(n_vars=opt.num_nodes, 
                         inference_model=model,
                         alpha_linear=opt.alpha_linear,
@@ -99,6 +99,9 @@ def run_dibs_nonlinear(key, opt, n_intervention_sets, dag_file, writer, full_tra
                                                                             n_particles=opt.n_particles,
                                                                             callback_every=100, 
                                                                             callback=dibs.visualize_callback())
+
+        evaluate(target, dibs, gs, theta_final, 0, dag_file, 
+                    writer, opt, x, no_interv_targets, True)
     else:
         z_final, sf_baseline, opt_state_z, theta_final = None, None, None, None
 
