@@ -28,7 +28,8 @@ class Decoder_JointDiBS(nn.Module):
     grad_estimator: str = 'score'
     known_ED: bool = False
     linear_decoder: bool = False
-
+    clamp: bool = True
+# 
     def setup(self):
         self.n_vars = self.num_nodes
         
@@ -110,7 +111,7 @@ class Decoder_JointDiBS(nn.Module):
         flattened_g = jnp.array(g.reshape(-1))
         flattened_theta = jnp.concatenate((theta[0][0].flatten(), theta[0][1].flatten(), theta[2][0].flatten(), theta[2][1].flatten()), axis=0)
         g_thetas = jnp.concatenate((flattened_g, flattened_theta), axis=0)
-        q_z_mu, q_z_logcholesky = self.z_net(flattened_g)
+        q_z_mu, q_z_logcholesky = self.z_net(g_thetas)
         q_z_cholesky = jnp.exp(q_z_logcholesky)
 
         tril_indices = jnp.tril_indices(self.num_nodes)
@@ -190,7 +191,11 @@ class Decoder_JointDiBS(nn.Module):
         X_recons = vmap(decoder, (0), (0))(q_zs)
 
         # ? 4. Get dibs gradients dict with repsect to params: z and theta
-        if data is None:    data = lax.stop_gradient(q_zs)
+        if data is None:  
+            if self.clamp is True:
+                interv_filter_fn = lambda q_z: jnp.where(interv_targets, 0.0, q_z)
+                q_zs = vmap(interv_filter_fn, (0), (0))(q_zs)
+            data = lax.stop_gradient(q_zs)
         
         zs = particles_z[:, jnp.newaxis, ...]
         thetas = self.unsqueeze_theta(particles_theta)
