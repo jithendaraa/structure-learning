@@ -66,7 +66,7 @@ defaults:
   hidden_dims: 64
   factorised: False
   # For synthetic Erdos-Renyi data
-  noise_sigma: 1.0
+  noise_sigma: 0.1
   noise_mu: 0.0
   noise_type: 'isotropic-gaussian'
   proj: 'no'        # [False, 'linear', 'nonlinear']
@@ -99,131 +99,35 @@ defaults:
   dibs_lr: 5e-3
   soft_constraint: False
 
-# ? 1. Vanilla Slot attention
-train_clevr_sa_img:
-  ckpt_id: 'train_clevr_sa_img'
-  model: 'SlotAttention_img'
-  dataset: 'clevr'
-  steps: 100000
-
-# ? 2a Vanilla VCN (numerical)
-# ! python main.py --config defaults experimental train_vcn
-train_vcn:
-  ckpt_id: 'train_vcn' 
-  dataset: 'er'
-  datatype: 'er'
-  batch_size: 1000
-  seed: 10
-  data_seed: 11
-  lr: 1e-2
-  steps: 30000
-  model: 'VCN'
-  num_nodes: 4
-  opti: 'default'
-  num_samples: 500
-  exp_edges: 0.7
-
-
-# ? 3. Image VCN
-train_clevr_vcn_img:
-  ckpt_id: 'train_clevr_vcn_img' 
-  model: 'VCN_img'
-  batch_size: 64
-  lr: 8e-4
-  steps: 30000
-  dataset: 'clevr'
-  datatype: 'image'
-  loss_log_freq: 50
-  media_log_freq: 100
-  ckpt_save_freq: 1000
-  chan_per_node: 6
-  num_nodes: 3
-
-# ? 4. Slot-Image VCN
-train_clevr_slot1d_vcn_img:
-  ckpt_id: 'train_clevr_slot1d_vcn_img' 
-  model: 'Slot_VCN_img'
-  batch_size: 64
-  lr: 1e-3
-  steps: 20 
-  dataset: 'clevr'
-  loss_log_freq: 20
-  media_log_freq: 50
-  ckpt_save_freq: 1000
-  hidden_dims: 64
-  slot_size: 64
-  num_slots: 3
-  num_nodes: 3
-  slot_space: '1d' # can be 1d or 2d
-
-# ? 5. Graph VAE
-train_graph_vae:
-  ckpt_id: 'train_graph_vae' 
-  model: 'GraphVAE'
-  batch_size: 64
-  lr: 1e-3
-  steps: 2000
-  dataset: 'mnist'
-  loss_log_freq: 10
-  media_log_freq: 10
-  ckpt_save_freq: 1000
-  N: 5
-  M: 80
-  dims_per_node: 16 # N': dims per node
-  
-
-# ? 6a VAE_VCN: linear projection to higher dims (numerical)
-train_vaevcn_linearproj:
-  ckpt_id: 'train_vaevcn_linearproj' 
-  dataset: 'er'
-  datatype: 'er'
-  seed: 10
-  data_seed: 1
-  lr: 1e-3
-  steps: 30000
-  model: 'VAEVCN'
-  num_nodes: 3
-  proj: 'linear'
-
-# ? 6b VAE_VCN: linear projection to higher dims (numerical) with known decoder == projection matrix
-train_vaevcn_linearproj_knownED:
-  ckpt_id: 'train_vaevcn_linearproj_knownED'
-  seed: 10
-  data_seed: 1
-  lr: 1e-3
-  steps: 30000
-  model: 'VAEVCN'
-  num_nodes: 3
-  proj: 'linear'
-  known_ED: True
-
-# ? 6c Vanilla VCN: nonlinear projection to higher dims (numerical)
-train_vcn_nonlinearproj:
-  ckpt_id: 'train_vcn_nonlinearproj' 
-  seed: 10
-  data_seed: 1
-  lr: 1e-2
-  steps: 30000
-  model: 'VCN'
-  datatype: 'er'
-  loss_log_freq: 100
-  media_log_freq: 500
-  ckpt_save_freq: 5000
-  num_nodes: 3
-  proj: 'nonlinear'
-
 # ? 7. DIBS
-# ! python main.py --config defaults experimental train_dibs_er
-dibs:
+nonlinear_dibs:
+  exp_name: 'nonlinear_joint_dibs'
   ckpt_id: 'train_dibs_er'
   model: 'DIBS'
-  data_seed: 1
+  data_seed: 20
   lr: 5e-3
   num_nodes: 10
   num_updates: 1000
   grad_estimator: 'score'  # ['score', 'reparam'] 
   exp_edges: 0.5
-  num_samples: 180
+  num_samples: 120
+  obs_data: 20
+  likelihood: 'nonlinear'  # ['bge', 'nonlinear', 'linear']
+  datagen: 'nonlinear'
+  across_interv: True
+  off_wandb: False
+
+linear_dibs:
+  exp_name: 'linear_joint_dibs'
+  ckpt_id: 'train_dibs_er'
+  model: 'DIBS'
+  data_seed: 20
+  lr: 5e-3
+  num_nodes: 10
+  num_updates: 1000
+  grad_estimator: 'score'  # ['score', 'reparam'] 
+  exp_edges: 0.5
+  num_samples: 120
   obs_data: 20
   likelihood: 'linear'  # ['bge', 'nonlinear', 'linear']
   datagen: 'linear'
@@ -317,3 +221,117 @@ mini:
 
 mila:
   offline_wandb: False
+
+
+# ? 1. Vanilla Slot attention
+train_clevr_sa_img:
+  ckpt_id: 'train_clevr_sa_img'
+  model: 'SlotAttention_img'
+  dataset: 'clevr'
+  steps: 100000
+
+# ? 2a Vanilla VCN (numerical)
+# ! python main.py --config defaults experimental train_vcn
+train_vcn:
+  ckpt_id: 'train_vcn' 
+  dataset: 'er'
+  datatype: 'er'
+  batch_size: 1000
+  seed: 10
+  data_seed: 11
+  lr: 1e-2
+  steps: 30000
+  model: 'VCN'
+  num_nodes: 4
+  opti: 'default'
+  num_samples: 500
+  exp_edges: 0.7
+
+# ? 3. Image VCN
+train_clevr_vcn_img:
+  ckpt_id: 'train_clevr_vcn_img' 
+  model: 'VCN_img'
+  batch_size: 64
+  lr: 8e-4
+  steps: 30000
+  dataset: 'clevr'
+  datatype: 'image'
+  loss_log_freq: 50
+  media_log_freq: 100
+  ckpt_save_freq: 1000
+  chan_per_node: 6
+  num_nodes: 3
+
+# ? 4. Slot-Image VCN
+train_clevr_slot1d_vcn_img:
+  ckpt_id: 'train_clevr_slot1d_vcn_img' 
+  model: 'Slot_VCN_img'
+  batch_size: 64
+  lr: 1e-3
+  steps: 20 
+  dataset: 'clevr'
+  loss_log_freq: 20
+  media_log_freq: 50
+  ckpt_save_freq: 1000
+  hidden_dims: 64
+  slot_size: 64
+  num_slots: 3
+  num_nodes: 3
+  slot_space: '1d' # can be 1d or 2d
+
+# ? 5. Graph VAE
+train_graph_vae:
+  ckpt_id: 'train_graph_vae' 
+  model: 'GraphVAE'
+  batch_size: 64
+  lr: 1e-3
+  steps: 2000
+  dataset: 'mnist'
+  loss_log_freq: 10
+  media_log_freq: 10
+  ckpt_save_freq: 1000
+  N: 5
+  M: 80
+  dims_per_node: 16 # N': dims per node
+  
+
+# ? 6a VAE_VCN: linear projection to higher dims (numerical)
+train_vaevcn_linearproj:
+  ckpt_id: 'train_vaevcn_linearproj' 
+  dataset: 'er'
+  datatype: 'er'
+  seed: 10
+  data_seed: 1
+  lr: 1e-3
+  steps: 30000
+  model: 'VAEVCN'
+  num_nodes: 3
+  proj: 'linear'
+
+# ? 6b VAE_VCN: linear projection to higher dims (numerical) with known decoder == projection matrix
+train_vaevcn_linearproj_knownED:
+  ckpt_id: 'train_vaevcn_linearproj_knownED'
+  seed: 10
+  data_seed: 1
+  lr: 1e-3
+  steps: 30000
+  model: 'VAEVCN'
+  num_nodes: 3
+  proj: 'linear'
+  known_ED: True
+
+# ? 6c Vanilla VCN: nonlinear projection to higher dims (numerical)
+train_vcn_nonlinearproj:
+  ckpt_id: 'train_vcn_nonlinearproj' 
+  seed: 10
+  data_seed: 1
+  lr: 1e-2
+  steps: 30000
+  model: 'VCN'
+  datatype: 'er'
+  loss_log_freq: 100
+  media_log_freq: 500
+  ckpt_save_freq: 5000
+  num_nodes: 3
+  proj: 'nonlinear'
+
