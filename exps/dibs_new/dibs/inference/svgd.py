@@ -1,7 +1,7 @@
 import functools
 import numpy as onp
 
-import jax
+import jax, pdb
 import jax.numpy as jnp
 from jax import jit, vmap, random, grad
 from jax.tree_util import tree_map, tree_multimap
@@ -717,10 +717,10 @@ class JointDiBS(DiBS):
     def _svgd_loop(self, start, n_steps, init):
         return jax.lax.fori_loop(start, start + n_steps, lambda i, args: self._svgd_step(i, *args), init)
 
-
-    # @functools.partial(jit, static_argnums=(0, 2))
+    # this is the crucial @jit
+    @functools.partial(jit, static_argnums=(0, 2))
     def jit_svgd_loop(self, start, n_steps, init):
-        return jax.lax.fori_loop(start, start + n_steps, lambda i, args: self.jit_svgd_loop(i, *args), init)
+        return jax.lax.fori_loop(start, start + n_steps, lambda i, args: self._svgd_step(i, *args), init)
 
     def sample(self, *, steps, key, data, interv_targets, n_particles, 
                 opt_state_z=None, z=None, theta=None, sf_baseline=None,
