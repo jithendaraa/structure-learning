@@ -1,35 +1,30 @@
-import torch
-
-import os
-import pickle
+import torch, os, pickle, wandb, imageio, math, sys, pathlib, argparse, pdb
 from os.path import *
 from pathlib import Path
-import wandb
+
 import numpy as np
-import imageio
-import graphical_models
 import networkx as nx
 import matplotlib.pyplot as plt
-import math
 from jax import numpy as jnp
 from jax import random, jit
 from vcn_utils import adj_mat_to_vec
 from sklearn import metrics
-
-import argparse
 import ruamel.yaml as yaml
-import sys
-import pathlib
 
-def load_yaml_dibs(configs):
+
+def load_yaml_dibs(configs, exp=''):
+    default_config = 'defaults'
+    if exp != '': default_config += ' ' + exp
+
     parser = argparse.ArgumentParser()
-    parser.add_argument('--configs', nargs='+', default='defaults joint_decoder_dibs_er')
+    parser.add_argument('--configs', nargs='+', default=default_config)
     
     args, remaining = parser.parse_known_args()
     defaults = {}
-    for name in ['defaults', 'joint_decoder_dibs_er']:
-        defaults.update(configs[name])
 
+    for name in parser.parse_args().configs.split(' '):
+        defaults.update(configs[name])
+    
     parser = argparse.ArgumentParser()
     for key, value in sorted(defaults.items(), key=lambda x: x[0]):
       arg_type = args_type(value)
@@ -37,13 +32,7 @@ def load_yaml_dibs(configs):
     
     opt = parser.parse_args(remaining)
     opt = set_opts(opt)
-    exp_config = {}
-
-    for arg in vars(opt):
-      val = getattr(opt, arg)
-      exp_config[arg] = val
-      
-    return opt, exp_config
+    return opt
 
 def set_opts(opt):
     print()
@@ -251,6 +240,7 @@ def set_tb_logdir(opt):
       logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_steps{opt.steps}_lindecode{opt.linear_decoder}_dibslr{opt.dibs_lr}_datagen({opt.datagen})_interv{opt.num_samples - opt.obs_data}_supervised({str(opt.supervised)[:1]})'
       if opt.across_interv is True: logdir += 'across_interv'
       if opt.clamp is True: logdir += '_clamp'
+      if opt.reinit is True: logdir += '_reinit'
     
     elif opt.algo == 'fast-slow':
       logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_steps{opt.steps}_dibsupdates{opt.num_updates}_knownED{opt.known_ED}_lindecode{opt.linear_decoder}_algo{opt.algo}_particles{opt.n_particles}_dibslr{opt.dibs_lr}_datagen({opt.datagen})'
