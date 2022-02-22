@@ -85,7 +85,7 @@ def run_dibs_nonlinear(key, opt, n_intervention_sets, dag_file, writer, full_tra
     obs_data = jnp.array(target.x)[:opt.obs_data]
     x = jnp.concatenate((obs_data, interv_data), axis=0)
     key, subk = random.split(key)
-    
+
     if opt.full_train:
         dibs = JointDiBS(n_vars=opt.num_nodes, 
                         inference_model=model,
@@ -93,8 +93,7 @@ def run_dibs_nonlinear(key, opt, n_intervention_sets, dag_file, writer, full_tra
                         grad_estimator_z=opt.grad_estimator)
     
         gs, z_final, theta_final, opt_state_z, opt_state_theta, sf_baseline = dibs.sample(steps=n_steps,
-                                                                            key=subk, 
-                                                                            data=x,
+                                                                            key=subk, data=x,
                                                                             interv_targets=no_interv_targets,
                                                                             n_particles=opt.n_particles,
                                                                             callback_every=100, 

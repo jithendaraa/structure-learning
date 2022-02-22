@@ -718,9 +718,13 @@ class JointDiBS(DiBS):
         return jax.lax.fori_loop(start, start + n_steps, lambda i, args: self._svgd_step(i, *args), init)
 
 
+    # @functools.partial(jit, static_argnums=(0, 2))
+    def jit_svgd_loop(self, start, n_steps, init):
+        return jax.lax.fori_loop(start, start + n_steps, lambda i, args: self.jit_svgd_loop(i, *args), init)
+
     def sample(self, *, steps, key, data, interv_targets, n_particles, 
                 opt_state_z=None, z=None, theta=None, sf_baseline=None,
-                n_dim_particles=None, callback=None, callback_every=None, start=0):
+                n_dim_particles=None, callback=None, callback_every=None, start=0, jitted=False):
         """
         Use SVGD with DiBS to sample ``n_particles`` particles :math:`(G, \\Theta)` from the joint posterior
         :math:`p(G, \\Theta | D)` as defined by the BN model ``self.inference_model``
@@ -764,8 +768,10 @@ class JointDiBS(DiBS):
         for t in range(start, start+steps, callback_every):
 
             # perform sequence of SVGD steps
-            opt_state_z, opt_state_theta, key, sf_baseline, _, _ = self._svgd_loop(t, callback_every,
-                                                                             (opt_state_z, opt_state_theta, key, sf_baseline, data, interv_targets))
+            if jitted is True:
+                opt_state_z, opt_state_theta, key, sf_baseline, _, _ = self.jit_svgd_loop(t, callback_every, (opt_state_z, opt_state_theta, key, sf_baseline, data, interv_targets))
+            else:
+                opt_state_z, opt_state_theta, key, sf_baseline, _, _ = self._svgd_loop(t, callback_every, (opt_state_z, opt_state_theta, key, sf_baseline, data, interv_targets))
 
             # callback
             if callback:
