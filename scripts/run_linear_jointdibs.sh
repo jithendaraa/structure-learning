@@ -10,18 +10,18 @@
 #SBATCH --mail-type=REQUEUE
 #SBATCH --mail-type=ALL
 
-seeds=(1)
+seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
 exp_edges=(0.5)
 lrs=(0.001)
 dibs_lrs=(0.005)
 num_updates=(1000)
 steps=(10000)
 
-num_samples=(120)
-num_obs_data=20
+num_samples=(250)
+num_obs_data=50
 num_nodes=4
 proj_dims=10
-across_interv='False'
+across_interv='True'
 
 n_particles=20
 off_wandb='False'

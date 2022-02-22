@@ -54,7 +54,6 @@ def run_decoder_joint_dibs_across_interv_data(key, opt, logdir, dag_file, writer
     n_steps = opt.num_updates
     interv_data_per_set = int(num_interv_data / n_intervention_sets)
     decoder_train_steps = opt.steps - opt.num_updates
-
     gt_graph_image = np.asarray(imageio.imread(join(logdir, 'gt_graph.png')))
 
     if opt.offline_wandb is True: os.system('wandb offline')
@@ -77,7 +76,7 @@ def run_decoder_joint_dibs_across_interv_data(key, opt, logdir, dag_file, writer
         z_final, theta_final, sf_baseline = None, None, None
         if i > 0 and num_interv_data == 0: break
         
-        # target, model = get_target(key, opt)
+        if opt.reinit is True:  target, model = get_target(key, opt)
         joint_dibs_model = JointDiBS(n_vars=opt.num_nodes, inference_model=model, alpha_linear=opt.alpha_linear, grad_estimator_z=opt.grad_estimator)
         dibs = Decoder_JointDiBS(opt.num_nodes, opt.num_samples, opt.proj_dims, opt.n_particles,
                                     model, opt.alpha_linear, latent_prior_std = 1.0 / jnp.sqrt(opt.num_nodes),

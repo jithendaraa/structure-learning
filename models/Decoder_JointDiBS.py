@@ -9,7 +9,7 @@ from jax.ops import index, index_mul
 from jax.nn import sigmoid, log_sigmoid
 from jax.scipy.special import logsumexp, gammaln
 
-import datagen, utils
+import datagen, utils, pdb
 from dibs_new.dibs.target import make_nonlinear_gaussian_model
 from dibs_new.dibs.inference import JointDiBS
 from dibs_new.dibs.utils import visualize_ground_truth
@@ -38,10 +38,9 @@ class Decoder_JointDiBS(nn.Module):
                                     alpha_linear=self.alpha_linear, 
                                     grad_estimator_z=self.grad_estimator)
 
-        # if self.latent_prior_std is None: self.latent_prior_std = 1.0 / jnp.sqrt(n_dim)
-
         if self.known_ED is False:  self.decoder = Decoder(self.proj_dims, self.linear_decoder)
-        self.z_net = Z_mu_logvar_Net(self.num_nodes, self.proj_dims)
+        lower_triangular_elems = int(self.num_nodes * (self.num_nodes + 1) / 2)
+        self.z_net = Z_mu_logvar_Net(self.num_nodes, lower_triangular_elems)
         print("Loaded Decoder Joint DIBS")
     
     def reparameterized_multivariate_normal(self, rng, mean, cholesky_L, samples):

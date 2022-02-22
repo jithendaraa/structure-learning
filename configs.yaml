@@ -121,7 +121,7 @@ linear_dibs:
   exp_name: 'linear_joint_dibs'
   ckpt_id: 'train_dibs_er'
   model: 'DIBS'
-  data_seed: 20
+  data_seed: 2
   lr: 5e-3
   num_nodes: 10
   num_updates: 1000
