@@ -15,16 +15,17 @@ import ruamel.yaml as yaml
 def load_yaml_dibs(configs, exp=''):
     default_config = 'defaults'
     if exp != '': default_config += ' ' + exp
-
     parser = argparse.ArgumentParser()
     parser.add_argument('--configs', nargs='+', default=default_config)
     
     args, remaining = parser.parse_known_args()
     defaults = {}
 
-    for name in parser.parse_args().configs.split(' '):
-        defaults.update(configs[name])
-    
+    names = args.configs
+    if isinstance(names, list) is False: names = names.split(' ')
+
+    for name in names:  defaults.update(configs[name])
+
     parser = argparse.ArgumentParser()
     for key, value in sorted(defaults.items(), key=lambda x: x[0]):
       arg_type = args_type(value)
