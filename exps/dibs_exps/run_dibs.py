@@ -40,11 +40,13 @@ if opt.likelihood == 'bge':
     from dibs_bge import run_dibs_bge
     run_dibs_bge(key, opt, n_intervention_sets, dag_file, writer)
 
+# ! python run_dibs.py --config defaults linear_dibs
 elif opt.likelihood == 'linear':
     from dibs_linear import run_dibs_linear
     run_dibs_linear(key, opt, n_intervention_sets, dag_file, writer, logdir)
 
+# ! python run_dibs.py --config defaults nonlinear_dibs
 elif opt.likelihood == 'nonlinear':
     from dibs_nonlinear import run_dibs_nonlinear
-    run_dibs_nonlinear(key, opt, n_intervention_sets, dag_file, writer)
+    run_dibs_nonlinear(key, opt, n_intervention_sets, dag_file, writer, logdir)
 

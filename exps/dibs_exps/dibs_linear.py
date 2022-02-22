@@ -9,7 +9,6 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from os.path import join
 
-
 from dibs_new.dibs.target import make_linear_gaussian_model
 from dibs_new.dibs.inference import JointDiBS
 import datagen, utils
@@ -47,7 +46,7 @@ def evaluate(target, dibs, gs, thetas, steps, dag_file, writer, opt, data,
         writer.add_scalar('(Interventional) Evaluations/AUROC (marginal)', auroc_m, len(data) - opt.obs_data)
         writer.add_scalar('(Interventional) Evaluations/Exp. SHD (Empirical)', eshd_e, len(data) - opt.obs_data)
         writer.add_scalar('(Interventional) Evaluations/Exp. SHD (Marginal)', eshd_m, len(data) - opt.obs_data)
-        writer.add_scalar('(Interventional) Evaluations/MEC or GT recovery %', mec_or_gt_count * 100.0/ opt.n_particles, len(data) - opt.obs_data)
+        writer.add_scalar('(Interventional) Evaluations/MEC or GT recovery %', mec_gt_recovery, len(data) - opt.obs_data)
         writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, len(data) - opt.obs_data, dataformats='HWC')
 
         wandb_log_dict['(Interventional) Evaluations/AUROC (empirical)'] = auroc_e
@@ -69,12 +68,11 @@ def evaluate(target, dibs, gs, thetas, steps, dag_file, writer, opt, data,
 
     print("MEC-GT Recovery %", mec_gt_recovery)
     print()
-    if opt.off_wandb is False:  wandb.log(wandb_log_dict, step=steps)
+    if opt.off_wandb is False:  wandb.log(wandb_log_dict, step=len(data) - opt.obs_data)
 
 
 
 def run_dibs_linear(key, opt, n_interv_sets, dag_file, writer, logdir):
-
     exp_config_dict = vars(opt)
     num_interv_data = opt.num_samples - opt.obs_data
     interv_data_per_set = int(num_interv_data / n_interv_sets)  
@@ -85,6 +83,11 @@ def run_dibs_linear(key, opt, n_interv_sets, dag_file, writer, logdir):
                 obs_noise = opt.noise_sigma, 
                 mean_edge = opt.theta_mu, sig_edge = opt.theta_sigma, 
                 n_observations = opt.num_samples, n_ho_observations = opt.num_samples)
+    
+    interv_data, no_interv_targets = datagen.generate_interv_data(opt, n_interv_sets, target)
+    obs_data = jnp.array(target.x)[:opt.obs_data]
+    x = jnp.concatenate((obs_data, interv_data), axis=0)
+    key, subk = random.split(key)
     
     gt_graph = nx.from_numpy_matrix(target.g, create_using=nx.DiGraph)
     nx.draw(gt_graph, with_labels=True, font_weight='bold', node_size=1000, font_size=25, arrowsize=40, node_color='#FFFF00') # save ground truth graph
@@ -109,10 +112,7 @@ def run_dibs_linear(key, opt, n_interv_sets, dag_file, writer, logdir):
         wandb.run.save()
         wandb.log({"graph_structure(GT-pred)/Ground truth": wandb.Image(join(logdir, 'gt_graph.png'))}, step=0)
 
-    interv_data, no_interv_targets = datagen.generate_interv_data(opt, n_interv_sets, target)
-    obs_data = jnp.array(target.x)[:opt.obs_data]
-    x = jnp.concatenate((obs_data, interv_data), axis=0)
-    key, subk = random.split(key)
+    
 
     if opt.across_interv is False:
         dibs = JointDiBS(n_vars=opt.num_nodes, inference_model=model,
