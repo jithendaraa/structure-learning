@@ -14,7 +14,7 @@ import jax.numpy as jnp
 
 # ? Parse args
 configs = yaml.safe_load((pathlib.Path('../..') / 'configs.yaml').read_text())
-opt = utils.load_yaml_dibs(configs, exp='dibs')
+opt = utils.load_yaml_dibs(configs)
 if opt.likelihood == 'linear': opt.datagen = 'linear'
 
 # ? Set seeds

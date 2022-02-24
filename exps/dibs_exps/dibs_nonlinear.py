@@ -25,7 +25,8 @@ def run_dibs_nonlinear(key, opt, n_intervention_sets, dag_file, writer, logdir):
     z_final, sf_baseline, opt_state_z, theta_final = None, None, None, None
 
     target, model = make_nonlinear_gaussian_model(key = key, n_vars = opt.num_nodes, 
-                graph_prior_str = opt.datatype, edges_per_node = opt.exp_edges,
+                graph_prior_str = opt.datatype, 
+                edges_per_node = opt.exp_edges,
                 obs_noise = opt.noise_sigma, 
                 mean_edge = opt.theta_mu, sig_edge = opt.theta_sigma, 
                 n_observations = opt.num_samples, n_ho_observations = opt.num_samples)
@@ -61,14 +62,13 @@ def run_dibs_nonlinear(key, opt, n_intervention_sets, dag_file, writer, logdir):
     if opt.across_interv is False:
         dibs = JointDiBS(n_vars=opt.num_nodes, inference_model=model,
                         alpha_linear=opt.alpha_linear, grad_estimator_z=opt.grad_estimator)
-    
+
         gs, z_final, theta_final, opt_state_z, opt_state_theta, sf_baseline = dibs.sample(steps=n_steps, key=subk, data=x,
                                                                             interv_targets=no_interv_targets,
                                                                             n_particles=opt.n_particles, callback_every=100, start=0,
                                                                             callback=dibs.visualize_callback(), jitted=True)
 
-        evaluate(target, dibs, gs, theta_final, 0, dag_file, 
-                    writer, opt, x, no_interv_targets, True)
+        evaluate(target, dibs, gs, theta_final, 0, dag_file, writer, opt, x, no_interv_targets, True)
 
     else:
 

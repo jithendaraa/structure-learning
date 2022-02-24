@@ -30,7 +30,6 @@ def single_node_interv_data(opt, n_interv_sets, no_interv_targets, target):
         no_interv_targets[opt.obs_data + i * interv_data_pts_per_set : opt.obs_data + (i+1) * interv_data_pts_per_set, idx_i] = True
         data_idxs = sample(range(len(interv_data[idx_i][1])), interv_data_pts_per_set)
         data_.append(interv_data[idx_i][1][np.array(data_idxs)])
-
     return data_, no_interv_targets
 
 
