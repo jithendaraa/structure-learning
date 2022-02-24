@@ -10,7 +10,7 @@ from jax.tree_util import tree_map, tree_multimap
 
 from dibs_new.dibs.graph_utils import acyclic_constr_nograd
 from dibs_new.dibs.utils.func import expand_by
-
+import pdb
 
 class DiBS:
     """
@@ -305,7 +305,7 @@ class DiBS:
 
     
 
-    def log_joint_prob_soft(self, single_z, single_theta, eps, t, subk):
+    def log_joint_prob_soft(self, single_z, single_theta, eps, t, subk, data, interv_targets):
         """
         This is the composition of :math:`\\log p(\\Theta, D | G) `
         and :math:`G(Z, U)`  (Gumbel-softmax graph sample given :math:`Z`)
@@ -322,7 +322,7 @@ class DiBS:
 
         """
         soft_g_sample = self.particle_to_soft_graph(single_z, eps, t)
-        return self.log_joint_prob(soft_g_sample, single_theta, self.x, subk)
+        return self.log_joint_prob(soft_g_sample, single_theta, data, subk, interv_targets)
     
 
     #
@@ -432,7 +432,7 @@ class DiBS:
         
 
 
-    def grad_z_likelihood_gumbel(self, single_z, single_theta, single_sf_baseline, t, subk):
+    def grad_z_likelihood_gumbel(self, single_z, single_theta, single_sf_baseline, t, subk, interv_targets, data):
         """
         Reparameterization estimator for the score  :math:`\\nabla_Z \\log p(\\Theta, D | Z)`
         sing the Gumbel-softmax / concrete distribution reparameterization trick.
@@ -476,7 +476,7 @@ class DiBS:
         subk, subk_ = random.split(subk)
        
         # [d, k, 2], [d, d], [n_grad_mc_samples, d, d], [1,], [1,] -> [n_grad_mc_samples]
-        logprobs_numerator = vmap(self.log_joint_prob_soft, (None, None, 0, None, None), 0)(single_z, single_theta, eps, t, subk_) 
+        logprobs_numerator = vmap(self.log_joint_prob_soft, (None, None, 0, None, None, None, None), 0)(single_z, single_theta, eps, t, subk_, data, interv_targets) 
         logprobs_denominator = logprobs_numerator
 
         # [n_grad_mc_samples, d, k, 2]
@@ -484,7 +484,7 @@ class DiBS:
         # use the same minibatch of data as for other log prob evaluation (if using minibatching)
         
         # [d, k, 2], [d, d], [n_grad_mc_samples, d, d], [1,], [1,] -> [n_grad_mc_samples, d, k, 2]
-        grad_z = vmap(grad(self.log_joint_prob_soft, 0), (None, None, 0, None, None), 0)(single_z, single_theta, eps, t, subk_)
+        grad_z = vmap(grad(self.log_joint_prob_soft, 0), (None, None, 0, None, None, None, None), 0)(single_z, single_theta, eps, t, subk_, data, interv_targets)
 
         # stable computation of exp/log/divide
         # [d, k, 2], [d, k, 2]

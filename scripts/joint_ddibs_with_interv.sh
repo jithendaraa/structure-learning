@@ -17,7 +17,7 @@ dibs_lrs=(0.005)
 num_updates=(1000)
 steps=(10000)
 
-num_samples=(1200)
+num_samples=(400)
 num_obs_data=200
 num_nodes=4
 proj_dims=10
@@ -57,9 +57,9 @@ module load python/3.7
 echo `date` "Python starting"
 echo "python run_decoder_dibs.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_update} --steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --algo ${algo} --n_particles ${n_particles} --obs_data ${num_obs_data} --across_interv ${across_interv} --datagen ${datagen}"
 
-cd exps
+cd exps/decoder_dibs_exps
 python run_decoder_dibs.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_update} --steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --algo ${algo} --n_particles ${n_particles} --obs_data ${num_obs_data} --across_interv ${across_interv} --datagen ${datagen} --off_wandb ${off_wandb} --clamp ${clamp}
-cd ..
+cd ../..
 
 echo $end
 end=`date +%s`

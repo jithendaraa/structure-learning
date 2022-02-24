@@ -5,41 +5,57 @@ train=${3:-'train'}
 def_time='23:00:00'
 time=${4:-$def_time}
 
-if [ ${exp_id} == '0' ]     # ! Run Slot_attention_img
+# ! Run Slot_attention_img
+if [ ${exp_id} == '0' ]     
 then 
     bash script_runners/sa_img_job_run.sh ${dataset} ${train} 'SlotAttention_img' ${time}
-elif [ ${exp_id} == '1' ]   # ! Run VCN
+
+# ! Run VCN
+elif [ ${exp_id} == '1' ]   
 then
     bash script_runners/vcn_job_run.sh ${dataset} ${train} 'VCN' ${time}
-elif [ ${exp_id} == '2' ]   # ! Run VCN_img
+
+# ! Run VCN_img
+elif [ ${exp_id} == '2' ]   
 then
     bash script_runners/vcn_img_job_run.sh ${dataset} ${train} 'VCN_img' ${time}
 
-elif [ ${exp_id} == '3' ]   # ! Run Slot_VCN_img (1d; using just ELBO graph + MSE loss)
+# ! Run Slot_VCN_img (1d; using just ELBO graph + MSE loss)
+elif [ ${exp_id} == '3' ]   
 then
     bash script_runners/slot_vcn_img_job_run.sh ${dataset} ${train} 'Slot_VCN_img' ${time}
 
-elif [ ${exp_id} == '4' ]   # ! Run DIBS
+# ! Run DIBS
+elif [ ${exp_id} == '4' ]   
 then
     bash script_runners/dibs_job_run.sh ${dataset} ${train} 'DIBS' ${time}
-elif [ ${exp_id} == '5' ]   # ! Run VAE_DIBS
+
+# ! Run VAE_DIBS
+elif [ ${exp_id} == '5' ]   
 then
     bash script_runners/vae_dibs_job_run.sh ${dataset} ${train} 'VAE_DIBS' ${time}
-elif [ ${exp_id} == '6' ]   # ! Run Decoder DIBS
+
+# ! Run Decoder DIBS
+elif [ ${exp_id} == '6' ]   
 then
     bash script_runners/decoder_dibs_job_run.sh ${dataset} ${train} 'Decoder_DIBS' ${time}
+
 elif [ ${exp_id} == '6s' ]   # ! Search over hyperparams Decoder DIBS
 then
     bash script_runners/temp.sh ${dataset} ${train} 'Decoder_DIBS' ${time}
+
 elif [ ${exp_id} == '7s' ]   # ! Search over hyperparams Decoder Joint DIBS (across interv data)
 then
     bash script_runners/decoder_joint_dibs_interv_job_run.sh ${dataset} ${train} 'Decoder_JointDiBS' ${time}
 
-elif [ ${exp_id} == '8s' ]   # ! Search over hyperparams nonlinear Joint DIBS (across interv data)
+# !  linear Joint DIBS (across interv data) - Search over hyperparams
+elif [ ${exp_id} == '8s' ]   
+then
+    bash script_runners/joint_linear_dibs.sh ${dataset} ${train} 'DIBS' ${time}
+
+# !  nonlinear Joint DIBS (across interv data) - Search over hyperparams
+elif [ ${exp_id} == '9s' ]   
 then
     bash script_runners/joint_nonlinear_dibs.sh ${dataset} ${train} 'DIBS' ${time}
 
-elif [ ${exp_id} == '9s' ]   # ! Search over hyperparams linear Joint DIBS (across interv data)
-then
-    bash script_runners/joint_linear_dibs.sh ${dataset} ${train} 'DIBS' ${time}
 fi

@@ -21,7 +21,7 @@ if [ ${train} == 'train' ]
 then
     if [ ${dataset} == 'er' ]
     then
-        config='joint_decoder_dibs_er'
+        config='linear_joint_decoder_dibs_er'
         output_file="out/Decoder_JointDIBS/decoder_joint_dibs_er-%A_%a.out"
         echo "Train Decoder DIBS ER: ${config}"
     else

@@ -431,7 +431,7 @@ class JointDiBS(DiBS):
                  tau=1.0,
                  n_grad_mc_samples=128,
                  n_acyclicity_mc_samples=32,
-                 grad_estimator_z="reparam",
+                 grad_estimator_z="score",
                  score_function_baseline=0.0,
                  latent_prior_std=None,
                  verbose=False):

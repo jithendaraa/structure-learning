@@ -14,17 +14,19 @@ seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
 exp_edges=(0.5)
 lrs=(0.001)
 dibs_lrs=(0.005)
-num_updates=(1000)
 steps=(10000)
 
-num_samples=(250)
-num_obs_data=50
+num_updates=(2000)
 num_nodes=4
-proj_dims=10
+num_samples=(200)
+num_obs_data=100
 across_interv='True'
+grad_estimator='reparam'
 
 n_particles=20
+proj_dims=10
 off_wandb='False'
+interv_type='single'
 
 array_len=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#dibs_lrs[@]} * ${#num_updates[@]} * ${#steps[@]} * ${#num_samples[@]} ))
 echo $array_len
@@ -51,10 +53,10 @@ echo "Script"
 act_causal
 module load python/3.7
 echo `date` "Python starting"
-echo "python run_dibs.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_update} --num_samples ${num_sample} --num_nodes ${num_nodes} --n_particles ${n_particles} --obs_data ${num_obs_data} --across_interv ${across_interv}"
+echo "python run_dibs.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_update} --num_samples ${num_sample} --num_nodes ${num_nodes} --n_particles ${n_particles} --obs_data ${num_obs_data} --across_interv ${across_interv} --interv_type ${interv_type} --grad_estimator ${grad_estimator}"
 
 cd exps/dibs_exps
-python run_dibs.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_update} --num_samples ${num_sample} --num_nodes ${num_nodes} --n_particles ${n_particles} --obs_data ${num_obs_data} --across_interv ${across_interv} --off_wandb ${off_wandb}
+python run_dibs.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_update} --num_samples ${num_sample} --num_nodes ${num_nodes} --n_particles ${n_particles} --obs_data ${num_obs_data} --across_interv ${across_interv} --off_wandb ${off_wandb} --interv_type ${interv_type} --grad_estimator ${grad_estimator}
 cd ../..
 
 echo $end
