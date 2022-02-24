@@ -112,7 +112,7 @@ linear_dibs:
   num_samples: 220
   obs_data: 20
   across_interv: True
-  interv_type: 'single'  # ['single', 'multi']
+  interv_type: 'multi'  # ['single', 'multi']
 
 nonlinear_dibs:
   exp_name: 'nonlinear_joint_dibs'
@@ -120,13 +120,17 @@ nonlinear_dibs:
   likelihood: 'nonlinear'  # ['bge', 'nonlinear', 'linear']
   datagen: 'nonlinear'
   model: 'DIBS'
-  data_seed: 20
+  data_seed: 1
   num_nodes: 10
-  num_updates: 1000
-  num_samples: 220
-  obs_data: 20
+  num_updates: 5000
+  num_samples: 200
+  obs_data: 100
   across_interv: True
   interv_type: 'single'  # ['single', 'multi']
+  exp_edges: 0.5
+  grad_estimator: 'score'
+  off_wandb: True
+
 
 # ? Marginal DIBS
 linear_joint_decoder_dibs_er:
