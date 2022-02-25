@@ -24,6 +24,7 @@ class Decoder_JointDiBS(nn.Module):
     n_particles: int
     model: DenseNonlinearGaussian
     alpha_linear: float
+    dibs_type: str = 'nonlinear'
     latent_prior_std: float = None
     grad_estimator: str = 'score'
     known_ED: bool = False
@@ -33,10 +34,8 @@ class Decoder_JointDiBS(nn.Module):
     def setup(self):
         self.n_vars = self.num_nodes
         
-        self.dibs = JointDiBS(n_vars=self.num_nodes, 
-                                    inference_model=self.model, 
-                                    alpha_linear=self.alpha_linear, 
-                                    grad_estimator_z=self.grad_estimator)
+        self.dibs = JointDiBS(n_vars=self.num_nodes, inference_model=self.model, 
+                            alpha_linear=self.alpha_linear, grad_estimator_z=self.grad_estimator)
 
         if self.known_ED is False:  self.decoder = Decoder(self.proj_dims, self.linear_decoder)
         lower_triangular_elems = int(self.num_nodes * (self.num_nodes + 1) / 2)
@@ -72,7 +71,6 @@ class Decoder_JointDiBS(nn.Module):
                         tuple(jnp.array(n_particles, "1", n_vars, x, 1), jnp.array(n_particles, "1", n_vars, 1))
                     ]
         """
-        
         res = theta
         for idx, tuples in enumerate(theta):
             if len(tuples) > 0:
@@ -95,7 +93,6 @@ class Decoder_JointDiBS(nn.Module):
                     tuple(jnp.array(n_particles, n_vars, x, 1), jnp.array(n_particles, n_vars, 1))
                 ]
         """
-        
         res = theta
         for idx, tuples in enumerate(theta):
             if len(tuples) > 0:
@@ -126,7 +123,7 @@ class Decoder_JointDiBS(nn.Module):
         """
         [TODO]
         """
-        n_particles, _, n_dim, _ = z.shape
+        n_particles = z.shape[0]
         # d/dtheta log p(theta, D | z)
         key, subk = random.split(key)
         dtheta_log_prob = self.dibs.eltwise_grad_theta_likelihood(z, theta, t, subk, data, interv_targets)
@@ -134,10 +131,9 @@ class Decoder_JointDiBS(nn.Module):
         # d/dz log p(theta, D | z)
         key, *batch_subk = random.split(key, n_particles + 1)
         dz_log_likelihood, sf_baseline = self.dibs.eltwise_grad_z_likelihood(z, theta, sf_baseline, t, jnp.array(batch_subk), interv_targets, data)
-        
         # d/dz log p(z) (acyclicity)
         key, *batch_subk = random.split(key, n_particles + 1)
-        dz_log_prior = self.dibs.eltwise_grad_latent_prior(z, jnp.array(batch_subk), t, latent_prior= 1.0 / jnp.sqrt(n_dim))
+        dz_log_prior = self.dibs.eltwise_grad_latent_prior(z, jnp.array(batch_subk), t, latent_prior= 1.0 / jnp.sqrt(self.n_vars))
 
         # d/dz log p(z, theta, D) = d/dz log p(z)  + log p(theta, D | z) 
         dz_log_prob = dz_log_prior + dz_log_likelihood
@@ -155,7 +151,7 @@ class Decoder_JointDiBS(nn.Module):
         """
         [TODO]
         """
-        return vmap(self.eltwise_get_grad_dibs_params, (None, 0, 0, None, 0, None, 0), (0, 0, 0))(key, zs, thetas, t, datas, interv_targets, sf_baselines[:, jnp.newaxis])
+        return vmap(self.eltwise_get_grad_dibs_params, (None, 0, 0, None, 0, None, 0), (0, 0, 0))(key, zs, thetas, t, datas, interv_targets, sf_baselines)
 
     def __call__(self, key, particles_z, particles_theta, sf_baseline, data, interv_targets, step):
         """
@@ -172,14 +168,13 @@ class Decoder_JointDiBS(nn.Module):
         intev_targets: bool jnp array of shape (n_samples, n_vars)
         step: int
         """
-
         samples = len(interv_targets)
-        # ? 1. Sample n_particles graphs from particles_z
-        if sf_baseline is None:     sf_baseline = jnp.zeros(self.n_particles)
+
         if particles_z is None and particles_theta is None:
             particles_z, particles_theta = self.dibs._sample_initial_random_particles(key=key, n_particles=self.n_particles)
 
-        if self.grad_estimator == 'score': gs = self.dibs.particle_to_g_lim(particles_z)
+        # ? 1. Sample n_particles graphs from particles_z
+        gs = self.dibs.particle_to_g_lim(particles_z)
 
         # ? 2. Get graph conditioned predictions on z: q(z|G, theta)
         get_posterior_z = vmap(self.eltwise_get_posterior_z, (None, 0, 0, None), (0, 0, 0, 0))
@@ -196,10 +191,18 @@ class Decoder_JointDiBS(nn.Module):
                 q_zs = vmap(interv_filter_fn, (0), (0))(q_zs)
             data = lax.stop_gradient(q_zs)
         
-        zs = particles_z[:, jnp.newaxis, ...]
-        thetas = self.unsqueeze_theta(particles_theta)
-        phi_z, phi_theta, sf_baseline = self.get_grad_dibs_params(key, zs, thetas, step, data, interv_targets, sf_baseline)
+        
+        if self.dibs_type == 'nonlinear': 
+            thetas = self.unsqueeze_theta(particles_theta)
+            phi_z, phi_theta, sf_baseline = self.get_grad_dibs_params(key, particles_z[:, jnp.newaxis, ...], 
+                                                                    thetas, step, data, interv_targets, sf_baseline[:, jnp.newaxis])
+            thetas = self.squeeze_theta(particles_theta)
+
+        else:
+            phi_z, phi_theta, sf_baseline = self.get_grad_dibs_params(key, particles_z, particles_theta, step, data, interv_targets, sf_baseline)
+        
         dibs_grads = {'phi_z': jnp.squeeze(phi_z, axis=1), 'phi_theta': self.squeeze_theta(phi_theta)}
         
-        return X_recons, (particles_z, self.squeeze_theta(particles_theta)), q_z_mus, q_z_covars, dibs_grads, gs, jnp.squeeze(sf_baseline, axis=1), q_zs
+        
+        return X_recons, (particles_z, thetas), q_z_mus, q_z_covars, dibs_grads, gs, jnp.squeeze(sf_baseline, axis=1), q_zs
 
