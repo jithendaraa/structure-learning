@@ -18,6 +18,7 @@ from eval_ import evaluate
 
 
 def run_dibs_nonlinear(key, opt, n_intervention_sets, dag_file, writer, logdir):
+    callback_every = int(opt.num_updates / 10)
     exp_config_dict = vars(opt)
     num_interv_data = opt.num_samples - opt.obs_data
     n_steps = opt.num_updates
@@ -65,7 +66,7 @@ def run_dibs_nonlinear(key, opt, n_intervention_sets, dag_file, writer, logdir):
 
         gs, z_final, theta_final, opt_state_z, opt_state_theta, sf_baseline = dibs.sample(steps=n_steps, key=subk, data=x,
                                                                             interv_targets=no_interv_targets,
-                                                                            n_particles=opt.n_particles, callback_every=100, start=0,
+                                                                            n_particles=opt.n_particles, callback_every=callback_every, start=0,
                                                                             callback=dibs.visualize_callback(), jitted=True)
 
         evaluate(target, dibs, gs, theta_final, 0, dag_file, writer, opt, x, no_interv_targets, True)
@@ -81,7 +82,7 @@ def run_dibs_nonlinear(key, opt, n_intervention_sets, dag_file, writer, logdir):
                                                                                     data=data, interv_targets=interv_targets,
                                                                                     n_particles=opt.n_particles, opt_state_z=opt_state_z,
                                                                                     z=z_final, theta=theta_final, sf_baseline=sf_baseline,
-                                                                                    callback_every=100, callback=dibs.visualize_callback(),
+                                                                                    callback_every=callback_every, callback=dibs.visualize_callback(),
                                                                                     start=0, jitted=True)
 
             evaluate(target, dibs, gs, theta_final, len(data) - opt.obs_data, dag_file, writer, opt, data, interv_targets, True)
