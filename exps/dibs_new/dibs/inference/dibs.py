@@ -454,6 +454,8 @@ class DiBS:
             single_sf_baseline (ndarray): ``[1, ]``
             t (int): step
             subk (ndarray): rng key
+            interv_targets: [N, d]
+            data: [N, d]
 
         Returns:
             tuple of gradient, baseline  ``[d, k, 2], [1, ]``
