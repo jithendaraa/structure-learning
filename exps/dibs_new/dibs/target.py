@@ -237,7 +237,8 @@ def make_linear_gaussian_model(*, key, n_vars=20, graph_prior_str='sf',
         graph_dist=graph_dist,
         generative_model=generative_model,
         n_observations=n_observations,
-        n_ho_observations=n_ho_observations)
+        n_ho_observations=n_ho_observations,
+        n_intervention_sets=n_vars)
 
     return data, inference_model
 
