@@ -44,18 +44,24 @@ elif [ ${exp_id} == '6s' ]   # ! Search over hyperparams Decoder DIBS
 then
     bash script_runners/temp.sh ${dataset} ${train} 'Decoder_DIBS' ${time}
 
-elif [ ${exp_id} == '7s' ]   # ! Search over hyperparams Decoder Joint DIBS (across interv data)
-then
-    bash script_runners/decoder_joint_dibs_interv_job_run.sh ${dataset} ${train} 'Decoder_JointDiBS' ${time}
-
 # !  linear Joint DIBS (across interv data) - Search over hyperparams
-elif [ ${exp_id} == '8s' ]   
+elif [ ${exp_id} == '7s' ]   
 then
     bash script_runners/joint_linear_dibs.sh ${dataset} ${train} 'DIBS' ${time}
 
 # !  nonlinear Joint DIBS (across interv data) - Search over hyperparams
-elif [ ${exp_id} == '9s' ]   
+elif [ ${exp_id} == '8s' ]   
 then
     bash script_runners/joint_nonlinear_dibs.sh ${dataset} ${train} 'DIBS' ${time}
+
+# ! Linear Decoder Joint DIBS (across interv data) - Search over hyperparams
+elif [ ${exp_id} == '9s' ]   
+then
+    bash script_runners/joint_linear_decoder_dibs.sh ${dataset} ${train} 'Decoder_JointDiBS' ${time}
+
+# ! Nonlinear Decoder Joint DIBS (across interv data) - Search over hyperparams
+elif [ ${exp_id} == '10s' ]   
+then
+    bash script_runners/decoder_joint_dibs_interv_job_run.sh ${dataset} ${train} 'Decoder_JointDiBS' ${time}
 
 fi
