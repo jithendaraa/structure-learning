@@ -1,5 +1,6 @@
 import sys
 sys.path.append('..')
+sys.path.append('../..')
 
 import os, imageio, utils, datagen, pathlib, graphical_models
 from torch.utils.tensorboard import SummaryWriter
@@ -11,8 +12,8 @@ import numpy as np
 import jax.numpy as jnp
 
 # ? Parse args
-configs = yaml.safe_load((pathlib.Path('..') / 'configs.yaml').read_text())
-opt = utils.load_yaml_dibs(configs, exp='joint_decoder_dibs_er')
+configs = yaml.safe_load((pathlib.Path('../..') / 'configs.yaml').read_text())
+opt = utils.load_yaml_dibs(configs)
 if opt.likelihood == 'linear': opt.datagen = 'linear'
 exp_config = vars(opt)
 
@@ -33,7 +34,7 @@ n_steps = opt.num_updates / n_intervention_sets if num_interv_data > 0 else opt.
 print()
 print(f'Observational data: {opt.obs_data}')
 print(f'Interventional data: {num_interv_data}')
-print(f'{n_intervention_sets} intervention sets with {interv_data_per_set} data points per intervention set, {int(interv_data_per_set / opt.num_nodes)} points per set per node')
+print(f'{n_intervention_sets} intervention sets with {interv_data_per_set} data points per intervention set')
 
 if opt.likelihood == 'nonlinear':
     if opt.across_interv is True:
