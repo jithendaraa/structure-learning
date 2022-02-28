@@ -26,9 +26,9 @@ def get_mse_and_kls(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt):
     return mse_loss, kl_z_loss, loss
 
 def loss_fn(params, z_rng, z, theta, sf_baseline, data, interv_targets, 
-            step, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, dibs):
+            step, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, dibs, dibs_type):
     
-    recons, _, q_z_mus, q_z_covars, _, _, _, _ = dibs.apply({'params': params}, z_rng, z, theta, sf_baseline, data, interv_targets, step)
+    recons, _, q_z_mus, q_z_covars, _, _, _, _ = dibs.apply({'params': params}, z_rng, z, theta, sf_baseline, data, interv_targets, step, dibs_type)
     mse_loss, kl_z_loss, loss = get_mse_and_kls(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt)
     return loss
 

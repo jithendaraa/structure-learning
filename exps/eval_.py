@@ -9,7 +9,7 @@ from dibs_new.dibs.metrics import expected_shd, threshold_metrics, neg_ave_log_l
 
 
 def evaluate(target, dibs, gs, thetas, steps, dag_file, writer, opt, data, 
-            interv_targets, tb_plots=False):
+            interv_targets, tb_plots=False, wandb_log_dict={}):
     """
         [TODO]
     """
@@ -55,7 +55,11 @@ def evaluate(target, dibs, gs, thetas, steps, dag_file, writer, opt, data,
         wandb_log_dict['graph_structure(GT-pred)/Posterior sampled graphs'] = wandb.Image(sampled_graph)
 
     print()
-    print(f"Metrics after training on {opt.obs_data} obs data and {steps} interv. data")
+    if opt.obs_data == opt.num_samples:
+        print(f"Metrics after training on {opt.obs_data} obs data")
+    else:
+        print(f"Metrics after training on {opt.obs_data} obs data and {steps} interv. data")
+    
     print(f"AUROC (Empirical and Marginal): {auroc_e} {auroc_m}")
     print("ESHD (empirical):", eshd_e)
     print("ESHD (marginal mixture):", eshd_m)

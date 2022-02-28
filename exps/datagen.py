@@ -74,9 +74,16 @@ def generate_interv_data(opt, n_interv_sets, target):
     return data_, no_interv_targets
 
 def get_data(opt, n_intervention_sets, target):
-    interv_data, no_interv_targets = generate_interv_data(opt, n_intervention_sets, target)
     obs_data = jnp.array(target.x)[:opt.obs_data]
-    x = jnp.concatenate((obs_data, interv_data), axis=0)
+    num_interv_data = opt.num_samples - opt.obs_data
+
+    if num_interv_data > 0:
+        interv_data, no_interv_targets = generate_interv_data(opt, n_intervention_sets, target)
+        x = jnp.concatenate((obs_data, interv_data), axis=0)
+    else:
+        interv_data = None
+        x = jnp.array(obs_data)
+        no_interv_targets = jnp.zeros((opt.num_samples, opt.num_nodes)).astype(bool)
 
     if opt.proj == 'linear': 
         projection_matrix = torch.rand(opt.num_nodes, opt.proj_dims)
