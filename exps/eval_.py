@@ -13,8 +13,8 @@ def evaluate(target, dibs, gs, thetas, steps, dag_file, writer, opt, data,
     """
         [TODO]
     """
-    title = '(Interventional) ' if opt.across_interv is True else ''
-    wandb_log_dict = {}
+    title = ''
+    if opt.across_interv is True: title = '(Interventional) '
     gt_graph = nx.from_numpy_matrix(np.array(target.g), create_using=nx.DiGraph)
     gt_graph_cpdag = graphical_models.DAG.from_nx(gt_graph).cpdag()
 

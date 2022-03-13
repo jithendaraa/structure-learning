@@ -16,7 +16,7 @@ defaults:
   offline_wandb: False
   off_wandb: False
   wandb_project: 'structure-learning'
-  wandb_entity: 'jithendaraa'
+  wandb_entity: 'structurelearning'
   log_batches: 4
 
   # ? Logging and checkpoint frequencies (steps)
@@ -86,7 +86,7 @@ defaults:
   num_updates: 1000
   n_particles: 20
   # ? TODO has to be changed to 'reparam' later
-  grad_estimator: 'score'  # ['score', 'reparam']   
+  grad_estimator: 'reparam'  # ['score', 'reparam']   
   exp_edges: 0.5
 
   # ? Decoder DIBS
@@ -97,6 +97,7 @@ defaults:
   proj: 'linear'
   z_prior: 'sample'   # TODO: 'actual' needs fixing from std to covar so use 'sample for now' | ['actual', 'sample'] 
   algo: 'def'
+  interv_type: 'single'
 
 
 # ? DIBS
@@ -109,10 +110,13 @@ linear_dibs:
   data_seed: 2
   num_nodes: 4
   num_updates: 1000
-  num_samples: 220
-  obs_data: 20
+  num_samples: 200
+  obs_data: 100
   across_interv: True
-  interv_type: 'multi'  # ['single', 'multi']
+  interv_type: 'single'  # ['single', 'multi']
+  exp_edges: 0.5
+  grad_estimator: 'reparam'
+  off_wandb: True
 
 nonlinear_dibs:
   exp_name: 'nonlinear_joint_dibs'
@@ -121,21 +125,21 @@ nonlinear_dibs:
   datagen: 'nonlinear'
   model: 'DIBS'
   data_seed: 1
-  num_nodes: 10
+  num_nodes: 50
   num_updates: 5000
   num_samples: 200
   obs_data: 100
   across_interv: True
   interv_type: 'single'  # ['single', 'multi']
-  exp_edges: 0.5
-  grad_estimator: 'score'
+  exp_edges: 1.0
+  grad_estimator: 'reparam'
   off_wandb: True
 
 
-# ? Marginal DIBS
-linear_joint_decoder_dibs_er:
+# ? Linear Decoder DIBS (Joint)
+linear_decoder_dibs:
   exp_name: 'linear_decoder_dibs'
-  ckpt_id: 'joint_decoder_dibs_er'
+  ckpt_id: 'joint_linear_decoder_dibs_er'
   likelihood: 'linear'  # ['bge', 'nonlinear', 'linear']
   datagen: 'linear'
   model: 'Decoder_JointDiBS'
@@ -144,42 +148,46 @@ linear_joint_decoder_dibs_er:
   proj_dims: 10
   exp_edges: 0.5
   lr: 8e-4
-  supervised: True
 
-  steps: 10000
+  steps: 1020
   num_updates: 1000
   data_seed: 1
-  num_samples: 400
-  obs_data: 200
-  across_interv: False
+  num_samples: 200
+  obs_data: 100
   off_wandb: True
-  clamp: False
-  reinit: False # reinit target and model every iter
+  clamp: True
+  reinit: True # reinit target and model every iter
+  interv_type: 'single'  # ['single', 'multi']
+  grad_estimator: 'reparam'
+  across_interv: False
+  supervised: True
+  topsort: False
 
-
-nonlinear_joint_decoder_dibs_er:
+# ? Nonlinear Decoder DIBS (Joint)
+nonlinear_decoder_dibs:
   exp_name: 'nonlinear_decoder_dibs'
-  ckpt_id: 'joint_decoder_dibs_er'
+  ckpt_id: 'joint_nonlinear_decoder_dibs_er'
   likelihood: 'nonlinear'  # ['bge', 'nonlinear', 'linear']
   datagen: 'nonlinear'
   model: 'Decoder_JointDiBS'
   linear_decoder: False
-  num_nodes: 4
-  proj_dims: 10
   exp_edges: 0.5
   supervised: True
   lr: 8e-4
+  proj_dims: 10
 
-  steps: 10000
+  steps: 1100
+  num_nodes: 4
   num_updates: 1000
   data_seed: 1
-  num_samples: 250
-  obs_data: 50
-  across_interv: True
-  off_wandb: False
+  num_samples: 200
+  obs_data: 100
+  across_interv: False
+  off_wandb: True
   clamp: True
   reinit: True # reinit target and model every iter
-
+  interv_type: 'single'  # ['single', 'multi']
+  grad_estimator: 'reparam'
 
 
 # ? 9. Decoder_DIBS

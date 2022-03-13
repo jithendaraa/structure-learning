@@ -1,5 +1,6 @@
 import sys, os, imageio, graphical_models, pdb
 sys.path.append('../')
+sys.path.append('../../')
 from os.path import join
 import datagen, utils
 from functools import partial
@@ -19,6 +20,7 @@ from models.Decoder_JointDiBS import Decoder_JointDiBS
 from dibs_new.dibs.target import make_nonlinear_gaussian_model, make_linear_gaussian_model
 from dibs_new.dibs.metrics import expected_shd, threshold_metrics, neg_ave_log_marginal_likelihood
 from dibs_new.dibs.inference import JointDiBS
+from eval_ import evaluate
 
 def get_target(key, opt):
     if opt.datagen == 'linear':
@@ -67,8 +69,6 @@ def run_decoder_joint_dibs_across_interv_data(key, opt, logdir, dag_file, writer
         wandb.run.name = logdir.split('/')[-1]
         wandb.run.save()
         wandb.log({"graph_structure(GT-pred)/Ground truth": wandb.Image(join(logdir, 'gt_graph.png'))}, step=0)
-
-    
 
     for i in range(n_intervention_sets + 1):
         print()
@@ -138,63 +138,7 @@ def run_decoder_joint_dibs_across_interv_data(key, opt, logdir, dag_file, writer
             writer.add_scalar('z_losses/KL', np.array(kl_z_loss), len(interv_targets) - opt.obs_data)
             wandb_log_dict['z_losses/KL'] = np.array(kl_z_loss)
 
-        evaluate(target, writer, joint_dibs_model, gs, theta_final, z_gt[:len(interv_targets)], interv_targets, 
-                    gt_graph, dag_file, opt, len(interv_targets) - opt.obs_data, wandb_log_dict, True)
+        evaluate(target, joint_dibs_model, gs, theta_final, len(interv_targets) - opt.obs_data, 
+                dag_file, writer, opt, z_gt[:len(interv_targets)], interv_targets, True)
 
 
-def evaluate(target, writer, joint_dibs_model, gs, theta, data, interv_targets, 
-            gt_graph, dag_file, opt, steps, wandb_log_dict, tb_plots=False):
-    gt_graph = nx.from_numpy_matrix(np.array(target.g), create_using=nx.DiGraph)
-    gt_graph_cpdag = graphical_models.DAG.from_nx(gt_graph).cpdag()
-    cpdag_shds = []
-    for adj_mat in gs:
-        G = nx.from_numpy_matrix(adj_mat, create_using=nx.DiGraph)
-        try:
-            G_cpdag = graphical_models.DAG.from_nx(G).cpdag()
-            shd = gt_graph_cpdag.shd(G_cpdag)
-            cpdag_shds.append(shd)
-        except:
-            pass
-    
-    dibs_empirical = joint_dibs_model.get_empirical(gs, data)
-    eshd_e = np.array(expected_shd(dist=dibs_empirical, g=target.g)) 
-    auroc_e = threshold_metrics(dist=dibs_empirical, g=target.g)['roc_auc']
-    
-    dibs_mixture = joint_dibs_model.get_mixture(gs, theta, data, interv_targets)
-    eshd_m = np.array(expected_shd(dist=dibs_mixture, g=target.g))     
-    auroc_m = threshold_metrics(dist=dibs_mixture, g=target.g)['roc_auc']
-    
-    sampled_graph, mec_or_gt_count = utils.log_dags(gs, gt_graph, eshd_e, eshd_m, dag_file)
-    mec_gt_recovery = mec_or_gt_count * 100.0 / opt.n_particles
-
-    if tb_plots:
-        writer.add_scalar('Evaluations/AUROC (empirical)', auroc_e, steps)
-        writer.add_scalar('Evaluations/AUROC (marginal)', auroc_m, steps)
-        writer.add_scalar('Evaluations/Exp. SHD (Empirical)', eshd_e, steps)
-        writer.add_scalar('Evaluations/Exp. SHD (Marginal)', eshd_m, steps)
-        writer.add_scalar('Evaluations/MEC or GT recovery %', mec_gt_recovery, steps)
-        writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, steps, dataformats='HWC')
-
-        wandb_log_dict['Evaluations/AUROC (empirical)'] = auroc_e
-        wandb_log_dict['Evaluations/AUROC (marginal)'] = auroc_m
-        wandb_log_dict['Evaluations/Exp. SHD (Empirical)'] = eshd_e
-        wandb_log_dict['Evaluations/Exp. SHD (Marginal)'] = eshd_m
-        wandb_log_dict['Evaluations/MEC or GT recovery %'] = mec_gt_recovery
-        wandb_log_dict['graph_structure(GT-pred)/Posterior sampled graphs'] = wandb.Image(sampled_graph)
-
-    print()
-    print(f"Metrics after training on {opt.obs_data} obs data and {len(data) - opt.obs_data} interv. data")
-    print(f"AUROC (Empirical): {auroc_e}")
-    print(f"AUROC (Marginal): {auroc_m}")
-    print("ESHD (Empirical):", eshd_e)
-    print("ESHD (Marginal):", eshd_m)
-    
-    if len(cpdag_shds) > 0: 
-        print("Expected CPDAG SHD:", np.mean(cpdag_shds))
-        writer.add_scalar('Evaluations/CPDAG SHD', np.mean(cpdag_shds), steps)
-        wandb_log_dict['Evaluations/CPDAG SHD'] = np.mean(cpdag_shds)
-
-    print("MEC-GT Recovery %", mec_gt_recovery)
-    print()
-
-    if opt.off_wandb is False:  wandb.log(wandb_log_dict, step=steps)

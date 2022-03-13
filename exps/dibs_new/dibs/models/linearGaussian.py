@@ -1,5 +1,5 @@
 import numpy as onp
-
+import pdb
 import jax.numpy as jnp
 from jax import random, vmap, lax
 from jax.ops import index, index_update
@@ -289,7 +289,7 @@ class LinearGaussian:
         return jnp.array((n_vars, n_vars))
 
 
-    def sample_parameters(self, *, key, n_vars, n_particles=0, batch_size=0):
+    def sample_parameters(self, *, key, n_vars, n_particles, batch_size):
         """Samples batch of random parameters given dimensions of graph from :math:`p(\\Theta | G)`
 
         Args:
@@ -331,7 +331,6 @@ class LinearGaussian:
 
         # ancestral sampling
         for j in toporder:
-
             # intervention
             if j in interv.keys():
                 x = index_update(x, index[:, j], interv[j])

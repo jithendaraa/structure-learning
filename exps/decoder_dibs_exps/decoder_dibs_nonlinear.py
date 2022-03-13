@@ -20,18 +20,10 @@ from dibs_new.dibs.metrics import expected_shd, threshold_metrics, neg_ave_log_m
 from dibs_new.dibs.inference import JointDiBS
 
 def get_target(key, opt):
-
-    if opt.datagen == 'linear':
-        target, model = make_linear_gaussian_model(key = key, n_vars = opt.num_nodes, 
-                graph_prior_str = opt.datatype, edges_per_node = opt.exp_edges,
-                obs_noise = opt.noise_sigma, mean_edge = opt.theta_mu, sig_edge = opt.theta_sigma, 
-                n_observations = opt.num_samples, n_ho_observations = opt.num_samples)
-    
-    elif opt.datagen == 'nonlinear':
-        target, model = make_nonlinear_gaussian_model(key = key, n_vars = opt.num_nodes, 
-                graph_prior_str = opt.datatype, edges_per_node = opt.exp_edges,
-                obs_noise = opt.noise_sigma, mean_edge = opt.theta_mu, sig_edge = opt.theta_sigma, 
-                n_observations = opt.num_samples, n_ho_observations = opt.num_samples)
+    target, model = make_nonlinear_gaussian_model(key = key, n_vars = opt.num_nodes, 
+                        graph_prior_str = opt.datatype, edges_per_node = opt.exp_edges,
+                        obs_noise = opt.noise_sigma, mean_edge = opt.theta_mu, sig_edge = opt.theta_sigma, 
+                        n_observations = opt.num_samples, n_ho_observations = opt.num_samples)
 
     return target, model
 
@@ -40,6 +32,7 @@ def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writ
     num_interv_data = opt.num_samples - opt.obs_data
     n_steps = opt.num_updates
     interv_data_per_set = int(num_interv_data / n_intervention_sets)
+    z_final, theta_final, sf_baseline = None, None, jnp.zeros((opt.n_particles))
 
     rng = key
     target, model = get_target(key, opt)
@@ -80,19 +73,20 @@ def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writ
     
     state = train_state.TrainState.create(
         apply_fn=dibs.apply,
-        params=dibs.init(rng, rng, None, None, None, None, no_interv_targets, 0)['params'],
+        params=dibs.init(rng, rng, None, None, sf_baseline, None, no_interv_targets, 0, 'nonlinear')['params'],
         tx=optax.adam(opt.lr)
     )
+
    
     @jit
     def train_causal_vars(state, key, z, theta, 
                     sf_baseline, data, interv_targets, step=0):
         recons, particles, q_z_mus, q_z_covars, _, gs, sf_baseline, pred_zs = dibs.apply({'params': state.params}, 
                                                                                             key, z, theta, sf_baseline, 
-                                                                                            data, interv_targets, step)
+                                                                                            data, interv_targets, step, 'nonlinear')
         
         grads = grad(loss_fns.loss_fn)(state.params, key, z, theta, sf_baseline, data, interv_targets, 
-                    step, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, dibs)
+                    step, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, dibs, 'nonlinear')
         res = state.apply_gradients(grads=grads)
         loss, mse_loss, kl_z_loss, z_dist = loss_fns.calc_loss(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, pred_zs, opt, z_gt)
         return res, particles, loss, mse_loss, kl_z_loss, q_z_mus, q_z_covars, gs, sf_baseline, z_dist, pred_zs, particles
@@ -101,7 +95,7 @@ def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writ
     def train_causal_graph(state, key, z, theta, sf_baseline, data, interv_targets, step, opt_states):
         recons, _, q_z_mus, q_z_covars, dibs_grads, gs, sf_baseline, _ = dibs.apply({'params': state.params}, 
                                                                                         key, z, theta, sf_baseline, 
-                                                                                        data, interv_targets, step)
+                                                                                        data, interv_targets, step, 'nonlinear')
         opt_state_z, opt_state_theta = opt_states
         opt_state_z = opt_update(step, dibs_grads['phi_z'], opt_state_z)
         opt_state_theta = opt_update(step, dibs_grads['phi_theta'], opt_state_theta)
@@ -109,8 +103,6 @@ def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writ
 
     decoder_train_steps = opt.steps - opt.num_updates
     dibs_update = 0
-    z_final, theta_final, sf_baseline = None, None, None
-
     dibs_optimizer = optimizers.rmsprop(opt.dibs_lr)
     opt_init, opt_update, get_params = dibs_optimizer
     interv_targets = no_interv_targets

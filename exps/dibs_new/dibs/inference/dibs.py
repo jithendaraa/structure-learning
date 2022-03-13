@@ -549,7 +549,6 @@ class DiBS:
 
         # [d, d]
         p = self.edge_probs(single_z, t)
-
         # [n_grad_mc_samples, d, d]
         g_samples = self.sample_g(p, subk, self.n_grad_mc_samples)
 

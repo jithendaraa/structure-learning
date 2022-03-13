@@ -17,24 +17,30 @@ get_mse = lambda recon, x: jnp.mean(jnp.square(recon - x))
 kl_over_zs = lambda p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt: jnp.mean(vmap(get_single_kl, (None, None, 0, 0, None), (0))(p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt))
 mse_over_recons = lambda recons, x: jnp.mean(vmap(get_mse, (0, None), 0)(recons, x))
 
-def get_mse_and_kls(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt):
+
+def get_mse_and_kls(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, supervised):
     mse_loss, kl_z_loss, loss = 0., 0., 0.
     mse_loss += mse_over_recons(recons, x) / opt.proj_dims
-    if opt.supervised is True:
+
+    if supervised is True:
         kl_z_loss += kl_over_zs(p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt) / opt.num_nodes
+    
     loss = (mse_loss + (opt.beta * kl_z_loss)) 
     return mse_loss, kl_z_loss, loss
 
+
 def loss_fn(params, z_rng, z, theta, sf_baseline, data, interv_targets, 
-            step, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, dibs, dibs_type):
+            step, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, dibs, dibs_type, supervised):
     
     recons, _, q_z_mus, q_z_covars, _, _, _, _ = dibs.apply({'params': params}, z_rng, z, theta, sf_baseline, data, interv_targets, step, dibs_type)
-    mse_loss, kl_z_loss, loss = get_mse_and_kls(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt)
+    mse_loss, kl_z_loss, loss = get_mse_and_kls(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, supervised)
     return loss
 
+
 def calc_loss(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, 
-                pred_zs, opt, z_gt):
-    z_dist = 0.
-    mse_loss, kl_z_loss, loss = get_mse_and_kls(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt)
+                pred_zs, opt, z_gt, supervised=False, only_z=False):
+    loss, mse_loss, kl_z_loss, z_dist = 0., 0., 0., 0.
+    if only_z is False:
+        mse_loss, kl_z_loss, loss = get_mse_and_kls(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, supervised)
     z_dist += mse_over_recons(pred_zs, z_gt)
     return loss, mse_loss, kl_z_loss, z_dist

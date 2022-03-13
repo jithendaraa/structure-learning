@@ -497,10 +497,9 @@ class JointDiBS(DiBS):
         # sample from parameter prior
         key, subk = random.split(key)
         z = random.normal(subk, shape=(n_particles, self.n_vars, n_dim, 2)) * std
-
+        
         key, subk = random.split(key)
-        theta = self.inference_model.sample_parameters(key=subk, n_particles=n_particles, n_vars=self.n_vars)
-
+        theta = self.inference_model.sample_parameters(key=subk, n_vars=self.n_vars, n_particles=n_particles, batch_size=0)
         return z, theta
 
 

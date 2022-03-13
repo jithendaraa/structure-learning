@@ -82,7 +82,7 @@ def make_synthetic_bayes_net(*,
     g_gt_mat = jnp.array(graph_to_mat(g_gt))
 
     key, subk = random.split(key)
-    theta = generative_model.sample_parameters(key=subk, n_vars=n_vars)
+    theta = generative_model.sample_parameters(key=subk, n_vars=n_vars, n_particles=0, batch_size=0)
 
     key, subk = random.split(key)
     x = generative_model.sample_obs(key=subk, n_samples=n_observations, g=g_gt, theta=theta)

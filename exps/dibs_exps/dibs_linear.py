@@ -24,11 +24,11 @@ def run_dibs_linear(key, opt, n_interv_sets, dag_file, writer, logdir):
     z_final, sf_baseline, opt_state_z, theta_final = None, None, None, None
 
     target, model = make_linear_gaussian_model(key = key, n_vars = opt.num_nodes, 
-                graph_prior_str = opt.datatype, 
-                edges_per_node = opt.exp_edges,
-                obs_noise = opt.noise_sigma, 
-                mean_edge = opt.theta_mu, sig_edge = opt.theta_sigma, 
-                n_observations = opt.num_samples, n_ho_observations = opt.num_samples)
+                        graph_prior_str = opt.datatype, 
+                        edges_per_node = opt.exp_edges,
+                        obs_noise = opt.noise_sigma, 
+                        mean_edge = opt.theta_mu, sig_edge = opt.theta_sigma, 
+                        n_observations = opt.num_samples, n_ho_observations = opt.num_samples)
     
     interv_data, no_interv_targets = datagen.generate_interv_data(opt, n_interv_sets, target)
     obs_data = jnp.array(target.x)[:opt.obs_data]
@@ -84,3 +84,4 @@ def run_dibs_linear(key, opt, n_interv_sets, dag_file, writer, logdir):
                     writer, opt, data, interv_targets, True)
             
             if num_interv_data == 0: break
+
