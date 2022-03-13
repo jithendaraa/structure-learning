@@ -30,6 +30,8 @@ def get_target(key, opt):
 
 def run_decoder_joint_dibs_linear(key, opt, logdir, n_interv_sets, dag_file, writer):
     exp_config_dict = vars(opt)
+    if opt.topsort is True: assert opt.supervised is False
+
     num_interv_data = opt.num_samples - opt.obs_data
     interv_data_per_set = int(num_interv_data / n_interv_sets)  
     n_steps = opt.num_updates / n_interv_sets if num_interv_data > 0 else opt.num_updates 
@@ -70,8 +72,11 @@ def run_decoder_joint_dibs_linear(key, opt, logdir, n_interv_sets, dag_file, wri
                                                 no_interv_targets, p_z_mu, p_z_covar, writer)
 
 
+
+
 def run_linear_decoder_dibs(opt, target, dag_file, rng, model, x, z_gt, interv_targets, p_z_mu, p_z_covar, writer):
     z_final, theta_final, sf_baseline = None, None, jnp.zeros((opt.n_particles))
+    data = None
     decoder_train_steps = opt.steps - opt.num_updates
     dibs_update = 0 
 
@@ -81,7 +86,8 @@ def run_linear_decoder_dibs(opt, target, dag_file, rng, model, x, z_gt, interv_t
                                 opt.n_particles, model, opt.alpha_linear, dibs_type=opt.likelihood, 
                                 latent_prior_std = 1.0 / jnp.sqrt(opt.num_nodes),
                                 grad_estimator=opt.grad_estimator, known_ED=opt.known_ED, 
-                                linear_decoder=opt.linear_decoder, clamp = opt.clamp)
+                                linear_decoder=opt.linear_decoder, clamp = opt.clamp,
+                                topsort = opt.topsort, obs_noise=opt.noise_sigma)
 
     state = train_state.TrainState.create(
         apply_fn=dibs.apply,
@@ -92,19 +98,19 @@ def run_linear_decoder_dibs(opt, target, dag_file, rng, model, x, z_gt, interv_t
     dibs_optimizer = optimizers.rmsprop(opt.dibs_lr)
     opt_init, opt_update, get_params = dibs_optimizer
 
-    @jit
-    def train_causal_vars(state, key, z, theta, sf_baseline, data, interv_targets, step=0):
+    # @jit
+    def train_causal_vars(state, key, z, theta, sf_baseline, data, interv_targets, step=0, supervised=False):
         recons, particles, q_z_mus, q_z_covars, _, gs, sf_baseline, pred_zs = dibs.apply({'params': state.params}, 
                                                                                             key, z, theta, sf_baseline, 
                                                                                             data, interv_targets, step, 'linear')
         
         grads = grad(loss_fns.loss_fn)(state.params, key, z, theta, sf_baseline, data, interv_targets, 
-                    step, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, dibs, 'linear')
+                    step, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, dibs, 'linear', supervised=supervised)
         res = state.apply_gradients(grads=grads)
         loss, mse_loss, kl_z_loss, z_dist = loss_fns.calc_loss(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, pred_zs, opt, z_gt)
         return res, particles, loss, mse_loss, kl_z_loss, q_z_mus, q_z_covars, gs, sf_baseline, z_dist, pred_zs, particles
 
-    @jit
+    # @jit
     def train_causal_graph(state, key, z, theta, sf_baseline, data, interv_targets, step, opt_states):
         recons, _, q_z_mus, q_z_covars, dibs_grads, gs, sf_baseline, _ = dibs.apply({'params': state.params}, 
                                                                                         key, z, theta, sf_baseline, 
@@ -117,7 +123,8 @@ def run_linear_decoder_dibs(opt, target, dag_file, rng, model, x, z_gt, interv_t
     for step in range(opt.steps):
         if step < decoder_train_steps:
             state, particles, loss, mse_loss, kl_z_loss, q_z_mus, q_z_covars, gs, _, z_dist, q_z, particles = train_causal_vars(state, rng, z_final, theta_final, 
-                                                                                                                sf_baseline, data=None, interv_targets=interv_targets, step=step)
+                                                                                                                sf_baseline, data=None, interv_targets=interv_targets, step=step,
+                                                                                                                supervised=opt.supervised)
             
             if step == 0:   opt_state_z, opt_state_theta = opt_init(particles[0]), opt_init(particles[1])
 
@@ -129,18 +136,21 @@ def run_linear_decoder_dibs(opt, target, dag_file, rng, model, x, z_gt, interv_t
                 writer.add_scalar('z_losses/MSE', np.array(mse_loss), step)
                 writer.add_scalar('Distances/MSE(Predicted z | z_GT)', np.array(z_dist), step)
         else:
-            if step == decoder_train_steps:
+            if step == decoder_train_steps and opt.topsort is False:
                 q_z_mus, q_z_covars = np.array(q_z_mus), np.array(q_z_covars)
                 data = vmap(datagen.gen_data_from_dist, (None, 0, 0, None, None, None), 0)(rng, q_z_mus, q_z_covars, opt.num_samples, interv_targets, opt.clamp)  
-            
+    
             t = dibs_update
             opt_state_z, opt_state_theta, gs, sf_baseline = train_causal_graph(state, rng, z_final, theta_final, sf_baseline, 
                                                             data, interv_targets, t, (opt_state_z, opt_state_theta))
     
             z_final, theta_final = get_params(opt_state_z), get_params(opt_state_theta)
             dibs_update += 1
+
+        if step % 5 == 0:
+            print(f"Step {step}: {np.array(mse_loss)}")
         
-        if step >= decoder_train_steps and (step+1) % 50 == 0:
+        if step >= decoder_train_steps and (step+1) % 5 == 0:
             evaluate(target, joint_dibs_model, gs, theta_final, step, 
                     dag_file, writer, opt, z_gt, interv_targets, True)
 
@@ -149,64 +159,63 @@ def run_linear_decoder_dibs_across_interv(opt, target, n_interv_sets, dag_file, 
     decoder_train_steps = opt.steps - opt.num_updates
     num_interv_data = opt.num_samples - opt.obs_data
     interv_data_per_set = int(num_interv_data / n_interv_sets)
+    z_final, theta_final, sf_baseline = None, None, jnp.zeros((opt.n_particles))
+    interv_targets = jnp.zeros((opt.num_samples, opt.num_nodes)).astype(bool)
+
+    joint_dibs_model = JointDiBS(n_vars=opt.num_nodes, inference_model=model, alpha_linear=opt.alpha_linear, grad_estimator_z=opt.grad_estimator)
+    dibs = Decoder_JointDiBS(opt.num_nodes, opt.num_samples, opt.proj_dims, 
+                            opt.n_particles, model, opt.alpha_linear, dibs_type=opt.likelihood, 
+                            latent_prior_std = 1.0 / jnp.sqrt(opt.num_nodes),
+                            grad_estimator=opt.grad_estimator, known_ED=opt.known_ED, 
+                            linear_decoder=opt.linear_decoder, clamp = opt.clamp)
     
-    for i in range(n_interv_sets + 1):
-        dibs_update = 0
-        z_final, theta_final, sf_baseline = None, None, jnp.zeros((opt.n_particles))
-        if i > 0 and num_interv_data == 0: break
-
-        if opt.reinit is True:  target, model = get_target(rng, opt)
-
-        joint_dibs_model = JointDiBS(n_vars=opt.num_nodes, inference_model=model, alpha_linear=opt.alpha_linear, grad_estimator_z=opt.grad_estimator)
-        dibs = Decoder_JointDiBS(opt.num_nodes, opt.num_samples, opt.proj_dims, 
-                                opt.n_particles, model, opt.alpha_linear, dibs_type=opt.likelihood, 
-                                latent_prior_std = 1.0 / jnp.sqrt(opt.num_nodes),
-                                grad_estimator=opt.grad_estimator, known_ED=opt.known_ED, 
-                                linear_decoder=opt.linear_decoder, clamp = opt.clamp)
-
-        interv_targets = no_interv_targets[:opt.obs_data + (i*interv_data_per_set)]
-        data_gt = x[:len(interv_targets), :]
-
-        if len(interv_targets) == opt.obs_data: supervised = opt.supervised
-        else: supervised = False
-        print(supervised, i)
-
-        state = train_state.TrainState.create(
+    state = train_state.TrainState.create(
             apply_fn=dibs.apply,
             params=dibs.init(rng, rng, None, None, sf_baseline, None, interv_targets, 0, 'linear')['params'],
             tx=optax.adam(opt.lr))
 
+    dibs_optimizer = optimizers.rmsprop(opt.dibs_lr)
+    opt_init, opt_update, get_params = dibs_optimizer 
+    
+    for i in range(n_interv_sets + 1):
+        dibs_update = 0
+        if i > 0 and num_interv_data == 0: break
+
+        interv_targets = no_interv_targets[:opt.obs_data + (i*interv_data_per_set)]
+        data_gt = x[:len(interv_targets), :]
+        print("Intervened on node", jnp.where(interv_targets[-1] == True)[0])
+
+        if opt.reinit is True:  target, model = get_target(rng, opt)
+
+        supervised = False
+        if len(interv_targets) == opt.obs_data: supervised = opt.supervised
+        print("supervised", supervised, i)
+        
         @jit
-        def train_causal_vars(state, key, z, theta, sf_baseline, data, interv_targets, supervised, step=0):
+        def train_causal_vars(state, key, z, theta, sf_baseline, data, interv_targets, step=0):
             recons, particles, q_z_mus, q_z_covars, _, gs, sf_baseline, pred_zs = dibs.apply({'params': state.params}, 
                                                                                                 key, z, theta, sf_baseline, 
                                                                                                 data, interv_targets, step, 'linear')
             
-            grads = grad(loss_fns.loss_fn)(state.params, key, z, theta, sf_baseline, data, interv_targets, 
-                        step, data_gt, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, dibs, 'linear', supervised)
+            grads = grad(loss_fns.loss_fn)(state.params, key, z, theta, sf_baseline, data, interv_targets, step, data_gt, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, dibs, 'linear', supervised)
             res = state.apply_gradients(grads=grads)
             loss, mse_loss, kl_z_loss, z_dist = loss_fns.calc_loss(recons, data_gt, p_z_covar, p_z_mu, q_z_covars, q_z_mus, pred_zs, opt, z_gt[:len(interv_targets)], supervised)
             return res, particles, loss, mse_loss, kl_z_loss, q_z_mus, q_z_covars, gs, sf_baseline, z_dist, pred_zs, particles
 
         @jit
         def train_causal_graph(state, key, z, theta, sf_baseline, data, interv_targets, step, opt_states):
-            recons, _, q_z_mus, q_z_covars, dibs_grads, gs, sf_baseline, _ = dibs.apply({'params': state.params}, 
+            recons, _, q_z_mus, q_z_covars, dibs_grads, gs, sf_baseline, pred_zs = dibs.apply({'params': state.params}, 
                                                                                             key, z, theta, sf_baseline, 
                                                                                             data, interv_targets, step, 'linear')
             opt_state_z, opt_state_theta = opt_states
             opt_state_z = opt_update(step, dibs_grads['phi_z'], opt_state_z)
             opt_state_theta = opt_update(step, dibs_grads['phi_theta'], opt_state_theta)
-            return opt_state_z, opt_state_theta, gs, sf_baseline
+            return opt_state_z, opt_state_theta, gs, sf_baseline, pred_zs
 
-        dibs_optimizer = optimizers.rmsprop(opt.dibs_lr)
-        opt_init, opt_update, get_params = dibs_optimizer 
-        
         for step in range(opt.steps):
             if step < decoder_train_steps:
                 state, particles, loss, mse_loss, kl_z_loss, q_z_mus, q_z_covars, gs, _, z_dist, q_z, particles = train_causal_vars(state, rng, z_final, theta_final, 
-                                                                                                                       sf_baseline, data=None, interv_targets=interv_targets, 
-                                                                                                                       supervised=supervised, step=step)
-                
+                                                                                                                       sf_baseline, data=None, interv_targets=interv_targets, step=step)
                 if step == 0: opt_state_z, opt_state_theta = opt_init(particles[0]), opt_init(particles[1])
             
             else:
@@ -215,20 +224,32 @@ def run_linear_decoder_dibs_across_interv(opt, target, n_interv_sets, dag_file, 
                     data = vmap(datagen.gen_data_from_dist, (None, 0, 0, None, None, None), 0)(rng, q_z_mus, q_z_covars, len(interv_targets), interv_targets, opt.clamp)  
 
                 t = dibs_update
-                opt_state_z, opt_state_theta, gs, sf_baseline = train_causal_graph(state, rng, z_final, theta_final, sf_baseline, 
+                opt_state_z, opt_state_theta, gs, sf_baseline, q_z = train_causal_graph(state, rng, z_final, theta_final, sf_baseline, 
                                                                 data, interv_targets, t, (opt_state_z, opt_state_theta))
                 z_final, theta_final = get_params(opt_state_z), get_params(opt_state_theta)
                 dibs_update += 1    
 
         writer.add_scalar('z_losses/MSE', np.array(mse_loss), len(interv_targets) - opt.obs_data)
         writer.add_scalar('Distances/MSE(Predicted z | z_GT)', np.array(z_dist), len(interv_targets) - opt.obs_data)      
-        wandb_log_dict = {'z_losses/MSE': np.array(mse_loss), 'Distances/MSE(Predicted z | z_GT)':  np.array(z_dist)}
+        wandb_log_dict = {'z_losses/MSE': np.array(mse_loss), 
+                            'Distances/MSE(Predicted z | z_GT)':  np.array(z_dist)}
 
-        if opt.supervised is True:
+        if supervised is True:
             writer.add_scalar('z_losses/KL', np.array(kl_z_loss), len(interv_targets) - opt.obs_data)
             wandb_log_dict['z_losses/KL'] = np.array(kl_z_loss)               
 
-        evaluate(target, joint_dibs_model, gs, theta_final, len(interv_targets) - opt.obs_data, 
-                dag_file, writer, opt, z_gt[:len(interv_targets)], interv_targets, True, wandb_log_dict)
+        if i > 0:
+            _, _, _, obs_z_dist = loss_fns.calc_loss(None, None, None, None, None, None, q_z[:, :opt.obs_data, ...], opt, 
+                                    z_gt[ : opt.obs_data], only_z=True)
+
+            _, _, _, interv_z_dist = loss_fns.calc_loss(None, None, None, None, None, None, q_z[:, opt.obs_data:, ...], opt, 
+                                    z_gt[opt.obs_data : opt.obs_data + i*interv_data_per_set ], only_z=True)
+
+            writer.add_scalar('Distances/MSE(Predicted interv. z | interv. z_GT)', np.array(interv_z_dist), len(interv_targets) - opt.obs_data)      
+            wandb_log_dict['Distances/MSE(Predicted interv. z | interv. z_GT)'] = np.array(interv_z_dist)
+
+            writer.add_scalar('Distances/MSE(Predicted obs. z | obs. z_GT)', np.array(obs_z_dist), len(interv_targets) - opt.obs_data)      
+            wandb_log_dict['Distances/MSE(Predicted obs. z | obs. z_GT)'] = np.array(obs_z_dist)
         
+        evaluate(target, joint_dibs_model, gs, theta_final, len(interv_targets) - opt.obs_data, dag_file, writer, opt, z_gt[:len(interv_targets)], interv_targets, True, wandb_log_dict)
         print()

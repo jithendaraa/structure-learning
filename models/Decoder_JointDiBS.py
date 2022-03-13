@@ -1,13 +1,15 @@
-import sys
+import sys, pdb, functools
 sys.path.append('..')
 sys.path.append('exps')
 
+import numpy as onp
 import jax.numpy as jnp
 from jax import random, vmap, grad, device_put, jit, lax
 from flax import linen as nn
-from jax.ops import index, index_mul
+from jax.ops import index, index_mul, index_update
 from jax.nn import sigmoid, log_sigmoid
 from jax.scipy.special import logsumexp, gammaln
+import networkx as nx
 
 import datagen, utils, pdb
 from dibs_new.dibs.target import make_nonlinear_gaussian_model
@@ -30,6 +32,8 @@ class Decoder_JointDiBS(nn.Module):
     known_ED: bool = False
     linear_decoder: bool = False
     clamp: bool = True
+    topsort: bool = False
+    obs_noise: float = 0.1
 # 
     def setup(self):
         self.n_vars = self.num_nodes
@@ -37,10 +41,14 @@ class Decoder_JointDiBS(nn.Module):
         self.dibs = JointDiBS(n_vars=self.num_nodes, inference_model=self.model, 
                             alpha_linear=self.alpha_linear, grad_estimator_z=self.grad_estimator)
 
-        if self.known_ED is False:  self.decoder = Decoder(self.proj_dims, self.linear_decoder)
         lower_triangular_elems = int(self.num_nodes * (self.num_nodes + 1) / 2)
-        self.z_net = Z_mu_logvar_Net(self.num_nodes, lower_triangular_elems)
-        print("Loaded Decoder Joint DIBS")
+        
+        if self.topsort is False:
+            self.z_net = Z_mu_logvar_Net(self.num_nodes, lower_triangular_elems)
+        
+        if self.known_ED is False:  
+            self.decoder = Decoder(self.proj_dims, self.linear_decoder)
+        # print("Loaded Decoder Joint DIBS")
     
     def reparameterized_multivariate_normal(self, rng, mean, cholesky_L, samples):
         """
@@ -157,7 +165,6 @@ class Decoder_JointDiBS(nn.Module):
         """
         [TODO]
         """
-        
         return vmap(self.eltwise_get_grad_dibs_params, (None, 0, 0, None, 0, None, 0), (0, 0, 0))(key, zs, thetas, t, datas, interv_targets, sf_baselines)
 
     def initialise_random_particles(self, key):
@@ -179,6 +186,49 @@ class Decoder_JointDiBS(nn.Module):
 
         return particles_z, particles_theta
 
+    def ancestral_sample(self, subk, gs, interv_targets, theta, interv_values=None):
+        q_zs, idxs = [], []
+        num_samples, num_nodes = interv_targets.shape
+        if interv_values is None: interv_values = 0.0
+        
+        for i in range(self.n_particles):
+            # predict q_zs only for DAGs 
+            adj_mat_i, theta_i = gs[i], theta[i]
+            graph = nx.from_numpy_matrix(onp.array(adj_mat_i), create_using=nx.DiGraph)
+            
+            # If graph is not a DAG
+            while nx.is_directed_acyclic_graph(graph) is False:    
+                edges = random.choice(subk, jnp.array(nx.find_cycle(graph)), axis=0)
+                if len(edges.shape) == 1: edges = edges[jnp.newaxis, :]
+
+                for edge in edges:
+                    adj_mat_i = index_update(adj_mat_i, index[edge[0], edge[1]], 0)
+                
+                graph = nx.from_numpy_matrix(onp.array(adj_mat_i), create_using=nx.DiGraph)
+
+            gs = index_update(gs, index[i], adj_mat_i)
+            samples = jnp.zeros((num_samples, num_nodes))
+            eps = jnp.sqrt(self.obs_noise) * random.normal(subk, shape=(num_samples, num_nodes) )
+            toporder = nx.topological_sort(graph)
+
+            # Traverse node topologically
+            for j in toporder:
+                parents = jnp.array(jnp.where(adj_mat_i[:, j] == 1)[0])
+                
+                if len(parents) > 0:
+                    mean = samples[:, parents] @ theta_i[parents, j]
+                    samples = index_update(samples, index[:, j], mean + eps[:, j])
+                else:
+                    samples = index_update(samples, index[:, j], eps[:, j])
+
+                # Data indices where node j was intervened upon
+                intervened_idxs = jnp.where(interv_targets[:, j] == True)[0]
+                samples = index_update(samples, index[intervened_idxs, j], interv_values)
+            
+            q_zs.append(samples)
+            idxs.append(i)
+
+        return jnp.array(q_zs), jnp.array(idxs)
 
     def __call__(self, key, particles_z, particles_theta, sf_baseline, data, interv_targets, step, dibs_type):
         """
@@ -195,7 +245,9 @@ class Decoder_JointDiBS(nn.Module):
         intev_targets: bool jnp array of shape (n_samples, n_vars)
         step: int
         """
+        q_z_mus, q_z_covars = None, None
         samples = len(interv_targets)
+        idxs = jnp.arange(0, self.n_particles)
         
         if particles_z is None and particles_theta is None:
             particles_z, particles_theta = self.initialise_random_particles(key)
@@ -204,20 +256,20 @@ class Decoder_JointDiBS(nn.Module):
         gs = self.dibs.particle_to_g_lim(particles_z)
 
         # ? 2. Get graph conditioned predictions on z: q(z|G, theta)
-        get_posterior_z = vmap(self.eltwise_get_posterior_z, (None, 0, 0, None), (0, 0, 0, 0))
-        q_z_mus, q_z_covars, _, q_zs = get_posterior_z(key, gs, particles_theta, samples)
+        if self.topsort is False:
+            get_posterior_z = vmap(self.eltwise_get_posterior_z, (None, 0, 0, None), (0, 0, 0, 0))
+            q_z_mus, q_z_covars, _, q_zs = get_posterior_z(key, gs, particles_theta, samples)
+        
+        # Topsort and ancestral sample
+        elif self.topsort is True:
+            q_zs, idxs = self.ancestral_sample(key, gs, interv_targets, particles_theta * gs)
 
         # ? 3. From every distribution q(z_i|G_i), decode to get reconstructed samples X in higher dimensions. i = 1...num_nodes
         if self.known_ED is False:  decoder = lambda q_z: self.decoder(q_z)
         X_recons = vmap(decoder, (0), (0))(q_zs)
 
         # ? 4. Get dibs gradients dict with repsect to params: z and theta
-        if data is None:  
-            if self.clamp is True:
-                interv_filter_fn = lambda q_z: jnp.where(interv_targets, 0.0, q_z)
-                q_zs = vmap(interv_filter_fn, (0), (0))(q_zs)
-            data = lax.stop_gradient(q_zs)
-        
+        if data is None:    data = lax.stop_gradient(q_zs)
         
         if dibs_type == 'nonlinear': 
             phi_z, phi_theta, sf_baseline = self.get_grad_dibs_params(key, particles_z[:, jnp.newaxis, ...], 
@@ -226,13 +278,18 @@ class Decoder_JointDiBS(nn.Module):
             dibs_grads = {'phi_z': jnp.squeeze(phi_z, axis=1), 'phi_theta': self.squeeze_theta(phi_theta)}
 
         elif dibs_type == 'linear':
-            phi_z, phi_theta, sf_baseline = self.get_grad_dibs_params(key, particles_z[:, jnp.newaxis, ...], 
-                                                                        particles_theta[:, jnp.newaxis, ...], 
-                                                                        step, data, interv_targets, sf_baseline[:, jnp.newaxis])
-            dibs_grads = {'phi_z': jnp.squeeze(phi_z, axis=1), 'phi_theta': jnp.squeeze(phi_theta, axis=1)}
-        
+            phi_z, phi_theta = jnp.zeros_like(particles_z), jnp.zeros_like(particles_theta)
+            
+            phi_z_, phi_theta_, updated_sf_baseline = self.get_grad_dibs_params(key, particles_z[idxs, jnp.newaxis, ...], 
+                                                                        particles_theta[idxs, jnp.newaxis, ...], 
+                                                                        step, data, interv_targets, sf_baseline[idxs, jnp.newaxis])
+            phi_z = index_update(phi_z, index[idxs], jnp.squeeze(phi_z_, axis=1))
+            phi_theta = index_update(phi_theta, index[idxs], jnp.squeeze(phi_theta_, axis=1))
+            sf_baseline = index_update(sf_baseline, index[idxs], jnp.squeeze(updated_sf_baseline, axis=1))
+            dibs_grads = {'phi_z': phi_z, 'phi_theta': phi_theta}
+
         else:
             raise Exception("Decoder dibs type has to be either 'linear' or 'nonlinear'")
 
-        return X_recons, (particles_z, particles_theta), q_z_mus, q_z_covars, dibs_grads, gs, jnp.squeeze(sf_baseline, axis=1), q_zs
+        return X_recons, (particles_z, particles_theta), q_z_mus, q_z_covars, dibs_grads, gs, sf_baseline, q_zs
 
