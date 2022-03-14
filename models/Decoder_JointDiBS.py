@@ -50,6 +50,25 @@ class Decoder_JointDiBS(nn.Module):
             self.decoder = Decoder(self.proj_dims, self.linear_decoder)
         # print("Loaded Decoder Joint DIBS")
     
+    def initialise_random_particles(self, key):
+        """
+            [TODO]
+        """
+
+        if self.dibs_type == 'nonlinear':
+            particles_z, particles_theta = self.dibs._sample_initial_random_particles(key=key, n_particles=self.n_particles)
+        
+        elif self.dibs_type == 'linear':
+            n_dim = self.n_vars
+            std = self.latent_prior_std or (1.0 / jnp.sqrt(n_dim))
+
+            key, subk = random.split(key)
+            particles_z = random.normal(subk, shape=(self.n_particles, self.n_vars, n_dim, 2)) * std
+            shape = (self.n_particles, n_dim, n_dim)
+            particles_theta = self.model.mean_edge + self.model.sig_edge * random.normal(key, shape=shape)
+
+        return particles_z, particles_theta
+
     def reparameterized_multivariate_normal(self, rng, mean, cholesky_L, samples):
         """
         [TODO]
@@ -119,9 +138,7 @@ class Decoder_JointDiBS(nn.Module):
 
         elif self.dibs_type == 'nonlinear':
             flattened_g = jnp.array(g.reshape(-1))
-            flattened_theta = jnp.concatenate((theta[0][0].flatten(), theta[0][1].flatten(), theta[2][0].flatten(), theta[2][1].flatten()), axis=0)
-            g_thetas = jnp.concatenate((flattened_g, flattened_theta), axis=0)
-            q_z_mu, q_z_logcholesky = self.z_net(g_thetas)
+            q_z_mu, q_z_logcholesky = self.z_net(flattened_g)
         
         q_z_cholesky = jnp.exp(q_z_logcholesky)
         tril_indices = jnp.tril_indices(self.num_nodes)
@@ -166,25 +183,6 @@ class Decoder_JointDiBS(nn.Module):
         [TODO]
         """
         return vmap(self.eltwise_get_grad_dibs_params, (None, 0, 0, None, 0, None, 0), (0, 0, 0))(key, zs, thetas, t, datas, interv_targets, sf_baselines)
-
-    def initialise_random_particles(self, key):
-        """
-            [TODO]
-        """
-
-        if self.dibs_type == 'nonlinear':
-            particles_z, particles_theta = self.dibs._sample_initial_random_particles(key=key, n_particles=self.n_particles)
-        
-        elif self.dibs_type == 'linear':
-            n_dim = self.n_vars
-            std = self.latent_prior_std or (1.0 / jnp.sqrt(n_dim))
-
-            key, subk = random.split(key)
-            particles_z = random.normal(subk, shape=(self.n_particles, self.n_vars, n_dim, 2)) * std
-            shape = (self.n_particles, n_dim, n_dim)
-            particles_theta = self.model.mean_edge + self.model.sig_edge * random.normal(key, shape=shape)
-
-        return particles_z, particles_theta
 
     def ancestral_sample(self, subk, gs, interv_targets, theta, interv_values=None):
         q_zs, idxs = [], []
@@ -246,11 +244,12 @@ class Decoder_JointDiBS(nn.Module):
         step: int
         """
         q_z_mus, q_z_covars = None, None
-        samples = len(interv_targets)
+        num_samples = len(interv_targets)
         idxs = jnp.arange(0, self.n_particles)
         
         if particles_z is None and particles_theta is None:
             particles_z, particles_theta = self.initialise_random_particles(key)
+            # pdb.set_trace()
             
         # ? 1. Sample n_particles graphs from particles_z
         gs = self.dibs.particle_to_g_lim(particles_z)
@@ -258,13 +257,13 @@ class Decoder_JointDiBS(nn.Module):
         # ? 2. Get graph conditioned predictions on z: q(z|G, theta)
         if self.topsort is False:
             get_posterior_z = vmap(self.eltwise_get_posterior_z, (None, 0, 0, None), (0, 0, 0, 0))
-            q_z_mus, q_z_covars, _, q_zs = get_posterior_z(key, gs, particles_theta, samples)
+            q_z_mus, q_z_covars, _, q_zs = get_posterior_z(key, gs, particles_theta, num_samples)
         
         # Topsort and ancestral sample
         elif self.topsort is True:
             q_zs, idxs = self.ancestral_sample(key, gs, interv_targets, particles_theta * gs)
 
-        # ? 3. From every distribution q(z_i|G_i), decode to get reconstructed samples X in higher dimensions. i = 1...num_nodes
+        # ? 3. From every nodewise posterior q(z_i|G_i), decode to get reconstructed samples X in higher dimensions. i = 1...num_nodes
         if self.known_ED is False:  decoder = lambda q_z: self.decoder(q_z)
         X_recons = vmap(decoder, (0), (0))(q_zs)
 
@@ -276,6 +275,7 @@ class Decoder_JointDiBS(nn.Module):
                                                                         self.unsqueeze_theta(particles_theta), 
                                                                         step, data, interv_targets, sf_baseline[:, jnp.newaxis])
             dibs_grads = {'phi_z': jnp.squeeze(phi_z, axis=1), 'phi_theta': self.squeeze_theta(phi_theta)}
+            particles_theta = self.squeeze_theta(particles_theta)
 
         elif dibs_type == 'linear':
             phi_z, phi_theta = jnp.zeros_like(particles_z), jnp.zeros_like(particles_theta)
