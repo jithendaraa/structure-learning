@@ -1,5 +1,6 @@
 import jax.numpy as jnp
 from jax import vmap, jit, grad
+import pdb
 
 
 def get_single_kl(p_z_covar, p_z_mu, q_z_covar, q_z_mu, opt):
@@ -18,11 +19,11 @@ kl_over_zs = lambda p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt: jnp.mean(vmap(g
 mse_over_recons = lambda recons, x: jnp.mean(vmap(get_mse, (0, None), 0)(recons, x))
 
 
-def get_mse_and_kls(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, supervised):
+def get_mse_and_kls(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt):
     mse_loss, kl_z_loss, loss = 0., 0., 0.
     mse_loss += mse_over_recons(recons, x) / opt.proj_dims
 
-    if supervised is True:
+    if opt.supervised is True:
         kl_z_loss += kl_over_zs(p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt) / opt.num_nodes
     
     loss = (mse_loss + (opt.beta * kl_z_loss)) 
@@ -30,17 +31,17 @@ def get_mse_and_kls(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, supe
 
 
 def loss_fn(params, z_rng, z, theta, sf_baseline, data, interv_targets, 
-            step, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, dibs, dibs_type, supervised):
+            step, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, dibs, dibs_type):
     
     recons, _, q_z_mus, q_z_covars, _, _, _, _ = dibs.apply({'params': params}, z_rng, z, theta, sf_baseline, data, interv_targets, step, dibs_type)
-    mse_loss, kl_z_loss, loss = get_mse_and_kls(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, supervised)
+    mse_loss, kl_z_loss, loss = get_mse_and_kls(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt)
     return loss
 
 
 def calc_loss(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, 
-                pred_zs, opt, z_gt, supervised=False, only_z=False):
+                pred_zs, opt, z_gt, only_z=False):
     loss, mse_loss, kl_z_loss, z_dist = 0., 0., 0., 0.
     if only_z is False:
-        mse_loss, kl_z_loss, loss = get_mse_and_kls(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, supervised)
+        mse_loss, kl_z_loss, loss = get_mse_and_kls(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt)
     z_dist += mse_over_recons(pred_zs, z_gt)
     return loss, mse_loss, kl_z_loss, z_dist

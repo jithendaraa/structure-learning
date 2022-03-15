@@ -9,10 +9,11 @@ from dibs_new.dibs.metrics import expected_shd, threshold_metrics, neg_ave_log_l
 
 
 def evaluate(target, dibs, gs, thetas, steps, dag_file, writer, opt, data, 
-            interv_targets, tb_plots=False, wandb_log_dict={}):
+            interv_targets, tb_plots=False, wandb_log_dict={}, logdir=''):
     """
         [TODO]
     """
+    auroc_m, auroc_e = None, None
     title = ''
     if opt.across_interv is True: title = '(Interventional) '
     gt_graph = nx.from_numpy_matrix(np.array(target.g), create_using=nx.DiGraph)
@@ -25,30 +26,35 @@ def evaluate(target, dibs, gs, thetas, steps, dag_file, writer, opt, data,
             G_cpdag = graphical_models.DAG.from_nx(G).cpdag()
             shd = gt_graph_cpdag.shd(G_cpdag)
             cpdag_shds.append(shd)
-        except:
-            pass
+        except: pass
 
     dibs_empirical = dibs.get_empirical(gs, thetas)
     eshd_e = np.array(expected_shd(dist=dibs_empirical, g=target.g))     
-    auroc_e = threshold_metrics(dist=dibs_empirical, g=target.g)['roc_auc']
+    try: auroc_e = threshold_metrics(dist=dibs_empirical, g=target.g)['roc_auc']
+    except: pass
     
     dibs_mixture = dibs.get_mixture(gs, thetas, data, interv_targets) 
     eshd_m = np.array(expected_shd(dist=dibs_mixture, g=target.g))     
-    auroc_m = threshold_metrics(dist=dibs_mixture, g=target.g)['roc_auc']
-    
+    try: auroc_m = threshold_metrics(dist=dibs_mixture, g=target.g)['roc_auc']
+    except: pass
+
     sampled_graph, mec_or_gt_count = utils.log_dags(gs, gt_graph, eshd_e, eshd_m, dag_file)
     mec_gt_recovery = mec_or_gt_count * 100.0 / opt.n_particles
     
     if tb_plots:
-        writer.add_scalar(title + 'Evaluations/AUROC (empirical)', auroc_e, steps)
-        writer.add_scalar(title + 'Evaluations/AUROC (marginal)', auroc_m, steps)
+        if auroc_e:
+            writer.add_scalar(title + 'Evaluations/AUROC (empirical)', auroc_e, steps)
+            wandb_log_dict[title + 'Evaluations/AUROC (empirical)'] = auroc_e
+        
+        if auroc_m:
+            writer.add_scalar(title + 'Evaluations/AUROC (marginal)', auroc_m, steps)
+            wandb_log_dict[title + 'Evaluations/AUROC (marginal)'] = auroc_m
+        
         writer.add_scalar(title + 'Evaluations/Exp. SHD (Empirical)', eshd_e, steps)
         writer.add_scalar(title + 'Evaluations/Exp. SHD (Marginal)', eshd_m, steps)
         writer.add_scalar(title + 'Evaluations/MEC or GT recovery %', mec_gt_recovery, steps)
         writer.add_image('graph_structure(GT-pred)/Posterior sampled graphs', sampled_graph, steps, dataformats='HWC')
 
-        wandb_log_dict[title + 'Evaluations/AUROC (empirical)'] = auroc_e
-        wandb_log_dict[title + 'Evaluations/AUROC (marginal)'] = auroc_m
         wandb_log_dict[title + 'Evaluations/Exp. SHD (Empirical)'] = eshd_e
         wandb_log_dict[title + 'Evaluations/Exp. SHD (Marginal)'] = eshd_m
         wandb_log_dict[title + 'Evaluations/MEC or GT recovery %'] = mec_gt_recovery
@@ -60,13 +66,17 @@ def evaluate(target, dibs, gs, thetas, steps, dag_file, writer, opt, data,
     else:
         print(f"Metrics after training on {opt.obs_data} obs data and {steps} interv. data")
     
-    print(f"AUROC (Empirical and Marginal): {auroc_e} {auroc_m}")
+    if auroc_e and auroc_m: print(f"AUROC (Empirical and Marginal): {auroc_e} {auroc_m}")
     print("ESHD (empirical):", eshd_e)
     print("ESHD (marginal mixture):", eshd_m)
+
     if len(cpdag_shds) > 0: 
         print("Expected CPDAG SHD:", np.mean(cpdag_shds))
         writer.add_scalar(title + 'Evaluations/CPDAG SHD', np.mean(cpdag_shds), steps)
         wandb_log_dict[title + 'Evaluations/CPDAG SHD'] = np.mean(cpdag_shds)
+
     print("MEC-GT Recovery %", mec_gt_recovery)
     print()
     if opt.off_wandb is False:  wandb.log(wandb_log_dict, step=steps)
+    
+    return auroc_e, auroc_m, eshd_e, eshd_m, mec_gt_recovery

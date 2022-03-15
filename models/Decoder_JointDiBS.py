@@ -48,7 +48,7 @@ class Decoder_JointDiBS(nn.Module):
         
         if self.known_ED is False:  
             self.decoder = Decoder(self.proj_dims, self.linear_decoder)
-        # print("Loaded Decoder Joint DIBS")
+        print("Loaded Decoder Joint DIBS")
     
     def initialise_random_particles(self, key):
         """
@@ -249,7 +249,6 @@ class Decoder_JointDiBS(nn.Module):
         
         if particles_z is None and particles_theta is None:
             particles_z, particles_theta = self.initialise_random_particles(key)
-            # pdb.set_trace()
             
         # ? 1. Sample n_particles graphs from particles_z
         gs = self.dibs.particle_to_g_lim(particles_z)
