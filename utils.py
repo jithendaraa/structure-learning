@@ -1,6 +1,7 @@
 import torch, os, pickle, wandb, imageio, math, sys, pathlib, argparse, pdb
 from os.path import *
 from pathlib import Path
+from functools import partial
 
 import numpy as np
 import networkx as nx
@@ -387,3 +388,30 @@ def dibs_auroc(model, key, params, particles_z, sf_baseline, num_nodes, gt, num_
     auroc = metrics.auc(fpr, tpr)
     return auroc
 
+def some_hash_function(x):
+  return int(jnp.sum(x))
+
+class HashableArrayWrapper:
+  def __init__(self, val):
+    self.val = val
+  def __hash__(self):
+    return some_hash_function(self.val)
+  def __eq__(self, other):
+    return (isinstance(other, HashableArrayWrapper) and
+            jnp.all(jnp.equal(self.val, other.val)))
+
+def gnool_jit(fun, static_array_argnums=()):
+  @partial(jit, static_argnums=static_array_argnums)
+  def callee(*args):
+    args = list(args)
+    for i in static_array_argnums:
+      args[i] = args[i].val
+    return fun(*args)
+
+  def caller(*args):
+    args = list(args)
+    for i in static_array_argnums:
+      args[i] = HashableArrayWrapper(args[i])
+    return callee(*args)
+
+  return caller
