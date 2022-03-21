@@ -180,6 +180,17 @@ linear_decoder_dibs:
   supervised: True
   topsort: False
 
+  # ! num_nodes: 4, 6, 8, 10, 20
+  # ! num_updates: 1k, 3k, 3k, 5k, 5k
+  # ! proj_dims: 10, 10, 20, 20, 50
+
+  # ! clamp: T, F
+  # ! reinit: T, F
+  # ! obs_data :
+    # ! 100 {50, 100, 200} , 
+    #  ! 200 {100, 200, 300}, 
+    #  ! 300 {200, 300, 400}
+
 # ? Nonlinear Decoder DIBS (Joint)
 nonlinear_decoder_dibs:
   exp_name: 'nonlinear_decoder_dibs'
@@ -211,14 +222,14 @@ linear_bcd:
   exp_name: 'linear_bcd'
   ckpt_id: 'linear_bcd'
   model: 'Decoder_BCD'
-  num_nodes: 8
+  num_nodes: 6
   proj_dims: 10
   exp_edges: 1.0
   likelihood: 'linear'
   sem_type: 'linear-gauss'
   lr: 1e-3
   data_seed: 0
-  num_steps: 10000
+  num_steps: 3000
   off_wandb: False
 
 
