@@ -1,5 +1,5 @@
 defaults:
-  batch_size: 1000
+  batch_size: 64
   model: 'SlotAttention_img'
   dataset: 'er'
   datatype: 'er'
@@ -14,7 +14,7 @@ defaults:
 
   # ? wandb
   offline_wandb: False
-  off_wandb: False
+  off_wandb: True
   wandb_project: 'structure-learning'
   wandb_entity: 'structurelearning'
   log_batches: 4
@@ -99,6 +99,23 @@ defaults:
   algo: 'def'
   interv_type: 'single'
 
+  # ? BCD Nets
+  max_deviation: 0.01
+  use_alternative_horseshoe_tau: False
+  degree: 1
+  n_data: 100
+  do_ev_noise: True
+  use_flow: False # ! no support for use_flow True
+  hidden_size: 128
+  num_perm_layers: 2
+  print_golem_solution: False # ! no support for True
+  factorized: False  # ! no support for True
+  subsample: False   # ! no support for True
+  fixed_tau: 0.2
+  logit_constraint: 10
+  s_prior_std: 3.0
+  num_outer: 1
+  eval_eid: False
 
 # ? DIBS
 linear_dibs:
@@ -149,17 +166,17 @@ linear_decoder_dibs:
   exp_edges: 0.5
   lr: 8e-4
 
-  steps: 1020
+  steps: 11000
   num_updates: 1000
   data_seed: 1
-  num_samples: 200
+  num_samples: 300
   obs_data: 100
   off_wandb: True
-  clamp: True
-  reinit: True # reinit target and model every iter
+  clamp: False 
+  reinit: False # reinit target and model every iter
   interv_type: 'single'  # ['single', 'multi']
   grad_estimator: 'reparam'
-  across_interv: False
+  across_interv: True
   supervised: True
   topsort: False
 
@@ -180,14 +197,29 @@ nonlinear_decoder_dibs:
   num_nodes: 4
   num_updates: 1000
   data_seed: 1
-  num_samples: 200
+  num_samples: 100
   obs_data: 100
   across_interv: False
   off_wandb: True
-  clamp: True
-  reinit: True # reinit target and model every iter
+  clamp: False
+  reinit: False # reinit target and model every iter
   interv_type: 'single'  # ['single', 'multi']
   grad_estimator: 'reparam'
+
+
+linear_bcd:
+  exp_name: 'linear_bcd'
+  ckpt_id: 'linear_bcd'
+  model: 'Decoder_BCD'
+  num_nodes: 8
+  proj_dims: 10
+  exp_edges: 1.0
+  likelihood: 'linear'
+  sem_type: 'linear-gauss'
+  lr: 1e-3
+  data_seed: 0
+  num_steps: 10000
+  off_wandb: False
 
 
 # ? 9. Decoder_DIBS
