@@ -1,24 +1,31 @@
 #!/bin/bash
-#SBATCH --time=27:00:00
-#SBATCH --mem=32G
-#SBATCH --gres=gpu:1
-#SBATCH --cpus-per-task=6
-#SBATCH --mail-user=jithen.subra@gmail.com
+#SBATCH --mail-user=ivaxi-miteshkumar.sheth.1@ens.etsmtl.ca
 #SBATCH --mail-type=BEGIN
 #SBATCH --mail-type=END
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-type=REQUEUE
 #SBATCH --mail-type=ALL
+#SBATCH --job-name=try
+#SBATCH --output=%x-%j.out
+#SBATCH --nodes=1
+#SBATCH --gres=gpu:1
+#SBATCH --ntasks-per-node=32
+#SBATCH --mem=10GB
+#SBATCH --time=00:05:00
+#SBATCH --account=rrg-ebrahimi
+​#wandb login b0ebb8272d653169adb078a4e3f70cb1ebbf41c0 
+
+wandb offline
 
 seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
 lrs=(0.001)
 dibs_lrs=(0.005)
 exp_edges=(0.5)
-steps=(10000)
+steps=(11000)
 
 num_updates=(1000)
-num_samples=(200)
-num_obs_data=100
+num_samples=(100)
+num_obs_data=50
 num_nodes=4
 proj_dims=10
 across_interv='True'
@@ -27,9 +34,9 @@ n_particles=20
 datagen='linear'
 likelihood='linear'
 algo='def'
-off_wandb='False'
-clamp='True'
-reinit='True'
+off_wandb='True'
+clamp='False'
+reinit='False'
 
 array_len=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#dibs_lrs[@]} * ${#num_updates[@]} * ${#steps[@]} * ${#num_samples[@]} ))
 
