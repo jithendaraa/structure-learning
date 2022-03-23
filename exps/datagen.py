@@ -73,8 +73,11 @@ def generate_interv_data(opt, n_interv_sets, target):
     data_, no_interv_targets = jnp.array(data_).reshape(num_interv_data, opt.num_nodes), jnp.array(no_interv_targets)
     return data_, no_interv_targets
 
-def get_data(opt, n_intervention_sets, target):
-    obs_data = jnp.array(target.x)[:opt.obs_data]
+def get_data(opt, n_intervention_sets, target, data_=None):
+
+    if data_ is None:   obs_data = jnp.array(target.x)[:opt.obs_data]
+    else:   obs_data = jnp.array(data_)[:opt.obs_data]
+
     num_interv_data = opt.num_samples - opt.obs_data
 
     if num_interv_data > 0:

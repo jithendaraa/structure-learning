@@ -127,28 +127,76 @@ class Decoder_JointDiBS(nn.Module):
                 res[idx] = squeezed_tuple
         return res
 
-    def eltwise_get_posterior_z(self, key, g, theta, samples):
+    def gen_z_sample(self, key, intervs, mus, log_chols, interv_target):
+        
+        d = self.num_nodes
+        idx = jnp.where(jnp.array([jnp.array_equal(interv_target, x) for x in intervs]), size=1)[0][0]
+        q_z_mu, q_z_logcholesky = mus[idx], log_chols[idx]
+        q_z_cholesky = jnp.exp(q_z_logcholesky)
+
+        tril_indices = jnp.tril_indices(self.num_nodes)
+        i, j = tril_indices[0], tril_indices[1]
+        q_z_chol = jnp.zeros((self.num_nodes,self.num_nodes), dtype=float)
+        q_z_chol = q_z_chol.at[i, j].set(q_z_cholesky)
+
+        # Reparametrization trick
+        eps = random.multivariate_normal(key, jnp.zeros((d)), jnp.identity(d))
+        return q_z_mu + jnp.matmul(eps, q_z_chol)
+
+    def eltwise_get_posterior_z(self, key, g, theta, num_samples, interv_targets, intervs):
         """
         [TODO]
         """
 
+        mus, log_chols = jnp.array([[]]), jnp.array([[]])
+        
         if self.dibs_type == 'linear':
+            # [NOTE] Currently supports only single interventions
+            # [TODO] Remove for loop and vectorize if possible to make code faster for large #unique_interventions
+            
+            obs_idx = 0
             weighted_adj_matrix = jnp.multiply(g, theta)
             q_z_mu, q_z_logcholesky = self.z_net(weighted_adj_matrix.flatten())
+            mus, log_chols = jnp.array([q_z_mu]), jnp.array([q_z_logcholesky])
+
+            for i in range(1, len(intervs)):
+                assert len(mus) == len(log_chols)
+                intervention = intervs[i]
+                intervened_node = jnp.where(intervention, size=1)
+                
+                # ! If atleast one node was intervened on
+                if len(intervened_node[0]) > 0:
+                    # Mutate DAG: zero out parents of intervened node
+                    intervened_g = index_update(g, index[:, intervened_node], 0) 
+                    weighted_adj_matrix = jnp.multiply(intervened_g, theta)
+                    q_z_mu, q_z_logcholesky = self.z_net(weighted_adj_matrix.flatten())
+
+                else:
+                    raise NotImplementedError("This was not supposed to happen!")
+                    obs_idx = i
+                    weighted_adj_matrix = jnp.multiply(g, theta)
+                    q_z_mu, q_z_logcholesky = self.z_net(weighted_adj_matrix.flatten())
+                
+                mus = jnp.append(mus, jnp.array([q_z_mu]), axis=0)
+                log_chols = jnp.append(log_chols, jnp.array([q_z_logcholesky]), axis=0)
 
         elif self.dibs_type == 'nonlinear':
+            """[TODO] this if condition is incomplete"""
             flattened_g = jnp.array(g.reshape(-1))
             q_z_mu, q_z_logcholesky = self.z_net(flattened_g)
         
-        q_z_cholesky = jnp.exp(q_z_logcholesky)
+        obs_q_z_mu, obs_q_z_log_chols = mus[obs_idx], log_chols[obs_idx]
+        obs_q_z_cholesky = jnp.exp(obs_q_z_log_chols)
         tril_indices = jnp.tril_indices(self.num_nodes)
         i, j = tril_indices[0], tril_indices[1]
         cholesky_L = jnp.zeros((self.num_nodes,self.num_nodes), dtype=float)
-        cholesky_L = cholesky_L.at[i, j].set(q_z_cholesky)
+        cholesky_L = cholesky_L.at[i, j].set(obs_q_z_cholesky)
+        obs_q_z_covar = jnp.matmul(cholesky_L, jnp.transpose(cholesky_L))
+        # idxs = jnp.array([jnp.where(jnp.array([jnp.array_equal(target, x) for x in intervs]), size=1)[0][0] for target in interv_targets])
 
-        q_z_covar = jnp.matmul(cholesky_L, jnp.transpose(cholesky_L))
-        q_z = self.reparameterized_multivariate_normal(key, q_z_mu, cholesky_L, samples)
-        return q_z_mu, q_z_covar, cholesky_L, q_z
+        gen_z_samples = vmap(self.gen_z_sample, (None, None, None, None, 0) , (0) )
+        q_z = gen_z_samples(key, intervs, mus, log_chols, interv_targets)
+        return obs_q_z_mu, obs_q_z_covar, cholesky_L, q_z
 
     def eltwise_get_grad_dibs_params(self, key, z, theta, t, data, interv_targets, sf_baseline):
         """
@@ -194,7 +242,7 @@ class Decoder_JointDiBS(nn.Module):
             adj_mat_i, theta_i = gs[i], theta[i]
             graph = nx.from_numpy_matrix(onp.array(adj_mat_i), create_using=nx.DiGraph)
             
-            # If graph is not a DAG
+            # If graph is not a DAG, randomly prune edges
             while nx.is_directed_acyclic_graph(graph) is False:    
                 edges = random.choice(subk, jnp.array(nx.find_cycle(graph)), axis=0)
                 if len(edges.shape) == 1: edges = edges[jnp.newaxis, :]
@@ -246,6 +294,9 @@ class Decoder_JointDiBS(nn.Module):
         q_z_mus, q_z_covars = None, None
         num_samples = len(interv_targets)
         idxs = jnp.arange(0, self.n_particles)
+
+        # intervention target bool for obs data (1) + single node interventions (d) = d + 1 values
+        intervs = jnp.concatenate((jnp.zeros((1,self.num_nodes)).astype(int), jnp.identity(self.num_nodes).astype(int))).astype(bool)
         
         if particles_z is None and particles_theta is None:
             particles_z, particles_theta = self.initialise_random_particles(key)
@@ -255,9 +306,9 @@ class Decoder_JointDiBS(nn.Module):
 
         # ? 2. Get graph conditioned predictions on z: q(z|G, theta)
         if self.topsort is False:
-            get_posterior_z = vmap(self.eltwise_get_posterior_z, (None, 0, 0, None), (0, 0, 0, 0))
-            q_z_mus, q_z_covars, _, q_zs = get_posterior_z(key, gs, particles_theta, num_samples)
-        
+            get_posterior_z = vmap(self.eltwise_get_posterior_z, (None, 0, 0, None, None, None), (0, 0, 0, 0))
+            q_z_mus, q_z_covars, _, q_zs = get_posterior_z(key, gs, particles_theta, num_samples, interv_targets, intervs)
+            
         # Topsort and ancestral sample
         elif self.topsort is True:
             q_zs, idxs = self.ancestral_sample(key, gs, interv_targets, particles_theta * gs)

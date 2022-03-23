@@ -52,10 +52,7 @@ def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writ
     else:   os.system('wandb online')
 
     if opt.off_wandb is False:
-        wandb.init(project=opt.wandb_project, 
-                    entity=opt.wandb_entity, 
-                    config=exp_config_dict, 
-                    settings=wandb.Settings(start_method="fork"))
+        wandb.init(project=opt.wandb_project, entity=opt.wandb_entity, config=exp_config_dict, settings=wandb.Settings(start_method="fork"))
         wandb.run.name = logdir.split('/')[-1]
         wandb.run.save()
         wandb.log({"graph_structure(GT-pred)/Ground truth": wandb.Image(join(logdir, 'gt_graph.png'))}, step=0)
@@ -77,19 +74,25 @@ def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writ
         tx=optax.adam(opt.lr)
     )
 
+    decoder_train_steps = opt.steps - opt.num_updates
+    dibs_update = 0
+    dibs_optimizer = optimizers.rmsprop(opt.dibs_lr)
+    opt_init, opt_update, get_params = dibs_optimizer
+    interv_targets = no_interv_targets
    
     @jit
     def train_causal_vars(state, key, z, theta, 
-                    sf_baseline, data, interv_targets, step=0):
+                    sf_baseline, data, interv_targets, step=0, supervised=False):
         recons, particles, q_z_mus, q_z_covars, _, gs, sf_baseline, pred_zs = dibs.apply({'params': state.params}, 
                                                                                             key, z, theta, sf_baseline, 
                                                                                             data, interv_targets, step, 'nonlinear')
         
         grads = grad(loss_fns.loss_fn)(state.params, key, z, theta, sf_baseline, data, interv_targets, 
-                    step, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, dibs, 'nonlinear')
+                    step, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt, dibs, 'nonlinear', supervised=supervised)
         res = state.apply_gradients(grads=grads)
         loss, mse_loss, kl_z_loss, z_dist = loss_fns.calc_loss(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, pred_zs, opt, z_gt)
         return res, particles, loss, mse_loss, kl_z_loss, q_z_mus, q_z_covars, gs, sf_baseline, z_dist, pred_zs, particles
+
 
     @jit
     def train_causal_graph(state, key, z, theta, sf_baseline, data, interv_targets, step, opt_states):
@@ -101,20 +104,15 @@ def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writ
         opt_state_theta = opt_update(step, dibs_grads['phi_theta'], opt_state_theta)
         return opt_state_z, opt_state_theta, gs, sf_baseline
 
-    decoder_train_steps = opt.steps - opt.num_updates
-    dibs_update = 0
-    dibs_optimizer = optimizers.rmsprop(opt.dibs_lr)
-    opt_init, opt_update, get_params = dibs_optimizer
-    interv_targets = no_interv_targets
-    
+
     for step in range(opt.steps):
         if step < decoder_train_steps:
             state, particles, loss, mse_loss, kl_z_loss, q_z_mus, q_z_covars, gs, _, z_dist, q_z, particles = train_causal_vars(state, rng, z_final, theta_final, 
-                                                                                                    sf_baseline, data=None, interv_targets=interv_targets, step=step)
+                                                                                                    sf_baseline, data=None, interv_targets=interv_targets, step=step, supervised=opt.supervised)
             if step == 0:   
                 opt_state_z, opt_state_theta = opt_init(particles[0]), opt_init(particles[1])
 
-            if (step+1) % 50 == 0:
+            if step % 50 == 0:
                 if opt.supervised is True:
                     writer.add_scalar('z_losses/ELBO', np.array(loss), step)
                     writer.add_scalar('z_losses/KL', np.array(kl_z_loss), step)
@@ -122,20 +120,25 @@ def run_decoder_joint_dibs(key, opt, logdir, n_intervention_sets, dag_file, writ
                 writer.add_scalar('z_losses/MSE', np.array(mse_loss), step)
                 writer.add_scalar('Distances/MSE(Predicted z | z_GT)', np.array(z_dist), step)
 
+            if (step) % 20 == 0: 
+                print(f"Step {step}: {loss}") 
+
         else:
-            if step == decoder_train_steps:
+            if step == decoder_train_steps and opt.topsort is False:
                 q_z_mus, q_z_covars = np.array(q_z_mus), np.array(q_z_covars)
                 data = vmap(datagen.gen_data_from_dist, (None, 0, 0, None, None, None), 0)(rng, q_z_mus, q_z_covars, opt.num_samples, interv_targets, opt.clamp)  
-            
+    
             t = dibs_update
             opt_state_z, opt_state_theta, gs, sf_baseline = train_causal_graph(state, rng, z_final, theta_final, sf_baseline, 
                                                             data, interv_targets, t, (opt_state_z, opt_state_theta))
+    
             z_final, theta_final = get_params(opt_state_z), get_params(opt_state_theta)
             dibs_update += 1
+            # print("HM")
 
-        if step >= decoder_train_steps and (step+1) % 50 == 0:
-            evaluate(target, writer, joint_dibs_model, gs, theta_final, z_gt, interv_targets, 
-                    gt_graph, dag_file, opt, step - decoder_train_steps, True)
+            # if (step+1) % 50 == 0:
+            #     evaluate(target, writer, joint_dibs_model, gs, theta_final, z_gt, interv_targets, 
+            #             gt_graph, dag_file, opt, step - decoder_train_steps, True)
     
 
 

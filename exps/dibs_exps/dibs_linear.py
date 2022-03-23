@@ -81,7 +81,7 @@ def run_dibs_linear(key, opt, n_interv_sets, dag_file, writer, logdir):
                                                                                     callback=dibs.visualize_callback(), jitted=True)
 
             evaluate(target, dibs, gs, theta_final, len(data) - opt.obs_data, dag_file, 
-                    writer, opt, data, interv_targets, True)
+                    writer, opt, data, interv_targets, True, logdir=logdir)
             
             if num_interv_data == 0: break
 

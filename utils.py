@@ -112,15 +112,13 @@ def get_data_dict(opt, dataloader):
   return data_dict
 
 def get_dict_template(opt):
-  if opt.model in ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img', 'GraphVAE', 'DIBS']:
+  if opt.model in ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img', 'GraphVAE', 'DIBS', 'Decoder_BCD']:
     return {"observed_data": None, 'train_len': None, 'test_len': None}
 
 def set_batch_dict(opt, data_dict, batch_dict):
-  if opt.model in ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img', 'GraphVAE', 'DIBS']:
-    # Image reconstruction task
+  if opt.model in ['SlotAttention_img', 'VCN', 'VCN_img', 'Slot_VCN_img', 'GraphVAE', 'DIBS', 'Decoder_BCD']:
     batch_dict["observed_data"] = data_dict["observed_data"]
     batch_dict["data_to_predict"] = data_dict["observed_data"]
-
 
   return batch_dict
   
@@ -136,7 +134,6 @@ def save_model_params(model, optimizers, opt, step, ckpt_save_freq):
   if step > 0 and ((step+1) % ckpt_save_freq == 0):
       padded_zeros = '0' * (10 - len(str(step)))
       padded_step = padded_zeros + str(step)
-
       ckpt_filename = os.path.join(opt.model_params_logdir, opt.ckpt_id + '_' + str(opt.batch_size) + '_' + str(opt.lr)[2:] + '_' + str(opt.steps) + '_' + str(opt.resolution))
 
       if opt.model in ['VCN']:
@@ -247,7 +244,8 @@ def set_tb_logdir(opt):
     elif opt.algo == 'fast-slow':
       logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_steps{opt.steps}_dibsupdates{opt.num_updates}_knownED{opt.known_ED}_lindecode{opt.linear_decoder}_algo{opt.algo}_particles{opt.n_particles}_dibslr{opt.dibs_lr}_datagen({opt.datagen})'
       
-
+  elif opt.model in ['Decoder_BCD']:
+    pass
 
   print("logdir:", logdir)
   return logdir
