@@ -221,8 +221,8 @@ nonlinear_decoder_dibs:
 linear_bcd:
   exp_name: 'linear_bcd'
   ckpt_id: 'linear_bcd'
-  model: 'Decoder_BCD'
-  num_nodes: 6
+  model: 'BCD'
+  num_nodes: 4
   proj_dims: 10
   exp_edges: 1.0
   likelihood: 'linear'
@@ -230,7 +230,26 @@ linear_bcd:
   lr: 1e-3
   data_seed: 0
   num_steps: 3000
-  off_wandb: False
+  off_wandb: True
+  num_samples: 100
+
+
+linear_decoder_bcd:
+  exp_name: 'linear_decoder_bcd'
+  ckpt_id: 'linear_decoder_bcd'
+  model: 'Decoder_BCD'
+  num_nodes: 4
+  proj_dims: 10
+  exp_edges: 1.0
+  likelihood: 'linear'
+  sem_type: 'linear-gauss'
+  lr: 1e-3
+  data_seed: 0
+  num_steps: 3000
+  off_wandb: True
+  num_samples: 100
+  obs_data: 100
+
 
 
 # ? 9. Decoder_DIBS
