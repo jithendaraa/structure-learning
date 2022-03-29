@@ -18,6 +18,7 @@ import jax.random as rnd
 from jax import vmap, grad, jit, lax, pmap, value_and_grad, partial, config 
 from jax.tree_util import tree_map, tree_multimap
 from jax import numpy as jnp
+from jax.ops import index, index_mul, index_update
 import numpy as onp
 import haiku as hk
 config.update("jax_enable_x64", True)
@@ -26,6 +27,7 @@ from tensorflow_probability.substrates.jax.distributions import Normal, Horsesho
 
 from torch.utils.tensorboard import SummaryWriter
 from modules.GumbelSinkhorn import GumbelSinkhorn
+from modules.hungarian_callback import hungarian, batched_hungarian
 
 # Data generation procedure
 from dibs_new.dibs.target import make_linear_gaussian_model
@@ -92,6 +94,8 @@ else: noise_dim = dim
 l_dim = dim * (dim - 1) // 2
 input_dim = l_dim + noise_dim
 log_stds_max: Optional[float] = 10.0
+if opt.fixed_tau is not None: tau = opt.fixed_tau
+else: raise NotImplementedError
 
 
 # noise sigma usually around 0.1 but in original BCD nets code it is set to 1
@@ -106,18 +110,16 @@ print()
 Xs = sd.simulate_sem(ground_truth_W, n_data, sd.sem_type, noise_scale=opt.noise_sigma, dataset_type="linear")
 Xs = cast(jnp.ndarray, Xs)
 
+# ! [TODO] Supports only single interventions currently; will not work for more than 1-node intervs
 ( obs_data, interv_data, z_gt, 
 no_interv_targets, x, p_z_mu, 
 p_z_covar ) = datagen.get_data(opt, n_interv_sets, None, Xs)
-
 
 # ? Set parameter for Horseshoe prior on L
 if opt.use_alternative_horseshoe_tau:   raise NotImplementedError
 else:   horseshoe_tau = (1 / onp.sqrt(n_data)) * (2 * degree / ((dim - 1) - 2 * degree))
 if horseshoe_tau < 0:  horseshoe_tau = 1 / (2 * dim)
 print(f"Horseshoe tau is {horseshoe_tau}")
-
-
 
 # ? 1. Set optimizers for P and L 
 P_layers = [optax.scale_by_belief(eps=1e-8), optax.scale(-opt.lr)]
@@ -126,21 +128,21 @@ opt_P = optax.chain(*P_layers)
 opt_L = optax.chain(*L_layers)
 
 
-def forward_fn(x, init, L_params=None, L_states=None, rng_keys=None):
-    model = Decoder_BCD(dim, l_dim, noise_dim, opt.batch_size, opt.hidden_size, opt.lr, opt.max_deviation, do_ev_noise, log_stds_max)
-    return model(x, init, L_params, L_states, rng_keys) 
+def forward_fn(x, hard, rng_keys, interv_targets, init, L_params=None, L_states=None):
+    model = Decoder_BCD(dim, l_dim, noise_dim, opt.batch_size, opt.hidden_size, opt.max_deviation, do_ev_noise, 
+                        opt.proj_dims, log_stds_max, opt.logit_constraint, tau, opt.subsample, opt.s_prior_std)
+    return model(x, hard, rng_keys, interv_targets, init, L_params, L_states) 
 
 forward = hk.transform(forward_fn)
 key = hk.PRNGSequence(42)
 blank_data = np.zeros((opt.batch_size, input_dim))
 
-
 def init_parallel_params(rng_key: PRNGKey):
-    @pmap
+    # @pmap
     def init_params(rng_key: PRNGKey):
         L_params = jnp.concatenate((jnp.zeros(l_dim), jnp.zeros(noise_dim), jnp.zeros(l_dim + noise_dim) - 1,))
         L_states = jnp.array([0.0]) # Would be nice to put none here, but need to pmap well
-        P_params = forward.init(next(key), blank_data, True)
+        P_params = forward.init(next(key), blank_data, False, rng_key, jnp.array(no_interv_targets), True)
         if opt.factorized:  raise NotImplementedError
         P_opt_params = opt_P.init(P_params)
         L_opt_params = opt_L.init(L_params)
@@ -156,10 +158,23 @@ P_params, L_params, L_states, P_opt_params, L_opt_params = init_parallel_params(
 rng_keys = rnd.split(rng_key, num_devices)
 print(f"L model has {ff2(num_params(L_params))} parameters")
 print(f"P model has {ff2(num_params(P_params))} parameters")
-if opt.fixed_tau is not None: tau = opt.fixed_tau
-else: raise NotImplementedError
 
-res = pmap(forward.apply, in_axes=(0, None, None, None, 0, 0, 0), static_broadcasted_argnums=(3, ))(P_params, rng_key, blank_data, False, L_params, L_states, rng_keys)
+hard = True
+
+# no_interv_targets but with d+1 columns instead of d. Last one is a dummy column and = 1 if observational data point
+
+
+# batch_P, batch_L, batch_Σ, batch_W, q_zs = pmap(forward.apply, in_axes=(0, None, None, None, 0, None, 0, 0), 
+#         static_broadcasted_argnums=(3, 5))(P_params, rng_key, blank_data, hard, rng_keys, False, L_params, L_states)
+
+no_interv_targets = index_update(no_interv_targets, index[2, :], True)
+data_idx_array = jnp.array([jnp.arange(opt.num_nodes + 1)]*opt.num_samples)
+interv_nodes = jnp.split(data_idx_array[no_interv_targets], no_interv_targets.sum(1).cumsum()[:-1])
+max_cols = jnp.max(no_interv_targets.sum(1))
+interv_nodes = jnp.array([jnp.concatenate((interv_nodes[i], jnp.array([opt.num_nodes] * (max_cols - len(interv_nodes[i]))))) for i in range(opt.num_samples)])
+
+batch_P, batch_L, batch_Σ, batch_W, X_recons = forward.apply(P_params, rng_key, blank_data, hard, rng_key, interv_nodes.astype(int), False, L_params, L_states)
+
 
 
 
