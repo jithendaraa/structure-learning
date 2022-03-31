@@ -163,16 +163,7 @@ class Decoder_BCD(hk.Module):
         l2_elbo_grad_P = grad(
             lambda p: 0.5 * sum(jnp.sum(jnp.square(param)) for param in jax.tree_leaves(p))
         )(P_params)
-        print(type(elbo_grad_P), type(elbo_grad_L))
-        # 15.98340952,   24.50745588,   13.12981995,   13.84840138,
-            #    22.75323027,    2.68923317, 1899.24440939,    4.34685362,
-            #     4.39582259,    2.80967217,    5.83435334,    2.58696386,
-            #     5.39714725,  -76.04486441], dtype=float64)
-
-        # -356.36996553
-        pdb.set_trace()
         elbo_grad_P = tree_multimap(lambda x, y: x + y, elbo_grad_P, l2_elbo_grad_P)
-
         return elbo_grad_P, elbo_grad_L
 
     def __call__(self, hard, rng_key, interv_targets, init=False, 
@@ -197,23 +188,17 @@ class Decoder_BCD(hk.Module):
         batched_P_logits = self.get_P_logits(full_l_batch)
 
         # ? 3. Compute soft P̃ = Sinkhorn( (T+γ)/𝜏 ) or hard P = Hungarian(P̃) 
-        if hard:    
-            batched_P = self.ds.sample_hard_batched_logits(batched_P_logits, self.tau, rng_key,)
-            batched_W = vmap(self.sample_W, (0, 0), (0))(batched_L, batched_P)
-            batched_adj_mats = jnp.where(batched_W != 0, 1.0, 0.0)
+        if hard:    batched_P = self.ds.sample_hard_batched_logits(batched_P_logits, self.tau, rng_key)
+        else:   batched_P = self.ds.sample_soft_batched_logits(batched_P_logits, self.tau, rng_key)
 
-            batched_qz_samples = vmap(self.ancestral_sample, (0, 0, 0, None, None, None), (0))(batched_W, batched_P, jnp.exp(batched_log_noises), rng_key, interv_targets, 0.0)
-            X_recons = vmap(vmap(self.decoder, (0), (0)), (0), (0))(batched_qz_samples)
-
-        else:   
-            batched_P = self.ds.sample_soft_batched_logits(batched_P_logits, self.tau, rng_key,)
-            
-        # ? 4. ELBO calculation
-        # elbo_grad_P, elbo_grad_L = self.get_gradients(P_params, L_params, L_state, gt_data, rng_key, hard, interv_targets)
-        # grads = {'elbo_P': elbo_grad_P, 'elbo_L': elbo_grad_L}
+        batched_W = vmap(self.sample_W, (0, 0), (0))(batched_L, batched_P)
+        batched_adj_mats = jnp.where(batched_W != 0, 1.0, 0.0)
+        batched_qz_samples = vmap(self.ancestral_sample, (0, 0, 0, None, None, None), (0))(batched_W, batched_P, jnp.exp(batched_log_noises), rng_key, interv_targets, 0.0)
+        X_recons = vmap(vmap(self.decoder, (0), (0)), (0), (0))(batched_qz_samples)
 
         return (batched_P, batched_P_logits, batched_L, batched_log_noises, 
                 batched_W, batched_qz_samples, full_l_batch, full_log_prob_l, X_recons)
+
 
     def log_prob_x(self, data, log_sigmas, P, L, rng_key):
         """
@@ -249,7 +234,6 @@ class Decoder_BCD(hk.Module):
             0.5 * n * (log_det_precision - dim * jnp.log(2 * jnp.pi))
             + jnp.sum(log_exponent)
         )
-
     
 
     def elbo(self, P_params: PParamType, L_params: hk.Params, L_states: LStateType, gt_data: jnp.ndarray, 

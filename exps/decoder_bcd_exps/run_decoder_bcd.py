@@ -92,6 +92,11 @@ do_ev_noise = opt.do_ev_noise
 num_outer = opt.num_outer
 s_prior_std = opt.s_prior_std
 n_interv_sets = 10
+calc_shd_c = False
+sem_type = opt.sem_type
+eval_eid = opt.eval_eid
+
+
 if do_ev_noise: noise_dim = 1
 else: noise_dim = dim
 l_dim = dim * (dim - 1) // 2
@@ -112,11 +117,13 @@ print()
 
 Xs = sd.simulate_sem(ground_truth_W, n_data, sd.sem_type, noise_scale=opt.noise_sigma, dataset_type="linear")
 Xs = cast(jnp.ndarray, Xs)
+test_Xs = sd.simulate_sem(ground_truth_W, sd.n, sd.sem_type, sd.w_range, sd.noise_scale, sd.dataset_type, sd.W_2)
 
 # ! [TODO] Supports only single interventions currently; will not work for more than 1-node intervs
 ( obs_data, interv_data, z_gt, 
 no_interv_targets, x, p_z_mu, 
 p_z_covar ) = datagen.get_data(opt, n_interv_sets, None, Xs)
+
 
 # ? Set parameter for Horseshoe prior on L
 if opt.use_alternative_horseshoe_tau:   raise NotImplementedError
@@ -125,6 +132,7 @@ if horseshoe_tau < 0:  horseshoe_tau = 1 / (2 * dim)
 print(f"Horseshoe tau is {horseshoe_tau}")
 
 # ? 1. Set optimizers for P and L 
+log_gt_graph(ground_truth_W, logdir, exp_config)
 P_layers = [optax.scale_by_belief(eps=1e-8), optax.scale(-opt.lr)]
 L_layers = [optax.scale_by_belief(eps=1e-8), optax.scale(-opt.lr)]
 opt_P = optax.chain(*P_layers)
@@ -138,7 +146,6 @@ def forward_fn(hard, rng_keys, interv_targets, init,
     return model(hard, rng_keys, interv_targets, init, P_params, L_params, L_states, gt_data) 
 
 forward = hk.transform(forward_fn)
-# key = hk.PRN
 
 def init_parallel_params(rng_key: PRNGKey):
     # @pmap
@@ -164,9 +171,6 @@ print(f"P model has {ff2(num_params(P_params))} parameters")
 
 hard = True
 
-# ! Remove this line
-no_interv_targets = index_update(no_interv_targets, index[2, :], True)
-
 max_cols = jnp.max(no_interv_targets.sum(1))
 data_idx_array = jnp.array([jnp.arange(opt.num_nodes + 1)]*opt.num_samples)
 interv_nodes = jnp.split(data_idx_array[no_interv_targets], no_interv_targets.sum(1).cumsum()[:-1])
@@ -185,9 +189,9 @@ def topo(P, W):
     assert jnp.array_equal(swapped_ordering, t)
     return swapped_ordering, t
 
-def elbo(P_params: PParamType, L_params: hk.Params, L_states: LStateType,
-    z_gt: jnp.ndarray, rng_key: PRNGKey, tau: float, num_outer: int, 
-    hard: bool, interv_nodes: jnp.ndarray) -> Tuple[jnp.ndarray, LStateType]:
+@jit
+def soft_elbo(P_params: PParamType, L_params: hk.Params, L_states: LStateType,
+    z_gt: jnp.ndarray, rng_key: PRNGKey, interv_nodes: jnp.ndarray) -> Tuple[jnp.ndarray, LStateType]:
     
     num_bethe_iters = 20
     
@@ -197,6 +201,7 @@ def elbo(P_params: PParamType, L_params: hk.Params, L_states: LStateType,
     def outer_loop(rng_key: PRNGKey):
         """Computes a term of the outer expectation, averaging over batch size"""
         rng_key, rng_key_1 = rnd.split(rng_key, 2)
+        hard = False
         
         (batched_P, batched_P_logits, batched_L, batched_log_noises, 
         batched_W, batched_qz_samples, full_l_batch, full_log_prob_l, 
@@ -224,14 +229,54 @@ def elbo(P_params: PParamType, L_params: hk.Params, L_states: LStateType,
     elbo_estimate = jnp.mean(elbos)
     return elbo_estimate, tree_map(lambda x: x[-1], out_L_states)
 
-def gradient_step(P_params, L_params, L_states, z_gt, P_opt_state, L_opt_state, rng_key, tau):
+@jit
+def hard_elbo(P_params: PParamType, L_params: hk.Params, L_states: LStateType,
+    z_gt: jnp.ndarray, rng_key: PRNGKey, interv_nodes: jnp.ndarray) -> Tuple[jnp.ndarray, LStateType]:
+    
+    num_bethe_iters = 20
+    
+    # * Horseshoe prior over lower triangular matrix L
+    l_prior = Horseshoe(scale=jnp.ones(l_dim + noise_dim) * horseshoe_tau)
+    
+    def outer_loop(rng_key: PRNGKey):
+        """Computes a term of the outer expectation, averaging over batch size"""
+        rng_key, rng_key_1 = rnd.split(rng_key, 2)
+        hard = True
+        
+        (batched_P, batched_P_logits, batched_L, batched_log_noises, 
+        batched_W, batched_qz_samples, full_l_batch, full_log_prob_l, 
+        X_recons) = forward.apply(P_params, rng_key, hard, rng_key, 
+                    interv_nodes, False, P_params, L_params, L_states, 
+                    gt_data = z_gt)
+
+        likelihoods = vmap(log_prob_x, in_axes=(None, 0, 0, 0, None, None, None))(
+            z_gt, batched_log_noises, batched_P, batched_L, rng_key, opt.subsample, s_prior_std
+        )
+        l_prior_probs = jnp.sum(l_prior.log_prob(full_l_batch)[:, :l_dim], axis=1)
+        s_prior_probs = jnp.sum(full_l_batch[:, l_dim:] ** 2 / (2 * s_prior_std ** 2), axis=-1)
+        KL_term_L = full_log_prob_l - l_prior_probs - s_prior_probs
+
+        logprob_P = vmap(ds.logprob, in_axes=(0, 0, None))(
+            batched_P, batched_P_logits, num_bethe_iters
+        )
+        log_P_prior = -jnp.sum(jnp.log(onp.arange(dim) + 1))
+        final_term = likelihoods - KL_term_L - logprob_P + log_P_prior
+
+        return jnp.mean(final_term), None
+
+    rng_keys = rnd.split(rng_key, num_outer)
+    _, (elbos, out_L_states) = lax.scan(lambda _, rng_key: (None, outer_loop(rng_key)), None, rng_keys)
+    elbo_estimate = jnp.mean(elbos)
+    return elbo_estimate, tree_map(lambda x: x[-1], out_L_states)
+
+@jit
+def gradient_step(P_params, L_params, L_states, z_gt, P_opt_state, L_opt_state, rng_key):
     rng_key, rng_key_2 = rnd.split(rng_key, 2)
     tau_scaling_factor = 1.0 / tau
 
     # * Get loss and gradients of loss wrt to P and L
-    (loss, L_states), grads = value_and_grad(elbo, argnums=(0, 1), has_aux=True)(
-        P_params, L_params, L_states, z_gt, rng_key, tau, num_outer, hard=True,
-        interv_nodes=interv_nodes)
+    (loss, L_states), grads = value_and_grad(hard_elbo, argnums=(0, 1), has_aux=True)(
+        P_params, L_params, L_states, z_gt, rng_key, interv_nodes)
 
     elbo_grad_P, elbo_grad_L = tree_map(lambda x: -tau_scaling_factor * x, grads)
     
@@ -250,19 +295,194 @@ def gradient_step(P_params, L_params, L_states, z_gt, P_opt_state, L_opt_state, 
     return ( loss, P_params, L_params, L_states, P_opt_state, L_opt_state, rng_key_2)
 
 
+def get_num_sinkhorn_steps(P_params, L_params, L_states, rng_key):
+    (_, batched_P_logits, _, _, 
+    _, _, _, _, _) = forward.apply(P_params, rng_key, hard, rng_key, 
+                    interv_nodes, False, P_params, L_params, L_states, 
+                    gt_data = z_gt)
+    _, errors = ds.sample_hard_batched_logits_debug(batched_P_logits, tau, rng_key)
+    first_converged = jnp.where(jnp.sum(errors, axis=0) == -opt.batch_size)[0]
+    if len(first_converged) == 0:   converged_idx = -1
+    else:   converged_idx = first_converged[0]
+    return converged_idx
+
+
+@jit
+def compute_grad_variance(P_params, L_params, L_states, Xs, rng_key, tau):
+    (_, L_states), grads = value_and_grad(hard_elbo, argnums=(0, 1), has_aux=True)(
+        P_params, L_params, L_states, z_gt, rng_key, interv_nodes
+    )
+    return get_double_tree_variance(*grads)
+
+
+def eval_mean(P_params, L_params, L_states, z_gt, rng_key, do_shd_c, tau=1):
+    """Computes mean error statistics for P, L parameters and data"""
+    if do_ev_noise: eval_W_fn = eval_W_ev
+    else: eval_W_fn = eval_W_non_ev
+    _, dim = z_gt.shape
+    x_prec = onp.linalg.inv(jnp.cov(z_gt.T))
+
+    (batched_P, batched_P_logits, batched_L, batched_log_noises, 
+    batched_W, batched_qz_samples, full_l_batch, 
+    full_log_prob_l, X_recons) = forward.apply(P_params, rng_key, True, rng_key, 
+                                    interv_nodes, False, P_params, L_params, L_states, 
+                                    gt_data = z_gt)
+
+    w_noise = full_l_batch[:, -noise_dim:]
+
+    def sample_stats(W, noise):
+        stats = eval_W_fn(W, ground_truth_W, ground_truth_sigmas, 0.3,
+                            Xs, jnp.ones(dim) * jnp.exp(noise), provided_x_prec=x_prec,
+                            do_shd_c=do_shd_c, do_sid=do_shd_c)
+        return stats
+
+    stats = sample_stats(batched_W[0], w_noise[0])
+    stats = {key: [stats[key]] for key in stats}
+    for i, W in enumerate(batched_W[1:]):
+        new_stats = sample_stats(W, w_noise[i])
+        for key in new_stats:
+            stats[key] = stats[key] + [new_stats[key]]
+
+    out_stats = {key: onp.mean(stats[key]) for key in stats}
+    out_stats["auroc"] = auroc(batched_W, ground_truth_W, 0.3)
+    return out_stats, (batched_P, batched_P_logits, batched_L, batched_log_noises, 
+                        batched_W, batched_qz_samples, full_l_batch, 
+                        full_log_prob_l, X_recons)
+
+
+@jit
+def get_Ws(P_params, L_params, L_states, rng_key, interv_nodes):
+    hard = True
+    (batched_P, batched_P_logits, batched_L, _, batched_W,
+    _, full_l_batch, _, _) = forward.apply(P_params, rng_key, hard, rng_key, 
+                                interv_nodes, False, P_params, L_params, L_states, 
+                                gt_data = z_gt)
+
+    hard = False
+    (batched_soft_P, _, batched_soft_L, _, batched_soft_W,
+    _, _, _, _) = forward.apply(P_params, rng_key, hard, rng_key, 
+                        interv_nodes, False, P_params, L_params, L_states, 
+                        gt_data = z_gt)
+
+    hard_W = (batched_P[0] @ lower(full_l_batch[0, :l_dim], dim) @ batched_P[0].T).T
+    soft_W = (batched_soft_P[0] @ lower(full_l_batch[0, :l_dim], dim) @ batched_soft_P[0].T).T
+
+    return hard_W, soft_W, batched_P_logits
+
+        
+
+best_elbo = -jnp.inf
+steps_t0 = time.time()
+mean_dict = {}
+t0 = time.time()
+t_prev_batch = t0
+
 
 for i in range(opt.num_steps):
     
-    ( loss, P_params, new_L_params, L_states, P_opt_params, 
-        new_L_opt_params, new_rng_key ) = gradient_step(P_params, L_params, L_states, 
-                                            z_gt, P_opt_params, L_opt_params, rng_key, tau)
+    ( loss, P_params, L_params, L_states, P_opt_params, 
+        L_opt_params, rng_key ) = gradient_step(P_params, L_params, L_states, z_gt, P_opt_params, L_opt_params, rng_key)
     
-    if jnp.any(jnp.isnan(ravel_pytree(new_L_params)[0])):   raise Exception("Got NaNs in L params")
-    
-    L_params, L_opt_params, rng_key = new_L_params, new_L_opt_params, new_rng_key
+    if jnp.any(jnp.isnan(ravel_pytree(L_params)[0])):   raise Exception("Got NaNs in L params")
 
-    break
+    if i % 200 == 0: print(f"Step {i} | {loss}")
 
+    if i % 20 == 0:
+        if opt.fixed_tau is None:   raise NotImplementedError()
+        t000 = time.time()
 
+        h_elbo, _ = hard_elbo(P_params, L_params, L_states, z_gt, rng_key, interv_nodes)
+        s_elbo, _ = soft_elbo(P_params, L_params, L_states, z_gt, rng_key, interv_nodes)
+        num_steps_to_converge = get_num_sinkhorn_steps(P_params, L_params, L_states, rng_key)
+        
+        wandb_dict = {
+            "ELBO": onp.array(h_elbo),
+            "soft ELBO": onp.array(s_elbo),
+            "tau": onp.array(tau),
+            "Wall Time": onp.array(time.time() - t0),
+            "Sinkhorn steps": onp.array(num_steps_to_converge),
+        }
 
+        t_prev_batch = time.time()
 
+        if (i % 50 == 0):
+            # Log evalutation metrics at most once every two minutes
+            if (i % 10_000 == 0) and (i != 0):  _do_shd_c = False
+            else:    _do_shd_c = calc_shd_c
+
+            cache_str = f"_{sem_type.split('-')[1]}_d_{degree}_s_{opt.data_seed}_{opt.max_deviation}_{opt.use_flow}.pkl"
+            
+            # ? Saving model params
+            if time.time() - steps_t0 > 120:    # Don't cache too frequently
+                save_params(P_params, L_params, L_states, P_opt_params, L_opt_params, cache_str)
+                print("cached_params")
+
+            elbo_grad_std = compute_grad_variance(P_params, L_params, L_states, z_gt, rng_key, tau)
+
+            try:
+                mean_dict, model_outputs = eval_mean(P_params, L_params, L_states, z_gt, rk(i), _do_shd_c)
+                print("Evaluated...")
+            except:
+                print("Error occured in evaluating test statistics")
+                continue
+            
+            if h_elbo > best_elbo:
+                best_elbo = h_elbo
+                best_shd = mean_dict["shd"]
+                wandb_dict['best elbo'] = onp.array(best_elbo)
+                wandb_dict['Evaluations/best shd'] = onp.array(mean_dict["shd"])
+
+            if eval_eid and i % 8_000 == 0:
+                t4 = time.time()
+                eid = eval_ID(P_params, L_params, L_states, Xs, rk(i), tau,)
+                wandb_dict['eid_wass'] = eid
+                print(f"EID_wass is {eid}, after {time.time() - t4}s")
+
+            print(f"MSE is {ff2(mean_dict['MSE'])}, SHD is {ff2(mean_dict['shd'])}")
+            
+            metrics_ = (
+                {"Evaluations/SHD": mean_dict["shd"], 
+                "Evaluations/SHD_C": mean_dict["shd_c"],
+                "Evaluations/SID": mean_dict["sid"], 
+                "mse": mean_dict["MSE"],
+                "Evaluations/tpr": mean_dict["tpr"], 
+                "Evaluations/fdr": mean_dict["fdr"],
+                "Evaluations/fpr": mean_dict["fpr"], 
+                "Evaluations/AUROC": mean_dict["auroc"],
+                "ELBO Grad std": onp.array(elbo_grad_std), 
+                "true KL": mean_dict["true_kl"],
+                "true Wasserstein": mean_dict["true_wasserstein"],
+                # "sample KL": mean_dict["sample_kl"],
+                # "sample Wasserstein": mean_dict["sample_wasserstein"],
+                "pred_size": mean_dict["pred_size"],
+                "train sample KL": mean_dict["sample_kl"],
+                "train sample Wasserstein": mean_dict["sample_wasserstein"],
+                "pred_size": mean_dict["pred_size"]},
+            )
+
+            wandb_dict.update(metrics_[0])
+            print(f"Step {i} | SHD: {metrics_[0]['Evaluations/SHD']} | SHD_C: {metrics_[0]['Evaluations/SHD_C']} | auroc: {metrics_[0]['Evaluations/AUROC']}")
+            if opt.use_flow:    raise NotImplementedError("")
+
+        hard_W, soft_W, P_logits = get_Ws(P_params, L_params, L_states, rng_key, interv_nodes)
+
+        plt.imshow(hard_W)
+        plt.colorbar()
+        if opt.off_wandb is False: plt.savefig(f"{logdir}/tmp_hard{wandb.run.name}.png")
+        plt.close()
+
+        plt.imshow(soft_W)
+        plt.colorbar()
+        if opt.off_wandb is False: plt.savefig(f"{logdir}/tmp_soft{wandb.run.name}.png")
+        plt.close()
+
+        if opt.off_wandb is False:        
+            wandb_dict['graph_structure(GT-pred)/Sample'] = wandb.Image(Image.open(f"{logdir}/tmp_hard{wandb.run.name}.png"), caption="W sample")
+            wandb_dict['graph_structure(GT-pred)/SoftSample'] = wandb.Image(Image.open(f"{logdir}/tmp_soft{wandb.run.name}.png"), caption="W sample_soft")
+            wandb.log(wandb_dict, step=i)
+
+        print("Sinkhorn steps:", num_steps_to_converge)
+        print(f"Max value of P_logits was {ff2(jnp.max(jnp.abs(P_logits)))}")
+        if dim == 3:    print(get_histogram(L_params, L_states, P_params, rng_key))
+        steps_t0 = time.time()
+        print()
