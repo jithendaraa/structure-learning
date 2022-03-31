@@ -37,10 +37,7 @@ import matplotlib.pyplot as plt
 import matplotlib as mpl
 from jax import config
 import haiku as hk
-from models import (
-    get_model,
-    get_model_arrays,
-)
+from models import get_model, get_model_arrays
 import time
 from jax.flatten_util import ravel_pytree
 import optax
@@ -146,7 +143,6 @@ num_devices = jax.device_count()
 print(f"Number of devices: {num_devices}")
 if "gpu" not in str(jax.devices()).lower():
     print("NO GPU FOUND")
-    # exit
 
 l_dim = dim * (dim - 1) // 2
 lr_P = lr
@@ -156,7 +152,7 @@ num_perm_layers = 2
 hidden_size = 128
 fixed_tau = args.fixed_tau
 
-num_mixture_components = 4
+num_mixture_components = 4 # for normalizing flow in non-ev experiments
 num_outer = 1
 fix_L_params = False
 log_stds_max: Optional[float] = 10.0
@@ -309,7 +305,7 @@ else:
     )
 
     ground_truth_sigmas = jnp.exp(log_sigma_W)
-    print("\n\n\n")
+    print("\n\n")
 
 
 if run_baselines:
@@ -360,92 +356,6 @@ opt_L = optax.chain(*L_layers)
 opt_joint = None
 
 
-print(f"Print golem solution: {print_golem_solution}")
-if print_golem_solution:
-    from dag_utils import dagify
-
-    lambdas = [2e-3, 2e-2, 2e-1, 2.0]
-    t00 = time.time()
-    bootstrap_iters = 20
-    print(f"do_bootstrap_golem: {do_bootstrap_golem}")
-    if do_bootstrap_golem:
-        golem_Ws = bootstrapped_golem_cv(
-            Xs, lambdas, max_iters=golem_steps, bootstrap_iters=bootstrap_iters
-        )
-        stats_dict = eval_W_samples(
-            golem_Ws,
-            Xs,
-            ground_truth_W,
-            jnp.ones(dim),
-            ground_truth_sigmas,
-            do_ev_noise,
-            do_shd_c=False,
-            do_sid=False,
-            subsample=bootstrap_iters,
-            x_prec=None,
-        )
-        print(stats_dict)
-        est_noises_var = []
-        est_Ws = []
-        for W in golem_Ws:
-            est_W_clipped = dagify(jnp.where(jnp.abs(W) > 0.3, W, 0))
-            if do_ev_noise:
-                est_noises_var.append(
-                    get_variance(from_W(est_W_clipped, dim), Xs)[None, ...]
-                )
-            else:
-                est_noises_var.append(
-                    get_variances(from_W(est_W_clipped, dim), Xs)[None, ...]
-                )
-
-            est_Ws.append(est_W_clipped[None, ...])
-        est_noises_var = jnp.concatenate(est_noises_var)
-        est_Ws = jnp.concatenate(est_Ws)
-        if eval_eid:
-            eid = ensemble_intervention_distance(
-                ground_truth_W,
-                est_Ws,
-                onp.exp(log_sigma_W),
-                jnp.sqrt(est_noises_var),
-                sem_type,
-            )
-            print(f"Golem EID: ", eid)
-            stats_dict["eid"] = eid
-        print(
-            f"Took {time.time() - t00}s to solve, with {bootstrap_iters} bootstrap iters and {golem_steps} steps"
-        )
-        pkl_filename = f"baseline_results/bootstrap_golem_n={n_data}_d={dim}_p={degree}_type={sem_type}_s={random_seed}_ev={do_ev_noise}"
-        pkl.dump(stats_dict, open(pkl_filename, "wb"))
-    else:
-        golem_W = solve_golem_cv(Xs, lambdas, max_iters=golem_steps)
-        print(f"Took {time.time() - t00}s to solve")
-        golem_W = dagify(jnp.where(jnp.abs(golem_W) < 0.3, 0.0, golem_W))
-        try:
-            if do_ev_noise:
-                golem_eval = eval_W_ev(
-                    golem_W, ground_truth_W, jnp.ones(dim), 0.3, test_Xs, None,
-                )
-                est_noise = jnp.ones(dim) * get_variance(from_W(golem_W, dim), Xs)
-            else:
-                golem_eval = eval_W_non_ev(
-                    golem_W, ground_truth_W, jnp.ones(dim), 0.3, test_Xs, None,
-                )
-                Xs = cast(jnp.ndarray, Xs)
-                est_noise = jnp.ones(dim) * jit(get_variances)(from_W(golem_W, dim), Xs)
-            if eval_eid:
-                eid = intervention_distance(
-                    ground_truth_W, golem_W, onp.exp(log_sigma_W), est_noise, sem_type,
-                )
-                print(f"Golem EID: ", eid)
-                golem_eval["eid"] = eid
-            print(golem_eval)
-            pkl_filename = f"baseline_results/golem_n={n_data}_d={dim}_p={degree}_type={sem_type}_s={random_seed}_ev={do_ev_noise}"
-            pkl.dump(golem_eval, open(pkl_filename, "wb"))
-        except:
-            pass
-time0 = time.time()
-
-
 def init_parallel_params(rng_key: PRNGKey):
     @pmap
     def init_params(rng_key: PRNGKey):
@@ -485,20 +395,6 @@ def init_parallel_params(rng_key: PRNGKey):
     output = init_params(rng_keys)
     return output
 
-print(f"use_flow: {use_flow}")
-# if use_flow:
-#     _, sample_flow, get_flow_arrays, get_density = get_flow_CIF(
-#         rk(0),
-#         l_dim + noise_dim,
-#         num_flow_layers,
-#         batch_size,
-#         num_mixture_components,
-#         threshold=flow_threshold,
-#         init_std=init_flow_std,
-#         pretrain=pretrain_flow,
-#         noise_dim=noise_dim,
-#     )
-
 _, p_model = get_model(
     dim, batch_size, num_perm_layers, hidden_size=hidden_size, do_ev_noise=do_ev_noise,
 )
@@ -511,9 +407,7 @@ print(f"L model has {ff2(num_params(L_params))} parameters")
 print(f"P model has {ff2(num_params(P_params))} parameters")
 
 
-def get_P_logits(
-    P_params: PParamType, L_samples: jnp.ndarray, rng_key: PRNGKey
-) -> Tuple[jnp.ndarray, jnp.ndarray]:
+def get_P_logits(P_params: PParamType, L_samples: jnp.ndarray, rng_key: PRNGKey) -> Tuple[jnp.ndarray, jnp.ndarray]:
 
     if factorized:
         # We ignore L when giving the P parameters
@@ -647,7 +541,7 @@ def elbo(
         batched_lower_samples = vmap(lower, in_axes=(0, None))(l_batch, dim)
         batched_P_logits = get_P_logits(P_params, full_l_batch, rng_key_1)
 
-        # ! Sample P ~ Gumbel Softmax (either soft or hard samples)
+        # ! Sample P ~ Gumbel Sinkhorn (either soft or hard samples)
         if hard:    batched_P_samples = ds.sample_hard_batched_logits(batched_P_logits, tau, rng_key,)
         else:   batched_P_samples = ds.sample_soft_batched_logits(batched_P_logits, tau, rng_key,)
 
@@ -673,9 +567,7 @@ def elbo(
     return elbo_estimate, tree_map(lambda x: x[-1], out_L_states)
 
 
-def eval_mean(
-    P_params, L_params, L_states, Xs, rng_key=rk(0), do_shd_c=calc_shd_c, tau=1,
-):
+def eval_mean(P_params, L_params, L_states, Xs, rng_key=rk(0), do_shd_c=calc_shd_c, tau=1):
     """Computes mean error statistics for P, L parameters and data"""
     P_params, L_params, L_states = (
         un_pmap(P_params),
@@ -931,7 +823,6 @@ for i in range(num_steps):
         print(f"Compiled gradient step after {time.time() - t0}s")
         t00 = time.time()
     rng_key = new_rng_key
-
  
     if i % 20 == 0:
         if fixed_tau is None:   tau = tau_schedule(i)
@@ -1045,6 +936,7 @@ for i in range(num_steps):
                 and mean_dict["tpr"] < 0.5
                 and ((time.time() - steps_t0) > 3_600)
             ) or ((mean_dict["shd"] > 300) and i > 10)
+
             exit_condition = False
             if exit_condition:
                 # While doing sweeps we don't want the runs to drag on for longer than
@@ -1064,16 +956,11 @@ for i in range(num_steps):
                 )
             else:
                 print("Plotting fig...")
-                # means, log_stds = (
-                #     L_params[: l_dim + noise_dim],
-                #     L_params[l_dim + noise_dim :],
-                # )
-                # l_distribution = L_dist(loc=means, scale=jnp.exp(log_stds))
-                # full_l_batch = l_distribution.sample(seed=rk(i), sample_shape=(8,))
                 full_l_batch, _, _ = jit(sample_L, static_argnums=3)(
                     un_pmap(L_params), un_pmap(L_states), rk(i)
                 )
                 P_logits = jit(get_P_logits)(un_pmap(P_params), full_l_batch, rk(i))
+                
             batched_P_samples = jit(ds.sample_hard_batched_logits)(P_logits, tau, rk(i))
             our_W = (
                 batched_P_samples[0]

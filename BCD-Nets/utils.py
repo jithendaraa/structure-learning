@@ -1,10 +1,10 @@
-import time, pdb
 from typing import Union, Callable, cast, Any
 import jax.numpy as np
 from jax import vmap, jit, vjp, ops, grad
 from jax import random as rnd
 import numpy as onp
 import cdt
+import time
 from sklearn.metrics import roc_curve, auc
 import optax
 
@@ -15,8 +15,6 @@ import networkx as nx
 
 import pickle as pkl
 from dag_utils import count_accuracy
-
-
 from divergences import (
     kl_sample_loss,
     wasserstein_sample_loss,
