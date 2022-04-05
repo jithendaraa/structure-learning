@@ -25,6 +25,7 @@ from torch.utils.tensorboard import SummaryWriter
 from modules.GumbelSinkhorn import GumbelSinkhorn
 from dag_utils import SyntheticDataset
 from bcd_utils import *
+from loss_fns import *
 
 def log_gt_graph(ground_truth_W, logdir, exp_config_dict):
     plt.imshow(ground_truth_W)
@@ -46,28 +47,6 @@ def log_gt_graph(ground_truth_W, logdir, exp_config_dict):
     # ? Logging to tensorboard
     gt_graph_image = onp.asarray(imageio.imread(join(logdir, 'gt_w.png')))
     writer.add_image('graph_structure(GT-pred)/Ground truth W', gt_graph_image, 0, dataformats='HWC')
-
-def init_parallel_params(rng_key: PRNGKey):
-    @pmap
-    def init_params(rng_key: PRNGKey):
-        L_params = jnp.concatenate(
-            (jnp.zeros(l_dim), jnp.zeros(noise_dim), jnp.zeros(l_dim + noise_dim) - 1,
-            )
-        )
-        # Would be nice to put none here, but need to pmap well
-        L_states = jnp.array([0.0])
-
-        P_params = get_model_arrays(dim, batch_size, opt.num_perm_layers, 
-                    rng_key, hidden_size=opt.hidden_size, do_ev_noise=opt.do_ev_noise)
-        
-        if opt.factorized:  P_params = jnp.zeros((dim, dim))
-        P_opt_params = opt_P.init(P_params)
-        L_opt_params = opt_L.init(L_params)
-        return P_params, L_params, L_states, P_opt_params, L_opt_params
-
-    rng_keys = jnp.tile(rng_key[None, :], (num_devices, 1))
-    output = init_params(rng_keys)
-    return output
 
 num_devices = jax.device_count()
 print(f"Number of devices: {num_devices}")
@@ -96,7 +75,7 @@ L_dist = Normal
 # ? Defining variables
 dim = opt.num_nodes
 l_dim = dim * (dim - 1) // 2
-n_data = opt.n_data
+n_data = opt.num_samples
 degree = opt.exp_edges
 log_stds_max: Optional[float] = 10.0
 batch_size = opt.batch_size
@@ -119,9 +98,8 @@ ds = GumbelSinkhorn(dim, noise_type="gumbel", tol=opt.max_deviation)
 if opt.use_alternative_horseshoe_tau:   raise NotImplementedError
 else:   horseshoe_tau = (1 / onp.sqrt(n_data)) * (2 * degree / ((dim - 1) - 2 * degree))
 
-if horseshoe_tau < 0:  # can happen for very small graphs
-    horseshoe_tau = 1 / (2 * dim)
-
+# can happen for very small graphs
+if horseshoe_tau < 0:  horseshoe_tau = 1 / (2 * dim)
 print(f"Horseshoe tau is {horseshoe_tau}")
 
 sd = SyntheticDataset(n=n_data, d=dim, graph_type="erdos-renyi", degree=2 * degree, sem_type=opt.sem_type, 
@@ -130,12 +108,10 @@ ground_truth_W = sd.W
 ground_truth_P = sd.P
 print(ground_truth_W)
 
-Xs = sd.simulate_sem(ground_truth_W, n_data, sd.sem_type, 
-                    noise_scale=opt.noise_sigma, dataset_type="linear")
+Xs = sd.simulate_sem(ground_truth_W, n_data, sd.sem_type, noise_scale=opt.noise_sigma, dataset_type="linear")
 Xs = cast(jnp.ndarray, Xs)
 
-test_Xs = sd.simulate_sem(ground_truth_W, sd.n, sd.sem_type, sd.w_range, 
-                            sd.noise_scale, sd.dataset_type, sd.W_2)
+test_Xs = sd.simulate_sem(ground_truth_W, sd.n, sd.sem_type, sd.w_range, sd.noise_scale, sd.dataset_type, sd.W_2)
 ground_truth_sigmas = opt.noise_sigma * jnp.ones(dim)
 print("\n")
 
@@ -148,22 +124,25 @@ opt_P = optax.chain(*P_layers)
 opt_L = optax.chain(*L_layers)
 opt_joint = None
 
-_, p_model = get_model(dim, batch_size, opt.num_perm_layers, hidden_size=opt.hidden_size, 
-                        do_ev_noise=opt.do_ev_noise)
-P_params, L_params, L_states, P_opt_params, L_opt_params = init_parallel_params(rng_key)
-rng_key = rnd.split(rng_key, num_devices)
-print(f"L model has {ff2(num_params(L_params))} parameters")
-print(f"P model has {ff2(num_params(P_params))} parameters")
+def init_parallel_params(rng_key: PRNGKey):
+    @pmap
+    def init_params(rng_key: PRNGKey):
+        L_params = jnp.concatenate((jnp.zeros(l_dim), jnp.zeros(noise_dim), jnp.zeros(l_dim + noise_dim) - 1,))
+        L_states = jnp.array([0.0]) # Would be nice to put none here, but need to pmap well
+        P_params, _ = get_model(dim, batch_size, opt.num_perm_layers, rng_key, opt.hidden_size, do_ev_noise)
+        if opt.factorized:  P_params = jnp.zeros((dim, dim))
+        P_opt_params = opt_P.init(P_params)
+        L_opt_params = opt_L.init(L_params)
+        return P_params, L_params, L_states, P_opt_params, L_opt_params
 
-if opt.fixed_tau is not None: tau = opt.fixed_tau
-else: raise NotImplementedError
+    rng_keys = jnp.tile(rng_key[None, :], (num_devices, 1))
+    output = init_params(rng_keys)
+    return output
 
 
 def get_P_logits(P_params: PParamType, L_samples: jnp.ndarray, rng_key: PRNGKey) -> Tuple[jnp.ndarray, jnp.ndarray]:
-
     # ! removed code for this condition from BCD Nets. Refer original code if you want to extend to `factorized` True
     if opt.factorized: raise NotImplementedError
-        
     else:
         P_params = cast(hk.Params, P_params)
         p_logits = p_model(P_params, rng_key, L_samples)  # type:ignore
@@ -176,11 +155,11 @@ def get_P_logits(P_params: PParamType, L_samples: jnp.ndarray, rng_key: PRNGKey)
 
 
 def sample_L(L_params: PParamType, L_state: LStateType, rng_key: PRNGKey) -> Tuple[jnp.ndarray, jnp.ndarray, LStateType]:
-
     # ! removed the part of the code that has `use_flow` is True
     # ! Refer original BCD Nets code to include `use_flow` support
     L_params = cast(jnp.ndarray, L_params)
     means, log_stds = L_params[: l_dim + noise_dim], L_params[l_dim + noise_dim :]
+    
     if log_stds_max is not None:
         # Do a soft-clip here to stop instability
         log_stds = jnp.tanh(log_stds / log_stds_max) * log_stds_max
@@ -203,7 +182,8 @@ def sample_L(L_params: PParamType, L_state: LStateType, rng_key: PRNGKey) -> Tup
 
 
 def elbo(P_params: PParamType, L_params: hk.Params, L_states: LStateType,
-    Xs: jnp.ndarray, rng_key: PRNGKey, tau: float, num_outer: int = 1, hard: bool = False) -> Tuple[jnp.ndarray, LStateType]:
+    Xs: jnp.ndarray, rng_key: PRNGKey, tau: float, num_outer: int = 1, 
+    hard: bool = False) -> Tuple[jnp.ndarray, LStateType]:
     """Computes ELBO estimate from parameters.
 
     Computes ELBO(P_params, L_params), given by
@@ -230,7 +210,7 @@ def elbo(P_params: PParamType, L_params: hk.Params, L_states: LStateType,
         """Computes a term of the outer expectation, averaging over batch size"""
         rng_key, rng_key_1 = rnd.split(rng_key, 2)
 
-        # ! Sample L ~ Normal(means, logstds)
+        # ! Sample L,log_Σ ~ Normal(means, stds)
         full_l_batch, full_log_prob_l, out_L_states = sample_L(L_params, L_states, rng_key)
         w_noise = full_l_batch[:, -noise_dim:]
         l_batch = full_l_batch[:, :-noise_dim]
@@ -245,6 +225,8 @@ def elbo(P_params: PParamType, L_params: hk.Params, L_states: LStateType,
         likelihoods = vmap(log_prob_x, in_axes=(None, 0, 0, 0, None, None, None))(
             Xs, batched_noises, batched_P_samples, batched_lower_samples, rng_key, opt.subsample, s_prior_std
         )
+        # likelihoods =  jit(vmap(get_mse, (None, 0), 0))(Xs, batched_qz_samples)
+
         l_prior_probs = jnp.sum(l_prior.log_prob(full_l_batch)[:, :l_dim], axis=1)
         s_prior_probs = jnp.sum(
             full_l_batch[:, l_dim:] ** 2 / (2 * s_prior_std ** 2), axis=-1
@@ -298,8 +280,8 @@ def parallel_gradient_step(P_params, L_params, L_states, Xs, P_opt_state, L_opt_
     rng_key, rng_key_2 = rnd.split(rng_key, 2)
     tau_scaling_factor = 1.0 / tau
 
-    # * Get gradients of the loss
-    (_, L_states), grads = value_and_grad(elbo, argnums=(0, 1), has_aux=True)(
+    # * Get loss and gradients of loss wrt to P and L
+    (loss, L_states), grads = value_and_grad(elbo, argnums=(0, 1), has_aux=True)(
         P_params, L_params, L_states, Xs, rng_key, tau, num_outer, hard=True,
     )
     elbo_grad_P, elbo_grad_L = tree_map(lambda x: -tau_scaling_factor * x, grads)
@@ -312,14 +294,16 @@ def parallel_gradient_step(P_params, L_params, L_states, Xs, P_opt_state, L_opt_
     )(P_params)
     elbo_grad_P = tree_multimap(lambda x, y: x + y, elbo_grad_P, l2_elbo_grad_P)
 
-    # * Network Parameter updates
+    # * Update P network
     P_updates, P_opt_state = opt_P.update(elbo_grad_P, P_opt_state, P_params)
     P_params = optax.apply_updates(P_params, P_updates)
+    
+    # * Update L network
     L_updates, L_opt_state = opt_L.update(elbo_grad_L, L_opt_state, L_params)
-    if fix_L_params: pass
-    else: L_params = optax.apply_updates(L_params, L_updates)
+    L_params = optax.apply_updates(L_params, L_updates)
+    if fix_L_params: raise NotImplementedError("")
 
-    return ( P_params, L_params, L_states, P_opt_state, L_opt_state, rng_key_2)
+    return ( loss, P_params, L_params, L_states, P_opt_state, L_opt_state, rng_key_2)
 
 
 def eval_mean(P_params, L_params, L_states, Xs, rng_key, do_shd_c, tau=1):
@@ -360,26 +344,35 @@ def eval_mean(P_params, L_params, L_states, Xs, rng_key, do_shd_c, tau=1):
     return out_stats
 
 
-soft_elbo = parallel_elbo_estimate(P_params, L_params, L_states, Xs, rng_key, tau, 100, False)[0]
+
+# ? 1. Initialize the model params for P and L
+_, p_model = get_model(dim, batch_size, opt.num_perm_layers, rng_key, opt.hidden_size, do_ev_noise)
+P_params, L_params, L_states, P_opt_params, L_opt_params = init_parallel_params(rng_key)
+
+rng_key = rnd.split(rng_key, num_devices)
+print(f"L model has {ff2(num_params(L_params))} parameters")
+print(f"P model has {ff2(num_params(P_params))} parameters")
+if opt.fixed_tau is not None: tau = opt.fixed_tau
+else: raise NotImplementedError
+
+# soft_elbo = parallel_elbo_estimate(P_params, L_params, L_states, Xs, rng_key, tau, 100, False)[0]
 best_elbo = -jnp.inf
 steps_t0 = time.time()
 mean_dict = {}
 t0 = time.time()
 t_prev_batch = t0
 
+
 for i in range(opt.num_steps):
-    ( P_params, new_L_params, L_states, 
+    ( loss, P_params, new_L_params, L_states, 
     P_opt_params, new_L_opt_params, 
     new_rng_key ) = parallel_gradient_step(P_params, L_params, L_states, Xs, P_opt_params, L_opt_params, rng_key, tau)
-    
     if jnp.any(jnp.isnan(ravel_pytree(new_L_params)[0])):   raise Exception("Got NaNs in L params")
     L_params = new_L_params
     L_opt_params = new_L_opt_params
     rng_key = new_rng_key
 
-    if i == 0:
-        print(f"\nCompiled gradient step after {time.time() - steps_t0}s")
-        t00 = time.time()
+    if i % 200 == 0: print(f"Step {i} | {loss}")
 
     if i % 20 == 0:
         if opt.fixed_tau is None:   raise NotImplementedError()
@@ -397,7 +390,6 @@ for i in range(opt.num_steps):
             "Sinkhorn steps": onp.array(num_steps_to_converge),
         }
 
-        print(wandb_dict)
         t_prev_batch = time.time()
 
         if (i % 50 == 0):
@@ -433,9 +425,9 @@ for i in range(opt.num_steps):
                 t4 = time.time()
                 eid = eval_ID(P_params, L_params, L_states, Xs, rk(i), tau,)
                 wandb_dict['eid_wass'] = eid
-                # print(f"EID_wass is {eid}, after {time.time() - t4}s")
+                print(f"EID_wass is {eid}, after {time.time() - t4}s")
             
-            # print(f"MSE is {ff2(mean_dict['MSE'])}, SHD is {ff2(mean_dict['shd'])}")
+            print(f"MSE is {ff2(mean_dict['MSE'])}, SHD is {ff2(mean_dict['shd'])}")
 
             metrics_ = (
                 {"Evaluations/SHD": mean_dict["shd"],
@@ -459,10 +451,8 @@ for i in range(opt.num_steps):
 
             wandb_dict.update(metrics_[0])
             print(f"Step {i} | SHD: {metrics_[0]['Evaluations/SHD']} | SHD_C: {metrics_[0]['Evaluations/SHD_C']} | auroc: {metrics_[0]['Evaluations/AUROC']}")
-                # print(metrics_)
             if opt.use_flow:    raise NotImplementedError("")
             
-            # print("Plotting fig...")
             full_l_batch, _, _ = jit(sample_L, static_argnums=3)(un_pmap(L_params), un_pmap(L_states), rk(i))
             P_logits = jit(get_P_logits)(un_pmap(P_params), full_l_batch, rk(i))
             print()
@@ -488,8 +478,8 @@ for i in range(opt.num_steps):
             wandb_dict['graph_structure(GT-pred)/SoftSample'] = wandb.Image(Image.open(f"{logdir}/tmp_soft{wandb.run.name}.png"), caption="W sample_soft")
             wandb.log(wandb_dict, step=i)
 
+        print("Sinkhorn steps:", num_steps_to_converge)
         print(f"Max value of P_logits was {ff2(jnp.max(jnp.abs(P_logits)))}")
         if dim == 3:    print(get_histogram(L_params, L_states, P_params, rng_key))
         steps_t0 = time.time()
-
-    if i == 3000:     break
+        print()

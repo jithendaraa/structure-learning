@@ -25,7 +25,8 @@ LStateType = Optional[hk.State]
 class Decoder_BCD(hk.Module):
     def __init__(self, dim, l_dim, noise_dim, batch_size, hidden_size, max_deviation, 
                 do_ev_noise, proj_dims, log_stds_max=10.0, logit_constraint=10, tau=None, subsample=False, 
-                s_prior_std=3.0, num_bethe_iters=20, horseshoe_tau=None):
+                s_prior_std=3.0, num_bethe_iters=20, horseshoe_tau=None, learn_noise=False, noise_sigma=0.1,
+                P = None):
         super().__init__()
 
         self.dim = dim
@@ -41,6 +42,14 @@ class Decoder_BCD(hk.Module):
         self.proj_dims = proj_dims
         self.num_bethe_iters = num_bethe_iters
         self.horseshoe_tau = horseshoe_tau
+        self.learn_noise = learn_noise
+        self.P = P
+
+        if self.do_ev_noise:
+            self.noise_sigma = jnp.array([[noise_sigma]] * self.batch_size)
+            self.log_noise_sigma = jnp.log(self.noise_sigma)
+        else:   self.noise_sigma = noise_sigma
+        assert self.learn_noise == False
 
         self.p_model = hk.Sequential([
                             hk.Flatten(), 
@@ -49,15 +58,19 @@ class Decoder_BCD(hk.Module):
                             hk.Linear(dim * dim)
                         ])
         
+        # self.decoder = hk.Sequential([
+        #                     hk.Flatten(), 
+        #                     hk.Linear(hidden_size), jax.nn.gelu,
+        #                     hk.Linear(hidden_size), jax.nn.gelu,
+        #                     hk.Linear(proj_dims)
+        #                 ])
+
         self.decoder = hk.Sequential([
-                            hk.Flatten(), 
-                            hk.Linear(dim * dim), jax.nn.relu,
-                            hk.Linear(dim * dim), jax.nn.relu,
-                            hk.Linear(proj_dims)
-                        ])
+            hk.Flatten(), hk.Linear(proj_dims, with_bias=False)
+        ])
         
         self.ds = GumbelSinkhorn(dim, noise_type="gumbel", tol=max_deviation)
-        self.l_prior = Horseshoe(scale=jnp.ones(self.l_dim + self.noise_dim) * self.horseshoe_tau)
+        self.l_prior = Horseshoe(scale=jnp.ones(self.l_dim) * self.horseshoe_tau)
 
     def sample_W(self, L, P):
         return (P @ L @ P.T).T
@@ -78,24 +91,23 @@ class Decoder_BCD(hk.Module):
             L has dim * (dim - 1) / 2 terms
             Σ is a single term referring to noise on each node 
             
-            [TODO]
+            [TODO]: fix this
         """
 
         L_params = cast(jnp.ndarray, L_params)
-        means, log_stds = L_params[: self.l_dim + self.noise_dim], L_params[self.l_dim + self.noise_dim :]
+        means, log_stds = L_params[: self.l_dim], L_params[self.l_dim :]
         log_stds = jnp.tanh(log_stds / self.log_stds_max) * self.log_stds_max
 
-        # ? Sample L and Σ jointly from the Normal
+        # ? Sample L from the Normal
         if self.do_ev_noise:
             l_distribution = Normal(loc=means, scale=jnp.exp(log_stds))
             full_l_batch = l_distribution.sample(seed=rng_key, sample_shape=(self.batch_size,))
             full_l_batch = cast(jnp.ndarray, full_l_batch)
         else:   raise NotImplementedError
         
-        # ? log likelihood for q_ϕ(L, Σ)
+        # ? log likelihood for q_ϕ(L)
         full_log_prob_l = jnp.sum(l_distribution.log_prob(full_l_batch), axis=1)  
         full_log_prob_l = cast(jnp.ndarray, full_log_prob_l)
-
         return full_l_batch, full_log_prob_l, None
 
     def get_P_logits(self, L_samples: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
@@ -104,7 +116,6 @@ class Decoder_BCD(hk.Module):
             ! Removed code for opt.factorized from BCD Nets
             ! Refer original code if you want to extend to `factorized` True
         """
-
         p_logits = self.p_model(L_samples)
         if self.logit_constraint is not None:
             # Want to map -inf to -logit_constraint, inf to +logit_constraint
@@ -166,21 +177,26 @@ class Decoder_BCD(hk.Module):
         elbo_grad_P = tree_multimap(lambda x, y: x + y, elbo_grad_P, l2_elbo_grad_P)
         return elbo_grad_P, elbo_grad_L
 
+    def project(self, data):
+        return data @ self.P
+
     def __call__(self, hard, rng_key, interv_targets, init=False, 
-                P_params=None, L_params=None, L_states=None, gt_data=None):
+                P_params=None, L_params=None, L_states=None):
         """
             [TODO]
         """
-        if init:    
+
+        if init:
             x = jnp.zeros((self.batch_size, self.l_dim + self.noise_dim))
-            return self.p_model(x), self.decoder(jnp.ones((self.dim)))
+            return self.p_model(x), self.decoder(jnp.ones(self.dim))
 
         batched_qz_samples, X_recons = jnp.array([]), jnp.array([])
 
-        # ? 1. Draw (L, Σ) ~ q_ϕ(L, Σ)
-        full_l_batch, full_log_prob_l, out_L_states = self.sample_L(L_params, L_states, rng_key)
-        l_batch = full_l_batch[:, :-self.noise_dim]
-        w_noise = full_l_batch[:, -self.noise_dim:]
+        # ? 1. Draw L ~ q_ϕ(L); Σ are not learned, they are fixed
+        l_batch, full_log_prob_l, out_L_states = self.sample_L(L_params, L_states, rng_key)
+        w_noise = self.log_noise_sigma
+        full_l_batch = jnp.concatenate((l_batch, w_noise), axis=1)
+
         batched_log_noises = jnp.ones((self.batch_size, self.dim)) * w_noise.reshape((self.batch_size, self.noise_dim))
         batched_L = vmap(self.lower, in_axes=(0, None))(l_batch, self.dim)
 
@@ -193,107 +209,14 @@ class Decoder_BCD(hk.Module):
 
         batched_W = vmap(self.sample_W, (0, 0), (0))(batched_L, batched_P)
         batched_adj_mats = jnp.where(batched_W != 0, 1.0, 0.0)
+
         batched_qz_samples = vmap(self.ancestral_sample, (0, 0, 0, None, None, None), (0))(batched_W, batched_P, jnp.exp(batched_log_noises), rng_key, interv_targets, 0.0)
+        
         X_recons = vmap(vmap(self.decoder, (0), (0)), (0), (0))(batched_qz_samples)
+        # X_recons = vmap(self.project, (0), (0))(batched_qz_samples)
 
         return (batched_P, batched_P_logits, batched_L, batched_log_noises, 
                 batched_W, batched_qz_samples, full_l_batch, full_log_prob_l, X_recons)
-
-
-    def log_prob_x(self, data, log_sigmas, P, L, rng_key):
-        """
-            Calculates log P(X|Z) for latent Zs
-
-            X|Z is Gaussian so easy to calculate
-
-            Args:
-                data: an (n_samples x dim)-dimensional array of observations
-                log_sigmas: A (dim)-dimension vector of log standard deviations
-                P: A (dim x dim)-dimensional permutation matrix
-                L: A (dim x dim)-dimensional strictly lower triangular matrix
-            Returns:
-                log_prob: Log probability of observing Xs given P, L
-        """
-
-        adjustment_factor = 1
-        # ! To implement, look at this function in the original code of BCD Nets 
-        if self.subsample: raise NotImplementedError
-
-        n, dim = data.shape
-        W = self.sample_W(L, P)
-        precision = ((jnp.eye(dim) - W) @ (jnp.diag(jnp.exp(-2 * log_sigmas))) @ (jnp.eye(dim) - W).T)
-        eye_minus_W_logdet = 0
-        log_det_precision = -2 * jnp.sum(log_sigmas) + 2 * eye_minus_W_logdet
-
-        def datapoint_exponent(x):
-            return -0.5 * x.T @ precision @ x
-
-        log_exponent = vmap(datapoint_exponent)(data)
-
-        return adjustment_factor * (
-            0.5 * n * (log_det_precision - dim * jnp.log(2 * jnp.pi))
-            + jnp.sum(log_exponent)
-        )
     
 
-    def elbo(self, P_params: PParamType, L_params: hk.Params, L_states: LStateType, gt_data: jnp.ndarray, 
-        rng_key: PRNGKey, hard: bool, interv_targets: jnp.ndarray) -> Tuple[jnp.ndarray, LStateType]:
-        """
-            [TODO]
-        """
-        rng_key, rng_key_2 = rnd.split(rng_key, 2)
-
-        # ? 1. Draw (L, Σ) ~ q_ϕ(L, Σ)
-        full_l_batch, full_log_prob_l, out_L_states = self.sample_L(L_params, L_states, rng_key)
-        l_batch = full_l_batch[:, :-self.noise_dim]
-        w_noise = full_l_batch[:, -self.noise_dim:]
-        batched_log_noises = jnp.ones((self.batch_size, self.dim)) * w_noise.reshape((self.batch_size, self.noise_dim))
-        batched_L = vmap(self.lower, in_axes=(0, None))(l_batch, self.dim)
-
-        # ? 2. Compute logits T = h_ϕ(L, Σ); h_ϕ = p_model
-        batched_P_logits = self.get_P_logits(full_l_batch)
-
-        # ? 3. Compute soft P̃ = Sinkhorn( (T+γ)/𝜏 ) or hard P = Hungarian(P̃) 
-        if hard:    
-            batched_P = self.ds.sample_hard_batched_logits(batched_P_logits, self.tau, rng_key,)
-            batched_W = vmap(self.sample_W, (0, 0), (0))(batched_L, batched_P)
-            batched_adj_mats = jnp.where(batched_W != 0, 1.0, 0.0)
-
-            batched_qz_samples = vmap(self.ancestral_sample, (0, 0, 0, None, None, None), (0))(batched_W, batched_P, jnp.exp(batched_log_noises), rng_key, interv_targets, 0.0)
-            X_recons = vmap(vmap(self.decoder, (0), (0)), (0), (0))(batched_qz_samples)
-
-        else:   
-            batched_P = self.ds.sample_soft_batched_logits(batched_P_logits, self.tau, rng_key,)
-            
-
-        def bcd_loop(rng_key):
-            """
-                [TODO]
-            """
-            
-            # ? 4. Get likelihood
-            likelihoods = vmap(self.log_prob_x, in_axes=(None, 0, 0, 0, None))(gt_data, batched_log_noises, batched_P, batched_L, rng_key)
-            
-            # ? 5. Get KL terms
-            l_prior_probs = jnp.sum(self.l_prior.log_prob(full_l_batch)[:, :self.l_dim], axis=1)
-            s_prior_probs = jnp.sum(full_l_batch[:, self.l_dim:] ** 2 / (2 * self.s_prior_std ** 2), axis=-1)
-            logprob_P = vmap(self.ds.logprob, in_axes=(0, 0, None))(batched_P, batched_P_logits, self.num_bethe_iters)
-            log_P_prior = -jnp.sum(jnp.log(onp.arange(self.dim) + 1))
-            KL_term_L = full_log_prob_l - l_prior_probs - s_prior_probs
-            
-            # ? Get ELBO
-            final_term = likelihoods - KL_term_L - logprob_P + log_P_prior
-            return jnp.mean(final_term), out_L_states
-
-        rng_keys = rnd.split(rng_key, 1)
-        _, (elbos, out_L_states) = lax.scan(lambda _, rng_key: (None, bcd_loop(rng_key)), None, rng_keys)
-        elbo_estimate = jnp.mean(elbos)
-        return elbo_estimate, tree_map(lambda x: x[-1], out_L_states)
-
     
-
-
-
-
-
-

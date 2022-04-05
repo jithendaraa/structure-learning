@@ -29,7 +29,8 @@ def rk(x):  return rnd.PRNGKey(x)
 def un_pmap(x): return tree_map(lambda x: x[0], x)
 
 
-def get_model(dim: int, batch_size: int, num_layers: int, hidden_size: int = 32, do_ev_noise=True,) -> Tuple[hk.Params, Network]:
+def get_model(dim: int, batch_size: int, num_layers: int, rng_key: PRNGKey,
+    hidden_size: int = 32, do_ev_noise=True,) -> Tuple[hk.Params, Network]:
     if do_ev_noise: noise_dim = 1
     else: noise_dim = dim
     l_dim = dim * (dim - 1) // 2
@@ -53,9 +54,7 @@ def get_model(dim: int, batch_size: int, num_layers: int, hidden_size: int = 32,
     return laplace_params, forward_fn_apply
 
 
-def get_model_arrays(
-    dim: int, batch_size: int,
-    num_layers: int, rng_key: PRNGKey,
+def get_model_arrays(dim: int, batch_size: int, num_layers: int, rng_key: PRNGKey,
     hidden_size: int = 32, do_ev_noise=True) -> hk.Params:
     """Only returns parameters so that it can be used in pmap"""
     if do_ev_noise: noise_dim = 1

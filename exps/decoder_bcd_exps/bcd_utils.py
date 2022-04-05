@@ -54,6 +54,9 @@ def get_model(dim: int, batch_size: int, num_layers: int, rng_key: PRNGKey,
     return laplace_params, forward_fn_apply
 
 
+def get_mse(x, x_pred):
+    return jnp.mean(jnp.mean((x - x_pred)**2))
+
 def get_model_arrays(dim: int, batch_size: int, num_layers: int, rng_key: PRNGKey,
     hidden_size: int = 32, do_ev_noise=True) -> hk.Params:
     """Only returns parameters so that it can be used in pmap"""
@@ -99,6 +102,7 @@ def log_prob_x(Xs, log_sigmas, P, L, rng_key, subsample=False, s_prior_std=3.0):
         
     n, dim = Xs.shape
     W = (P @ L @ P.T).T
+    
     precision = ((jnp.eye(dim) - W) @ (jnp.diag(jnp.exp(-2 * log_sigmas))) @ (jnp.eye(dim) - W).T)
     eye_minus_W_logdet = 0
     log_det_precision = -2 * jnp.sum(log_sigmas) + 2 * eye_minus_W_logdet

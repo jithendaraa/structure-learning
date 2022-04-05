@@ -16,17 +16,9 @@ debug_list = lambda x: list(x)
 class SyntheticDataset(object):
     _logger = logging.getLogger(__name__)
 
-    def __init__(
-        self,
-        n,
-        d,
-        graph_type,
-        degree,
-        sem_type,
-        noise_scale=1.0,
-        dataset_type="linear",
-        quadratic_scale=None,
-    ):
+    def __init__(self, n, d, graph_type, degree, sem_type, noise_scale=1.0, 
+        dataset_type="linear", quadratic_scale=None):
+        
         self.n = n
         self.d = d
         self.graph_type = graph_type
@@ -42,25 +34,14 @@ class SyntheticDataset(object):
 
     def _setup(self):
         self.W, self.W_2, self.P = SyntheticDataset.simulate_random_dag(
-            self.d,
-            self.degree,
-            self.graph_type,
-            self.w_range,
-            (self.dataset_type != "linear"),
-        )
+            self.d, self.degree, self.graph_type, self.w_range, (self.dataset_type != "linear"))
+
         if self.dataset_type != "linear":
             assert self.W_2 is not None
             self.W_2 = self.W_2 * self.quadratic_scale
 
-        self.X = SyntheticDataset.simulate_sem(
-            self.W,
-            self.n,
-            self.sem_type,
-            self.w_range,
-            self.noise_scale,
-            self.dataset_type,
-            self.W_2,
-        )
+        self.X = SyntheticDataset.simulate_sem(self.W, self.n, self.sem_type, self.w_range, 
+                                                self.noise_scale, self.dataset_type, self.W_2)
 
     @staticmethod
     def simulate_random_dag(d, degree, graph_type, w_range, return_w_2=False):
@@ -98,6 +79,7 @@ class SyntheticDataset(object):
         # random permutation
         P = np.random.permutation(np.eye(d, d))  # permutes first axis only
         B_perm = P.T.dot(B).dot(P)
+
         U = np.random.uniform(low=w_range[0], high=w_range[1], size=[d, d])
         U[np.random.rand(d, d) < 0.5] *= -1
         W = (B_perm != 0).astype(float) * U
@@ -143,8 +125,7 @@ class SyntheticDataset(object):
 
     @staticmethod
     def simulate_sem(
-        W,
-        n,
+        W, n,
         sem_type,
         w_range=None,
         noise_scale=1.0,
@@ -152,7 +133,7 @@ class SyntheticDataset(object):
         W_2=None,
         sigmas=None,
     ) -> np.ndarray:
-        """Simulate samples from SEM with specified type of noise.
+        """Simulate samples from SEM withsample specified type of noise.
 
         Args:
             W: weigthed DAG
@@ -206,7 +187,8 @@ class SyntheticDataset(object):
             n: number of samples
             sem_type: {linear-gauss,linear-exp,linear-gumbel}
             noise_scale: scale parameter of noise distribution in linear SEM
-
+            idx_to_fix: intervened node
+            value_to_fix: intervened value
         Returns:
             X: [n,d] sample matrix
         """
