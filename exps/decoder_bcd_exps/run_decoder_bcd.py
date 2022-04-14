@@ -36,6 +36,7 @@ from dag_utils import SyntheticDataset
 from bcd_utils import *
 from models.Decoder_BCD import Decoder_BCD
 from loss_fns import *
+from haiku._src import data_structures
 
 
 def log_gt_graph(ground_truth_W, logdir, exp_config_dict):
@@ -188,6 +189,7 @@ ds = GumbelSinkhorn(dim, noise_type="gumbel", tol=opt.max_deviation)
 #     assert jnp.array_equal(swapped_ordering, t)
 #     return swapped_ordering, t
 
+
 @jit
 def soft_elbo(P_params: PParamType, L_params: hk.Params, L_states: LStateType,
     rng_key: PRNGKey, interv_nodes: jnp.ndarray) -> Tuple[jnp.ndarray, LStateType]:
@@ -243,21 +245,33 @@ def log_prob_X(Xs, log_sigmas, P, L, rng_key, decoder_matrix, subsample=False, s
     n, _ = Xs.shape
     W = (P @ L @ P.T).T
     
-    p_cross = jnp.linalg.pinv(decoder_matrix) 
-    precision = ( p_cross @ (jnp.eye(dim) - W) @ (jnp.diag(jnp.exp(-2 * log_sigmas))) @ (jnp.eye(dim) - W).T @ p_cross.T )
+    d_cross = jnp.linalg.pinv(decoder_matrix)
+
+    # pdb.set_trace()
+    Sigma = jnp.diag(jnp.exp(-2 * log_sigmas))
+    cov_z = jnp.linalg.inv((jnp.eye(dim) - W.T)) @ Sigma @ jnp.linalg.inv((jnp.eye(dim) - W.T)).T
+    prec_z = jnp.linalg.inv(cov_z)
+
+    # precision = ( p_cross @ (jnp.eye(dim) - W) @ Sigma @ (jnp.eye(dim) - W).T @ p_cross.T )
+    precision = d_cross @ prec_z @ d_cross.T
+
     
     eye_minus_W_logdet = 0 
-    log_det_precision = -2 * jnp.sum(log_sigmas) + 2 * eye_minus_W_logdet
+    # log_det_precision = -2 * jnp.sum(log_sigmas) + 2 * eye_minus_W_logdet
+    # log_det_precision = jnp.log(jnp.abs(jnp.linalg.det(precision)))
+
 
     def datapoint_exponent(x_):
         return -0.5 * x_.T @ precision @ x_
 
     log_exponent = vmap(datapoint_exponent)(Xs)
 
-    return adjustment_factor * (
-        0.5 * n * (log_det_precision - dim * jnp.log(2 * jnp.pi))
-        + jnp.sum(log_exponent)
-    )
+    # return adjustment_factor * (
+    #     0.5 * n * (log_det_precision - dim * jnp.log(2 * jnp.pi))
+    #     + jnp.sum(log_exponent)
+    # )
+
+    return jnp.sum(log_exponent)
 
 
 @jit
@@ -268,12 +282,14 @@ def hard_elbo(P_params: PParamType, L_params: hk.Params, L_states: LStateType,
     
     # * Horseshoe prior over lower triangular matrix L
     l_prior = Horseshoe(scale=jnp.ones(l_dim + noise_dim) * horseshoe_tau)
+    rng_key = rnd.split(rng_key, num_outer)[0]
     
     def outer_loop(rng_key: PRNGKey):
         """Computes a term of the outer expectation, averaging over batch size"""
         rng_key, rng_key_1 = rnd.split(rng_key, 2)
         hard = True
         
+        # pdb.set_trace()
         (batched_P, batched_P_logits, batched_L, batched_log_noises, 
         batched_W, batched_qz_samples, full_l_batch, full_log_prob_l, 
         X_recons) = forward.apply(P_params, rng_key, hard, rng_key, 
@@ -283,6 +299,8 @@ def hard_elbo(P_params: PParamType, L_params: hk.Params, L_states: LStateType,
         likelihoods = vmap(log_prob_X, in_axes=(None, 0, 0, 0, None, None, None, None))(
             x, batched_log_noises, batched_P, batched_L, rng_key, P_params['decoder_bcd/~/linear_3']['w'], opt.subsample, s_prior_std
         )   
+        # likelihoods = log_prob_X(x, batched_log_noises[0], batched_P[0], batched_L[0], 
+        #         rng_key, P_params['decoder_bcd/~/linear_3']['w'], opt.subsample, s_prior_std)
         # likelihoods = - jit(vmap(get_mse, (None, 0), 0))(x, X_recons)
         # likelihoods =  jit(vmap(get_mse, (None, 0), 0))(z_gt, batched_qz_samples)
 
@@ -299,10 +317,50 @@ def hard_elbo(P_params: PParamType, L_params: hk.Params, L_states: LStateType,
 
         return jnp.mean(final_term), None
 
-    rng_keys = rnd.split(rng_key, num_outer)
+    # pdb.set_trace()
+    # outer_loop(rng_keys[0])
     _, (elbos, out_L_states) = lax.scan(lambda _, rng_key: (None, outer_loop(rng_key)), None, rng_keys)
     elbo_estimate = jnp.mean(elbos)
     return elbo_estimate, tree_map(lambda x: x[-1], out_L_states)
+
+
+bcd_decoder = None
+update_freq = 3
+
+
+@jit
+def fast_slow_gradient_step(P_params, L_params, L_states, P_opt_state, L_opt_state, rng_key):
+    rng_key, rng_key_2 = rnd.split(rng_key, 2)
+    tau_scaling_factor = 1.0 / tau
+
+    # * Get loss and gradients of loss wrt to P and L
+    (loss, L_states), grads = value_and_grad(hard_elbo, argnums=(0, 1), has_aux=True)(
+        P_params, L_params, L_states, rng_key, interv_nodes)
+
+    # ! zero out gradients for P
+    elbo_grad_decoder = to_mutable_dict(grads[0])
+    for layer in elbo_grad_decoder.keys():
+        for param in elbo_grad_decoder[layer].keys():
+            elbo_grad_decoder[layer][param] = jnp.zeros((elbo_grad_decoder[layer][param]).shape)
+    
+    for key in grads[0].keys(): decoder_key = key
+    elbo_grad_decoder[decoder_key] = grads[0][decoder_key]
+    elbo_grad_decoder = to_FlatMapping(elbo_grad_decoder)
+    elbo_grad_decoder = tree_map(lambda x: -tau_scaling_factor * x, (elbo_grad_decoder) )
+
+    # ! zero out gradients for the decoder
+    elbo_grad_P = to_mutable_dict(grads[0])
+    elbo_grad_P[decoder_key]['w'] = jnp.zeros(elbo_grad_P[decoder_key]['w'].shape)
+    elbo_grad_P = to_FlatMapping(elbo_grad_P)
+
+    elbo_grad_P, elbo_grad_L = tree_map(lambda x: -tau_scaling_factor * x, (elbo_grad_P, grads[1]) ) # <class 'haiku._src.data_structures.FlatMapping'>, <class 'jaxlib.xla_extension.DeviceArray'>
+    
+    # * L2 regularization over parameters of P
+    l2_elbo_grad_P = grad(lambda p: 0.5 * sum(jnp.sum(jnp.square(param)) for param in jax.tree_leaves(p)[:-1] ))(P_params)  # <class 'haiku._src.data_structures.FlatMapping'>
+    elbo_grad_P = tree_multimap(lambda x, y: x + y, elbo_grad_P, l2_elbo_grad_P)    # <class 'haiku._src.data_structures.FlatMapping'>
+
+    return ( loss, P_params, L_params, L_states, P_opt_state, L_opt_state, rng_key_2, elbo_grad_P, elbo_grad_L, elbo_grad_decoder)
+
 
 
 @jit
@@ -320,15 +378,8 @@ def gradient_step(P_params, L_params, L_states, P_opt_state, L_opt_state, rng_ke
     l2_elbo_grad_P = grad(lambda p: 0.5 * sum(jnp.sum(jnp.square(param)) for param in jax.tree_leaves(p)))(P_params)
     elbo_grad_P = tree_multimap(lambda x, y: x + y, elbo_grad_P, l2_elbo_grad_P)
     
-    # * Update P network
-    P_updates, P_opt_state = opt_P.update(elbo_grad_P, P_opt_state, P_params)
-    P_params = optax.apply_updates(P_params, P_updates)
-    
-    # * Update L network
-    L_updates, L_opt_state = opt_L.update(elbo_grad_L, L_opt_state, L_params)
-    L_params = optax.apply_updates(L_params, L_updates)
+    return ( loss, P_params, L_params, L_states, P_opt_state, L_opt_state, rng_key_2, elbo_grad_P, elbo_grad_L)
 
-    return ( loss, P_params, L_params, L_states, P_opt_state, L_opt_state, rng_key_2)
 
 
 def get_num_sinkhorn_steps(P_params, L_params, L_states, rng_key):
@@ -410,8 +461,58 @@ t_prev_batch = t0
 
 
 for i in range(opt.num_steps):
-    ( loss, P_params, L_params, L_states, P_opt_params, 
-        L_opt_params, rng_key ) = gradient_step(P_params, L_params, L_states, P_opt_params, L_opt_params, rng_key)
+    if bcd_decoder == 'fast_slow':
+        ( loss, P_params, L_params, L_states, P_opt_params, 
+            L_opt_params, rng_key, elbo_grad_P, elbo_grad_L, elbo_grad_decoder) = fast_slow_gradient_step(P_params, L_params, L_states, P_opt_params, L_opt_params, rng_key)
+
+        if (i+1) % update_freq == 0:
+            # * Update decoder params
+            P_updates, P_opt_params = opt_P.update(elbo_grad_decoder, P_opt_params, P_params)
+            P_params = optax.apply_updates(P_params, P_updates)
+        
+        else:
+            # * Update BCD params
+
+            # * (a) Update P params
+            P_updates, P_opt_params = opt_P.update(elbo_grad_P, P_opt_params, P_params)
+            P_params = optax.apply_updates(P_params, P_updates)
+
+            # * (b) Update L params
+            L_updates, L_opt_params = opt_L.update(elbo_grad_L, L_opt_params, L_params)
+            L_params = optax.apply_updates(L_params, L_updates)
+
+    elif bcd_decoder == 'slow_fast':
+        ( loss, P_params, L_params, L_states, P_opt_params, 
+            L_opt_params, rng_key, elbo_grad_P, elbo_grad_L, elbo_grad_decoder) = fast_slow_gradient_step(P_params, L_params, L_states, P_opt_params, L_opt_params, rng_key)
+
+        if (i+1) % update_freq == 0:
+            # * Update BCD params
+            
+            # * (a) Update P params
+            P_updates, P_opt_params = opt_P.update(elbo_grad_P, P_opt_params, P_params)
+            P_params = optax.apply_updates(P_params, P_updates)
+
+            # * (b) Update L params
+            L_updates, L_opt_params = opt_L.update(elbo_grad_L, L_opt_params, L_params)
+            L_params = optax.apply_updates(L_params, L_updates)
+        
+        else:
+            # * Update decoder params
+            P_updates, P_opt_params = opt_P.update(elbo_grad_decoder, P_opt_params, P_params)
+            P_params = optax.apply_updates(P_params, P_updates)
+    
+    else:
+        ( loss, P_params, L_params, L_states, P_opt_params, 
+            L_opt_params, rng_key, elbo_grad_P, elbo_grad_L ) = gradient_step(P_params, L_params, L_states, P_opt_params, L_opt_params, rng_key)
+
+        # * Update P network
+        P_updates, P_opt_params = opt_P.update(elbo_grad_P, P_opt_params, P_params)
+        P_params = optax.apply_updates(P_params, P_updates)
+        
+        # * Update L network
+        L_updates, L_opt_params = opt_L.update(elbo_grad_L, L_opt_params, L_params)
+        L_params = optax.apply_updates(L_params, L_updates)
+
 
     if jnp.any(jnp.isnan(ravel_pytree(L_params)[0])):   raise Exception("Got NaNs in L params")
     if i % 100 == 0: print(f"Step {i} | {loss}")
@@ -487,7 +588,7 @@ for i in range(opt.num_steps):
             )
 
             wandb_dict.update(metrics_[0])
-            print(f"Step {i} | SHD: {metrics_[0]['Evaluations/SHD']} | SHD_C: {metrics_[0]['Evaluations/SHD_C']} | auroc: {metrics_[0]['Evaluations/AUROC']}")
+            print(f"Step {i} | bcd_decoder: {bcd_decoder} | freq: {update_freq} | SHD: {metrics_[0]['Evaluations/SHD']} | SHD_C: {metrics_[0]['Evaluations/SHD_C']} | auroc: {metrics_[0]['Evaluations/AUROC']}")
             if opt.use_flow:    raise NotImplementedError("")
             print() 
 

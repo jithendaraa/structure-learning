@@ -227,10 +227,10 @@ linear_bcd:
   exp_edges: 1.0
   likelihood: 'linear'
   sem_type: 'linear-gauss'
-  lr: 1e-3
+  lr: 5e-3
   data_seed: 0
-  num_steps: 3000
-  off_wandb: True
+  num_steps: 20000
+  off_wandb: False
   num_samples: 100
 
 
@@ -243,9 +243,9 @@ linear_decoder_bcd:
   exp_edges: 1.0
   likelihood: 'linear'
   sem_type: 'linear-gauss'
-  lr: 1e-3
+  lr: 2e-3
   data_seed: 4
-  num_steps: 3000
+  num_steps: 5000
   off_wandb: True
   num_samples: 100
   obs_data: 100

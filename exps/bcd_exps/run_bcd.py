@@ -12,9 +12,10 @@ from typing import Tuple, Optional, cast, Union
 import matplotlib.pyplot as plt 
 
 import jax.random as rnd
-from jax import vmap, grad, jit, lax, pmap, value_and_grad, partial, config 
+from jax import vmap, grad, jit, lax, pmap, value_and_grad, partial, config, random
 from jax.tree_util import tree_map, tree_multimap
 from jax import numpy as jnp
+from jax.ops import index, index_mul, index_update
 import numpy as onp
 import haiku as hk
 config.update("jax_enable_x64", True)
@@ -180,6 +181,29 @@ def sample_L(L_params: PParamType, L_state: LStateType, rng_key: PRNGKey) -> Tup
     out_L_states = None
     return full_l_batch, full_log_prob_l, out_L_states
 
+def eltwise_ancestral_sample(weighted_adj_mat, perm_mat, eps, rng_key):
+    """
+        eps: standard deviation
+        Given a single weighted adjacency matrix perform ancestral sampling
+        Use the permutation matrix to get the topsorted order.
+        Traverse topologically and give one ancestral sample using weighted_adj_mat and eps
+    """
+    sample = jnp.zeros((dim+1))
+    ordering = jnp.arange(0, dim)
+
+    theta = weighted_adj_mat
+    adj_mat = jnp.where(weighted_adj_mat != 0, 1.0, 0.0)
+    swapped_ordering = ordering[jnp.where(perm_mat, size=dim)[1].argsort()]
+    noise_terms = jnp.multiply(eps, random.normal(rng_key, shape=(dim,)))
+
+    # Traverse node topologically
+    for j in swapped_ordering:
+        mean = sample[:-1] @ theta[:, j]
+        sample = index_update(sample, index[j], mean + noise_terms[j])
+
+    return sample[:-1]
+
+def get_W(P, L): return (P @ L @ P.T).T
 
 def elbo(P_params: PParamType, L_params: hk.Params, L_states: LStateType,
     Xs: jnp.ndarray, rng_key: PRNGKey, tau: float, num_outer: int = 1, 
@@ -212,7 +236,8 @@ def elbo(P_params: PParamType, L_params: hk.Params, L_states: LStateType,
 
         # ! Sample L,log_Σ ~ Normal(means, stds)
         full_l_batch, full_log_prob_l, out_L_states = sample_L(L_params, L_states, rng_key)
-        w_noise = full_l_batch[:, -noise_dim:]
+        # w_noise = full_l_batch[:, -noise_dim:]
+        w_noise = jnp.array([jnp.log(opt.noise_sigma)] * batch_size)
         l_batch = full_l_batch[:, :-noise_dim]
         batched_noises = jnp.ones((batch_size, dim)) * w_noise.reshape((batch_size, noise_dim))
         batched_lower_samples = vmap(lower, in_axes=(0, None))(l_batch, dim)
@@ -222,15 +247,16 @@ def elbo(P_params: PParamType, L_params: hk.Params, L_states: LStateType,
         if hard:    batched_P_samples = ds.sample_hard_batched_logits(batched_P_logits, tau, rng_key,)
         else:   batched_P_samples = ds.sample_soft_batched_logits(batched_P_logits, tau, rng_key,)
 
-        likelihoods = vmap(log_prob_x, in_axes=(None, 0, 0, 0, None, None, None))(
-            Xs, batched_noises, batched_P_samples, batched_lower_samples, rng_key, opt.subsample, s_prior_std
-        )
-        # likelihoods =  jit(vmap(get_mse, (None, 0), 0))(Xs, batched_qz_samples)
+        # likelihoods = vmap(log_prob_x, in_axes=(None, 0, 0, 0, None, None, None))(
+        #     Xs, batched_noises, batched_P_samples, batched_lower_samples, rng_key, opt.subsample, s_prior_std
+        # )
+
+        batched_W = vmap(get_W, (0, 0), 0)(batched_P_samples, batched_lower_samples)
+        batched_qz_samples = vmap(eltwise_ancestral_sample, (0, 0, 0, None), 0)(batched_W, batched_P_samples, batched_noises, rng_key)
+        likelihoods =  - jit(vmap(get_mse, (None, 0), 0))(Xs, batched_qz_samples) 
 
         l_prior_probs = jnp.sum(l_prior.log_prob(full_l_batch)[:, :l_dim], axis=1)
-        s_prior_probs = jnp.sum(
-            full_l_batch[:, l_dim:] ** 2 / (2 * s_prior_std ** 2), axis=-1
-        )
+        s_prior_probs = jnp.sum(full_l_batch[:, l_dim:] ** 2 / (2 * s_prior_std ** 2), axis=-1)
         KL_term_L = full_log_prob_l - l_prior_probs - s_prior_probs
         logprob_P = vmap(ds.logprob, in_axes=(0, 0, None))(
             batched_P_samples, batched_P_logits, num_bethe_iters

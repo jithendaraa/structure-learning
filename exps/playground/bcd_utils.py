@@ -18,8 +18,6 @@ import haiku as hk
 from jax.flatten_util import ravel_pytree
 from jax import tree_util
 from jax.tree_util import tree_map
-from haiku._src import data_structures
-
 
 
 Tensor = Any
@@ -55,28 +53,6 @@ def get_model(dim: int, batch_size: int, num_layers: int, rng_key: PRNGKey,
     laplace_params = forward_fn_init(rng_key, blank_data)
     return laplace_params, forward_fn_apply
 
-def to_mutable_dict(mapping):
-  """Turns an immutable FlatMapping into a mutable dict."""
-  out = {}
-  for key, value in mapping.items():
-    value_type = type(value)
-    if value_type is data_structures.FlatMapping:
-      value = to_mutable_dict(value)
-    out[key] = value
-  return out
-
-def to_FlatMapping(mapping):
-  """Turns a mutable dict into an immutable FlatMapping."""
-  out = {}
-  for key, value in mapping.items():
-    value_type = type(value)
-    if value_type is dict:
-      value = data_structures.FlatMapping(value)
-    out[key] = value
-  return data_structures.FlatMapping(out)
-
-def get_mse(x, x_pred):
-    return jnp.mean(jnp.mean((x - x_pred)**2))
 
 def get_model_arrays(dim: int, batch_size: int, num_layers: int, rng_key: PRNGKey,
     hidden_size: int = 32, do_ev_noise=True) -> hk.Params:
@@ -118,11 +94,11 @@ def log_prob_x(Xs, log_sigmas, P, L, rng_key, subsample=False, s_prior_std=3.0):
         log_prob: Log probability of observing Xs given P, L
     """
     adjustment_factor = 1
+    # ! To implement, look at this function in the original code of BCD Nets 
     if subsample: raise NotImplementedError
         
     n, dim = Xs.shape
     W = (P @ L @ P.T).T
-    
     precision = ((jnp.eye(dim) - W) @ (jnp.diag(jnp.exp(-2 * log_sigmas))) @ (jnp.eye(dim) - W).T)
     eye_minus_W_logdet = 0
     log_det_precision = -2 * jnp.sum(log_sigmas) + 2 * eye_minus_W_logdet
