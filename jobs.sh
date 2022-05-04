@@ -56,6 +56,7 @@ then
 
 # ! Linear Decoder Joint DIBS (across interv data) - Search over hyperparams
 elif [ ${exp_id} == '9s' ]   
+# ! ./jobs.sh 9s er train 1:00:00
 then
     bash script_runners/joint_linear_decoder_dibs.sh ${dataset} ${train} 'Decoder_JointDiBS' ${time}
 
@@ -63,5 +64,10 @@ then
 elif [ ${exp_id} == '10s' ]   
 then
     bash script_runners/decoder_joint_dibs_interv_job_run.sh ${dataset} ${train} 'Decoder_JointDiBS' ${time}
+
+# ! linear decoder BCD - Search over hyperparams
+elif [ ${exp_id} == '11s' ]   
+then
+    bash script_runners/linear_decoder_bcd_job_run.sh ${dataset} ${train} 'Decoder_BCD' ${time}
 
 fi
