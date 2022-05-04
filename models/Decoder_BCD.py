@@ -26,7 +26,7 @@ class Decoder_BCD(hk.Module):
     def __init__(self, dim, l_dim, noise_dim, batch_size, hidden_size, max_deviation, 
                 do_ev_noise, proj_dims, log_stds_max=10.0, logit_constraint=10, tau=None, subsample=False, 
                 s_prior_std=3.0, num_bethe_iters=20, horseshoe_tau=None, learn_noise=False, noise_sigma=0.1,
-                P = None):
+                P=None, L=None, decoder_layers='linear', learn_L=True, z_gt=None):
         super().__init__()
 
         self.dim = dim
@@ -43,7 +43,10 @@ class Decoder_BCD(hk.Module):
         self.num_bethe_iters = num_bethe_iters
         self.horseshoe_tau = horseshoe_tau
         self.learn_noise = learn_noise
+        self.learn_L = learn_L
         self.P = P
+        self.L = L
+        self.z_gt = z_gt
 
         if self.do_ev_noise:
             self.noise_sigma = jnp.array([[noise_sigma]] * self.batch_size)
@@ -51,26 +54,33 @@ class Decoder_BCD(hk.Module):
         else:   self.noise_sigma = noise_sigma
         assert self.learn_noise == False
 
-        self.p_model = hk.Sequential([
-                            hk.Flatten(), 
-                            hk.Linear(hidden_size), jax.nn.gelu,
-                            hk.Linear(hidden_size), jax.nn.gelu,
-                            hk.Linear(dim * dim)
-                        ])
-        
-        # self.decoder = hk.Sequential([
+        # self.p_model = hk.Sequential([
         #                     hk.Flatten(), 
         #                     hk.Linear(hidden_size), jax.nn.gelu,
         #                     hk.Linear(hidden_size), jax.nn.gelu,
-        #                     hk.Linear(proj_dims)
+        #                     hk.Linear(dim * dim)
         #                 ])
 
-        self.decoder = hk.Sequential([
-            hk.Flatten(), hk.Linear(proj_dims, with_bias=False)
-        ])
+        if decoder_layers == 'nonlinear': 
+            self.decoder = hk.Sequential([
+                hk.Flatten(), 
+                hk.Linear(16, with_bias=False), jax.nn.gelu,
+                hk.Linear(64, with_bias=False), jax.nn.gelu,
+                hk.Linear(64, with_bias=False), jax.nn.gelu,
+                hk.Linear(64, with_bias=False), jax.nn.gelu,
+                hk.Linear(proj_dims, with_bias=False)
+            ])
+            
+        elif decoder_layers == 'linear':
+            self.decoder = hk.Sequential([
+                hk.Flatten(), hk.Linear(proj_dims, with_bias=False)
+            ])
         
         self.ds = GumbelSinkhorn(dim, noise_type="gumbel", tol=max_deviation)
         self.l_prior = Horseshoe(scale=jnp.ones(self.l_dim) * self.horseshoe_tau)
+
+    def project(self, data):
+        return data @ self.P
 
     def sample_W(self, L, P):
         return (P @ L @ P.T).T
@@ -79,36 +89,8 @@ class Decoder_BCD(hk.Module):
         """Given n(n-1)/2 parameters theta, form a
         strictly lower-triangular matrix"""
         out = jnp.zeros((self.dim, self.dim))
-        out = ops.index_update(out, jnp.triu_indices(self.dim, 1), theta).T
+        out = ops.index_update(out, jnp.tril_indices(self.dim, -1), theta)
         return out
-
-    def sample_L(self, L_params, L_state, rng_key):
-        """
-            Performs L, Σ ~ q_ϕ(L, Σ) 
-                    where q_ϕ is a Normal if self.do_ev_noise
-                    else q_ϕ is a Normalizing Flow (not implemented, ie when `use_flow` is True; see BCD Nets code instead)
-            
-            L has dim * (dim - 1) / 2 terms
-            Σ is a single term referring to noise on each node 
-            
-            [TODO]: fix this
-        """
-
-        L_params = cast(jnp.ndarray, L_params)
-        means, log_stds = L_params[: self.l_dim], L_params[self.l_dim :]
-        log_stds = jnp.tanh(log_stds / self.log_stds_max) * self.log_stds_max
-
-        # ? Sample L from the Normal
-        if self.do_ev_noise:
-            l_distribution = Normal(loc=means, scale=jnp.exp(log_stds))
-            full_l_batch = l_distribution.sample(seed=rng_key, sample_shape=(self.batch_size,))
-            full_l_batch = cast(jnp.ndarray, full_l_batch)
-        else:   raise NotImplementedError
-        
-        # ? log likelihood for q_ϕ(L)
-        full_log_prob_l = jnp.sum(l_distribution.log_prob(full_l_batch), axis=1)  
-        full_log_prob_l = cast(jnp.ndarray, full_log_prob_l)
-        return full_l_batch, full_log_prob_l, None
 
     def get_P_logits(self, L_samples: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray]:
         """
@@ -140,7 +122,7 @@ class Decoder_BCD(hk.Module):
         # Traverse node topologically
         for j in swapped_ordering:
             mean = sample[:-1] @ theta[:, j]
-            # ! Use lax.cond if possible
+            # ! Use lax.cond if possible 
             sample = index_update(sample, index[j], mean + noise_terms[j])
             sample = index_update(sample, index[interv_target], interv_value)
 
@@ -156,62 +138,109 @@ class Decoder_BCD(hk.Module):
         samples = vmap(self.eltwise_ancestral_sample, (None, None, None, 0, 0, None), (0))(weighted_adj_mat, perm_mat, eps, rng_keys, interv_targets, interv_value)
         return samples
 
-    def get_gradients(self, P_params: PParamType, L_params: hk.Params, L_states: LStateType,
-        gt_data: jnp.ndarray, rng_key: PRNGKey, 
-        hard: bool, interv_targets: jnp.ndarray) -> Tuple[jnp.ndarray, LStateType]:
+    def get_GT_L(self):
+        l_batch = self.L[jnp.tril_indices(self.dim, k=-1)][jnp.newaxis, :]
+        l_batch = l_batch.repeat(self.batch_size, axis=0)
+        full_l_batch = jnp.array([0.0] * self.batch_size)
+        return l_batch, full_l_batch
+
+    def sample_L(self, L_params, rng_key):
+        """
+            Performs L, Σ ~ q_ϕ(L, Σ) 
+                    where q_ϕ is a Normal if self.do_ev_noise
+                    else q_ϕ is a Normalizing Flow (not implemented, ie when `use_flow` is True; see BCD Nets code instead)
+            
+            L has dim * (dim - 1) / 2 terms
+            Σ is a single term referring to noise on each node 
+            
+            [TODO]: fix this
+        """
+        L_params = cast(jnp.ndarray, L_params)
+        means, log_stds = L_params[: self.l_dim], L_params[self.l_dim :]
+        log_stds = jnp.tanh(log_stds / self.log_stds_max) * self.log_stds_max
+
+        # ? Sample L from the Normal
+        if self.do_ev_noise:
+            l_distribution = Normal(loc=means, scale=jnp.exp(log_stds))
+            full_l_batch = l_distribution.sample(seed=rng_key, sample_shape=(self.batch_size,))
+            full_l_batch = cast(jnp.ndarray, full_l_batch)
+        else:   raise NotImplementedError
+        
+        # ? log likelihood for q_ϕ(L)
+        full_log_prob_l = jnp.sum(l_distribution.log_prob(full_l_batch), axis=1)  
+        full_log_prob_l = cast(jnp.ndarray, full_log_prob_l)
+        return full_l_batch, full_log_prob_l, None
+
+    def sample_partial_L(self, L_params, rng_key):
         """
             [TODO]
+            learns only the last parameter in L
         """
-        tau_scaling_factor = 1.0 / self.tau
+        gt_means, _ = self.get_GT_L()
+        L_params = cast(jnp.ndarray, L_params)
+        means, log_stds = L_params[: self.l_dim], L_params[self.l_dim :]
+        log_stds = jnp.tanh(log_stds / self.log_stds_max) * self.log_stds_max
 
-        # * Get loss and gradients of loss wrt to P and L
-        (loss, L_states), grads = value_and_grad(self.elbo, argnums=(0, 1), has_aux=True)(
-                P_params, L_params, L_states, gt_data, rng_key, hard, interv_targets)
+        # ? Sample L from the Normal
+        if self.do_ev_noise:
+            l_distribution = Normal(loc=means, scale=jnp.exp(log_stds))
+            full_l_batch = l_distribution.sample(seed=rng_key, sample_shape=(self.batch_size,))
+            full_l_batch = cast(jnp.ndarray, full_l_batch)
+        else:   raise NotImplementedError
+        
+        # ? log likelihood for q_ϕ(L)
+        full_l_batch = full_l_batch.at[:, :-1].set(gt_means[:, :-1])
+        full_log_prob_l = jnp.sum(l_distribution.log_prob(full_l_batch), axis=1)  
+        full_log_prob_l = cast(jnp.ndarray, full_log_prob_l)
 
-        elbo_grad_P, elbo_grad_L = tree_map(lambda x: -tau_scaling_factor * x, grads)
-
-        # * L2 regularization over parameters of P
-        l2_elbo_grad_P = grad(
-            lambda p: 0.5 * sum(jnp.sum(jnp.square(param)) for param in jax.tree_leaves(p))
-        )(P_params)
-        elbo_grad_P = tree_multimap(lambda x, y: x + y, elbo_grad_P, l2_elbo_grad_P)
-        return elbo_grad_P, elbo_grad_L
-
-    def project(self, data):
-        return data @ self.P
-
+        return full_l_batch, full_log_prob_l
+    
     def __call__(self, hard, rng_key, interv_targets, init=False, 
-                P_params=None, L_params=None, L_states=None):
+                P_params=None, L_params=None):
         """
             [TODO]
         """
 
         if init:
-            x = jnp.zeros((self.batch_size, self.l_dim + self.noise_dim))
-            return self.p_model(x), self.decoder(jnp.ones(self.dim))
+            x = jnp.ones((self.batch_size, self.l_dim + self.noise_dim))
+            return None, self.decoder(jnp.ones((10, self.dim)))
 
         batched_qz_samples, X_recons = jnp.array([]), jnp.array([])
 
         # ? 1. Draw L ~ q_ϕ(L); Σ are not learned, they are fixed
-        l_batch, full_log_prob_l, out_L_states = self.sample_L(L_params, L_states, rng_key)
+        if self.learn_L is True: 
+            l_batch, full_log_prob_l, _ = self.sample_L(L_params, rng_key)
+        
+        elif self.learn_L == 'partial': # ! TEMPORARY TEST: remove later. Fixes L, learns only the last element.
+            l_batch, full_log_prob_l = self.sample_partial_L(L_params, rng_key)
+
+        elif self.learn_L is False: 
+            l_batch, full_log_prob_l = self.get_GT_L() # ! TEMPORARY TEST: remove later. Fixes L, no longer learn it.
+        
         w_noise = self.log_noise_sigma
+
         full_l_batch = jnp.concatenate((l_batch, w_noise), axis=1)
 
         batched_log_noises = jnp.ones((self.batch_size, self.dim)) * w_noise.reshape((self.batch_size, self.noise_dim))
         batched_L = vmap(self.lower, in_axes=(0, None))(l_batch, self.dim)
 
+        # ! TEMPORARY TEST
+        # batched_L = self.L[jnp.newaxis, :].repeat(self.batch_size, axis=0) # ! TEMPORARY TEST: remove later
+        batched_P = jnp.eye(self.dim, self.dim)[jnp.newaxis, :].repeat(self.batch_size, axis=0) # ! TEMPORARY TEST: remove later
+
         # ? 2. Compute logits T = h_ϕ(L, Σ); h_ϕ = p_model
-        batched_P_logits = self.get_P_logits(full_l_batch)
+        # batched_P_logits = self.get_P_logits(full_l_batch)
+        batched_P_logits = None
 
         # ? 3. Compute soft P̃ = Sinkhorn( (T+γ)/𝜏 ) or hard P = Hungarian(P̃) 
-        if hard:    batched_P = self.ds.sample_hard_batched_logits(batched_P_logits, self.tau, rng_key)
-        else:   batched_P = self.ds.sample_soft_batched_logits(batched_P_logits, self.tau, rng_key)
+        # if hard:    batched_P = self.ds.sample_hard_batched_logits(batched_P_logits, self.tau, rng_key)
+        # else:   batched_P = self.ds.sample_soft_batched_logits(batched_P_logits, self.tau, rng_key)
 
         batched_W = vmap(self.sample_W, (0, 0), (0))(batched_L, batched_P)
         batched_adj_mats = jnp.where(batched_W != 0, 1.0, 0.0)
+        rng_keys = rnd.split(rng_key, self.batch_size)
+        batched_qz_samples = vmap(self.ancestral_sample, (0, 0, 0, 0, None, None), (0))(batched_W, batched_P, jnp.exp(batched_log_noises), rng_keys, interv_targets, 0.0)
 
-        batched_qz_samples = vmap(self.ancestral_sample, (0, 0, 0, None, None, None), (0))(batched_W, batched_P, jnp.exp(batched_log_noises), rng_key, interv_targets, 0.0)
-        
         X_recons = vmap(vmap(self.decoder, (0), (0)), (0), (0))(batched_qz_samples)
         # X_recons = vmap(self.project, (0), (0))(batched_qz_samples)
 
