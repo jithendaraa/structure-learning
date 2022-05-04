@@ -479,3 +479,5 @@ def npperm(M):
     return p / 2 ** (n - 1)
 
 
+
+
