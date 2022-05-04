@@ -13,23 +13,25 @@
 seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
 lrs=(0.001)
 dibs_lrs=(0.005)
-exp_edges=(0.5)
-steps=(10000)
 
-num_updates=(1000)
-num_samples=(200)
-num_obs_data=100
 num_nodes=4
 proj_dims=10
-across_interv='True'
+exp_edges=(0.5)
+steps=(11000)
+num_updates=(1000)
+num_samples=(400)
+num_obs_data=200
+reinit='True'
+clamp='False'
 
+across_interv='True'
 n_particles=20
 datagen='linear'
 likelihood='linear'
 algo='def'
 off_wandb='False'
-clamp='True'
-reinit='True'
+supervised='True'
+topsort='False'
 
 array_len=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#dibs_lrs[@]} * ${#num_updates[@]} * ${#steps[@]} * ${#num_samples[@]} ))
 
@@ -57,10 +59,10 @@ echo "Script"
 act_causal
 module load python/3.7
 echo `date` "Python starting"
-echo "python run_decoder_dibs.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_update} --steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --algo ${algo} --n_particles ${n_particles} --obs_data ${num_obs_data} --across_interv ${across_interv} --datagen ${datagen} --off_wandb ${off_wandb} --clamp ${clamp} --likelihood ${likelihood}"
+echo "python run_decoder_dibs.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_update} --steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --algo ${algo} --n_particles ${n_particles} --obs_data ${num_obs_data} --across_interv ${across_interv} --datagen ${datagen} --off_wandb ${off_wandb} --clamp ${clamp} --likelihood ${likelihood} --supervised ${supervised} --topsort ${topsort} --reinit ${reinit}"
 
 cd exps/decoder_dibs_exps
-python run_decoder_dibs.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_update} --steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --algo ${algo} --n_particles ${n_particles} --obs_data ${num_obs_data} --across_interv ${across_interv} --datagen ${datagen} --off_wandb ${off_wandb} --clamp ${clamp} --likelihood ${likelihood}
+python run_decoder_dibs.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --dibs_lr ${dibs_lr} --num_updates ${num_update} --steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --algo ${algo} --n_particles ${n_particles} --obs_data ${num_obs_data} --across_interv ${across_interv} --datagen ${datagen} --off_wandb ${off_wandb} --clamp ${clamp} --likelihood ${likelihood} --supervised ${supervised} --topsort ${topsort} --reinit ${reinit}
 cd ../..
 
 echo $end

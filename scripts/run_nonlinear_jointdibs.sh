@@ -11,13 +11,13 @@
 #SBATCH --mail-type=ALL
 
 seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
-exp_edges=(2.0)
 lrs=(0.001)
 dibs_lrs=(0.005)
 steps=(10000)
 
-num_nodes=100
-num_updates=(10000)
+exp_edges=(2.0)
+num_nodes=4
+num_updates=(2000)
 num_samples=(200)
 num_obs_data=100
 across_interv='True'

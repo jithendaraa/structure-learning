@@ -13,11 +13,10 @@
 seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
 lrs=(0.001)
 dibs_lrs=(0.005)
-steps=(10000)
 
 exp_edges=(2.0)
-num_updates=(12000)
-num_nodes=100
+num_updates=(2000)
+num_nodes=4
 num_samples=(200)
 num_obs_data=100
 across_interv='True'
@@ -27,6 +26,7 @@ n_particles=20
 proj_dims=10
 off_wandb='False'
 interv_type='single'
+steps=(10000)
 
 array_len=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#dibs_lrs[@]} * ${#num_updates[@]} * ${#steps[@]} * ${#num_samples[@]} ))
 echo $array_len
