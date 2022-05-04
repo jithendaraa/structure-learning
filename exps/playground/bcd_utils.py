@@ -1,14 +1,12 @@
 from typing import Union, Callable, cast, Any, Tuple
 import jax.numpy as jnp
 import haiku as hk
-import jax, pdb, time, cdt, optax
+import jax, pdb, time, optax
 import jax.random as rnd
 import numpy as np
 from jax import vmap, jit, vjp, ops, grad
 from sklearn.metrics import roc_curve, auc
 
-# cdt.SETTINGS.rpath = "/path/to/Rscript/binary""
-from cdt.metrics import SHD_CPDAG
 import networkx as nx
 import pickle as pkl
 from dag_utils import count_accuracy
@@ -103,8 +101,7 @@ def log_prob_x(Xs, log_sigmas, P, L, rng_key, subsample=False, s_prior_std=3.0):
     eye_minus_W_logdet = 0
     log_det_precision = -2 * jnp.sum(log_sigmas) + 2 * eye_minus_W_logdet
 
-    def datapoint_exponent(x):
-        return -0.5 * x.T @ precision @ x
+    def datapoint_exponent(x):  return -0.5 * x.T @ precision @ x
 
     log_exponent = vmap(datapoint_exponent)(Xs)
 
@@ -113,7 +110,6 @@ def log_prob_x(Xs, log_sigmas, P, L, rng_key, subsample=False, s_prior_std=3.0):
         + jnp.sum(log_exponent)
     )
 
-import jax.numpy as np
 import numpy as onp
 import jax.numpy as jnp
 
@@ -266,19 +262,16 @@ def load_params(filename):
 
 def eval_W_ev(est_W, true_W, true_noise, threshold, Xs, est_noise=None,
     provided_x_prec=None, do_shd_c=True, get_wasserstein=True, do_sid=True):
+    
+    dim = est_W.shape[0]
+    stats = {}
+    if provided_x_prec is None: x_prec = onp.linalg.inv(np.cov(Xs.T))
+    else:   x_prec = provided_x_prec
 
-    dim = np.shape(est_W)[0]
-    if provided_x_prec is None:
-        x_prec = onp.linalg.inv(np.cov(Xs.T))
-    else:
-        x_prec = provided_x_prec
-    x_prec = onp.linalg.inv(np.cov(Xs.T))
     est_W_clipped = np.where(np.abs(est_W) > threshold, est_W, 0)
     # Can provide noise or use the maximum-likelihood estimate
-    if est_noise is None:
-        est_noise = np.ones(dim) * get_variance(from_W(est_W_clipped, dim), Xs)
-    else:
-        est_noise = np.ones(dim) * est_noise
+    if est_noise is None:   est_noise = np.ones(dim) * get_variance(from_W(est_W_clipped, dim), Xs)
+    else:   est_noise = np.ones(dim) * est_noise
     stats = count_accuracy(true_W, est_W_clipped)
 
     if get_wasserstein:
@@ -286,8 +279,10 @@ def eval_W_ev(est_W, true_W, true_noise, threshold, Xs, est_noise=None,
         sample_wasserstein_loss = precision_wasserstein_sample_loss(x_prec, est_noise, est_W_clipped)
     else:
         true_wasserstein_distance, sample_wasserstein_loss = 0.0, 0.0
+    
     true_KL_divergence = precision_kl_loss(true_noise, true_W, est_noise, est_W_clipped)
     sample_kl_divergence = precision_kl_sample_loss(x_prec, est_noise, est_W_clipped)
+    
     if do_shd_c:
         shd_c = SHD_CPDAG(nx.DiGraph(onp.array(est_W_clipped)), nx.DiGraph(onp.array(true_W)))
         stats["shd_c"] = shd_c
@@ -323,62 +318,64 @@ def auroc(Ws, W_true, threshold):
 
 def eval_W_non_ev(est_W, true_W, true_noise, threshold, Xs, est_noise=None, provided_x_prec=None,
     do_shd_c=True, get_wasserstein=True, do_sid=True):
-    dim = np.shape(est_W)[0]
-    if provided_x_prec is None: x_prec = onp.linalg.inv(np.cov(Xs.T))
-    else: x_prec = provided_x_prec
-    est_W_clipped = np.where(np.abs(est_W) > threshold, est_W, 0)
-    # Can provide noise or use the maximum-likelihood estimate
-    if est_noise is None: est_noise = np.ones(dim) * jit(get_variances)(from_W(est_W_clipped, dim), Xs)
-    # Else est_noise is already given as a vector
-    stats = count_accuracy(true_W, est_W_clipped)
-    true_KL_divergence = jit(precision_kl_loss)(true_noise, true_W, est_noise, est_W_clipped)
-    sample_kl_divergence = jit(precision_kl_sample_loss)(x_prec, est_noise, est_W_clipped)
+    return None
+    # dim = np.shape(est_W)[0]
+    # if provided_x_prec is None: x_prec = onp.linalg.inv(np.cov(Xs.T))
+    # else: x_prec = provided_x_prec
+    # est_W_clipped = np.where(np.abs(est_W) > threshold, est_W, 0)
+    # # Can provide noise or use the maximum-likelihood estimate
+    # if est_noise is None: est_noise = np.ones(dim) * jit(get_variances)(from_W(est_W_clipped, dim), Xs)
+    # # Else est_noise is already given as a vector
+    # stats = count_accuracy(true_W, est_W_clipped)
+    # true_KL_divergence = jit(precision_kl_loss)(true_noise, true_W, est_noise, est_W_clipped)
+    # sample_kl_divergence = jit(precision_kl_sample_loss)(x_prec, est_noise, est_W_clipped)
 
-    if get_wasserstein:
-        true_wasserstein_distance = jit(precision_wasserstein_loss)(true_noise, true_W, est_noise, est_W_clipped)
-        sample_wasserstein_loss = jit(precision_wasserstein_sample_loss)(x_prec, est_noise, est_W_clipped)
-    else:
-        true_wasserstein_distance, sample_wasserstein_loss = 0.0, 0.0
+    # if get_wasserstein:
+    #     true_wasserstein_distance = jit(precision_wasserstein_loss)(true_noise, true_W, est_noise, est_W_clipped)
+    #     sample_wasserstein_loss = jit(precision_wasserstein_sample_loss)(x_prec, est_noise, est_W_clipped)
+    # else:
+    #     true_wasserstein_distance, sample_wasserstein_loss = 0.0, 0.0
 
-    if do_shd_c: shd_c = SHD_CPDAG(nx.DiGraph(onp.array(est_W_clipped)), nx.DiGraph(onp.array(true_W)))
-    else: shd_c = np.nan
-    if do_sid: sid = SHD_CPDAG(onp.array(est_W_clipped != 0), onp.array(true_W != 0))
-    else: sid = onp.nan
+    # if do_shd_c: shd_c = SHD_CPDAG(nx.DiGraph(onp.array(est_W_clipped)), nx.DiGraph(onp.array(true_W)))
+    # else: shd_c = np.nan
+    # if do_sid: sid = SHD_CPDAG(onp.array(est_W_clipped != 0), onp.array(true_W != 0))
+    # else: sid = onp.nan
 
-    stats["true_kl"] = float(true_KL_divergence)
-    stats["sample_kl"] = float(sample_kl_divergence)
-    stats["true_wasserstein"] = float(true_wasserstein_distance)
-    stats["sample_wasserstein"] = float(sample_wasserstein_loss)
-    stats["MSE"] = float(np.mean((Xs.T - est_W_clipped.T @ Xs.T) ** 2))
-    stats["shd_c"] = shd_c
-    stats["sid"] = sid
-    return stats
+    # stats["true_kl"] = float(true_KL_divergence)
+    # stats["sample_kl"] = float(sample_kl_divergence)
+    # stats["true_wasserstein"] = float(true_wasserstein_distance)
+    # stats["sample_wasserstein"] = float(sample_wasserstein_loss)
+    # stats["MSE"] = float(np.mean((Xs.T - est_W_clipped.T @ Xs.T) ** 2))
+    # stats["shd_c"] = shd_c
+    # stats["sid"] = sid
+    # return stats
 
 
 def eval_W(est_W, true_W, true_noise, threshold, Xs, get_wasserstein=True):
-    dim = np.shape(est_W)[0]
-    x_cov = np.cov(Xs.T)
-    est_W_clipped = np.where(np.abs(est_W) > threshold, est_W, 0)
-    est_noise = jit(get_variances)(from_W(est_W_clipped, dim), Xs)
-    stats = count_accuracy(true_W, est_W_clipped)
-    true_KL_divergence = jit(kl_loss)(true_noise, true_W, est_noise, est_W_clipped,)
-    sample_kl_divergence = jit(kl_sample_loss)(x_cov, est_noise, est_W)
-    if get_wasserstein:
-        true_wasserstein_distance = jit(wasserstein_loss)(true_noise, true_W, est_noise, est_W_clipped)
-        sample_wasserstein_loss = jit(wasserstein_sample_loss)(x_cov, est_noise, est_W)
-    else:   true_wasserstein_distance, sample_wasserstein_loss = 0.0, 0.0
+    return None
+    # dim = np.shape(est_W)[0]
+    # x_cov = np.cov(Xs.T)
+    # est_W_clipped = np.where(np.abs(est_W) > threshold, est_W, 0)
+    # est_noise = jit(get_variances)(from_W(est_W_clipped, dim), Xs)
+    # stats = count_accuracy(true_W, est_W_clipped)
+    # true_KL_divergence = jit(kl_loss)(true_noise, true_W, est_noise, est_W_clipped,)
+    # sample_kl_divergence = jit(kl_sample_loss)(x_cov, est_noise, est_W)
+    # if get_wasserstein:
+    #     true_wasserstein_distance = jit(wasserstein_loss)(true_noise, true_W, est_noise, est_W_clipped)
+    #     sample_wasserstein_loss = jit(wasserstein_sample_loss)(x_cov, est_noise, est_W)
+    # else:   true_wasserstein_distance, sample_wasserstein_loss = 0.0, 0.0
 
-    shd_c = np.nan
-    try:    shd_c = SHD_CPDAG(nx.DiGraph(onp.array(est_W_clipped)), nx.DiGraph(onp.array(true_W)))
-    except: stats["shd_c"] = np.nan
+    # shd_c = np.nan
+    # try:    shd_c = SHD_CPDAG(nx.DiGraph(onp.array(est_W_clipped)), nx.DiGraph(onp.array(true_W)))
+    # except: stats["shd_c"] = np.nan
 
-    stats["true_kl"] = true_KL_divergence
-    stats["sample_kl"] = sample_kl_divergence
-    stats["true_wasserstein"] = true_wasserstein_distance
-    stats["sample_wasserstein"] = sample_wasserstein_loss
-    stats["MSE"] = np.mean((est_W_clipped - true_W) ** 2)
-    stats["shd_c"] = shd_c
-    return stats
+    # stats["true_kl"] = true_KL_divergence
+    # stats["sample_kl"] = sample_kl_divergence
+    # stats["true_wasserstein"] = true_wasserstein_distance
+    # stats["sample_wasserstein"] = sample_wasserstein_loss
+    # stats["MSE"] = np.mean((est_W_clipped - true_W) ** 2)
+    # stats["shd_c"] = shd_c
+    # return stats
 
 
 def random_str():

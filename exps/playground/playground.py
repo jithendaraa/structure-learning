@@ -37,6 +37,7 @@ from bcd_utils import *
 from models.Decoder_BCD import Decoder_BCD
 from loss_fns import *
 from haiku._src import data_structures
+from jax import random
 
 num_devices = jax.device_count()
 print(f"Number of devices: {num_devices}")
@@ -85,9 +86,32 @@ if opt.fixed_tau is not None: tau = opt.fixed_tau
 else: raise NotImplementedError
 
 
+def log_gt_graph(ground_truth_W, logdir, exp_config_dict):
+    plt.imshow(ground_truth_W)
+    plt.savefig(join(logdir, 'gt_w.png'))
+
+    # ? Logging to wandb
+    if opt.off_wandb is False:
+        if opt.offline_wandb is True: os.system('wandb offline')
+        else:   os.system('wandb online')
+        
+        wandb.init(project=opt.wandb_project, 
+                    entity=opt.wandb_entity, 
+                    config=exp_config_dict, 
+                    settings=wandb.Settings(start_method="fork"))
+        wandb.run.name = logdir.split('/')[-1]
+        wandb.run.save()
+        wandb.log({"graph_structure(GT-pred)/Ground truth W": wandb.Image(join(logdir, 'gt_w.png'))}, step=0)
+
+    # ? Logging to tensorboard
+    gt_graph_image = onp.asarray(imageio.imread(join(logdir, 'gt_w.png')))
+    writer.add_image('graph_structure(GT-pred)/Ground truth W', gt_graph_image, 0, dataformats='HWC')
+
+
 # noise sigma usually around 0.1 but in original BCD nets code it is set to 1
 sd = SyntheticDataset(n=n_data, d=opt.num_nodes, graph_type="erdos-renyi", degree= 2 * degree, 
-                        sem_type=opt.sem_type, dataset_type='linear', noise_scale=opt.noise_sigma) 
+                        sem_type=opt.sem_type, dataset_type='linear', noise_scale=opt.noise_sigma,
+                        data_seed=opt.data_seed)  
 ground_truth_W = sd.W
 ground_truth_P = sd.P
 ground_truth_sigmas = opt.noise_sigma * jnp.ones(opt.num_nodes)
@@ -101,25 +125,34 @@ obs_data = cast(jnp.ndarray, obs_data)
 ( obs_data, interv_data, z_gt, 
 no_interv_targets, x, 
 sample_mean, sample_covariance, proj_matrix ) = datagen.get_data(opt, n_interv_sets, sd, obs_data, model='bcd')
-
-
-
-
-
-
-
+log_gt_graph(ground_truth_W, logdir, exp_config)
 
 
 class Decoder(hk.Module):
     def __init__(self, proj_dims):
         super().__init__()
-        self.decoder = hk.Sequential([
-            hk.Flatten(), hk.Linear(proj_dims, with_bias=False)
-        ])
+
+        if opt.decoder_layers == 'linear':
+            self.decoder = hk.Sequential([
+                hk.Flatten(), 
+                # hk.Linear(16, with_bias=False), jax.nn.relu,
+                # hk.Linear(64, with_bias=False), jax.nn.relu,
+                # hk.Linear(64, with_bias=False), jax.nn.relu,
+                # hk.Linear(64, with_bias=False), jax.nn.relu,
+                hk.Linear(proj_dims, with_bias=False)
+            ])
+        elif opt.decoder_layers == 'nonlinear':
+            self.decoder = hk.Sequential([
+                hk.Flatten(), 
+                hk.Linear(16, with_bias=False), jax.nn.relu,
+                hk.Linear(64, with_bias=False), jax.nn.relu,
+                hk.Linear(64, with_bias=False), jax.nn.relu,
+                hk.Linear(64, with_bias=False), jax.nn.relu,
+                hk.Linear(proj_dims, with_bias=False)
+            ])
 
     def __call__(self, x):
         return self.decoder(x)
-
 
 def forward_fn(x):
     model = Decoder(opt.proj_dims)
@@ -137,68 +170,93 @@ decoder_opt_params = opt_decoder.init(decoder_params)
 Sigma = jnp.diag(jnp.array([opt.noise_sigma ** 2] * dim))
 cov_z = jnp.linalg.inv((jnp.eye(dim) - sd.W.T)) @ Sigma @ jnp.linalg.inv((jnp.eye(dim) - sd.W.T)).T
 prec_z = jnp.linalg.inv(cov_z)
+eps = jnp.array([opt.noise_sigma] * dim)
+
+def eltwise_ancestral_sample(rng_key):
+        """
+            eps: standard deviation
+            Given a single weighted adjacency matrix perform ancestral sampling
+            Use the permutation matrix to get the topsorted order.
+            Traverse topologically and give one ancestral sample using weighted_adj_mat and eps
+        """
+        sample = jnp.zeros((dim+1))
+        ordering = jnp.arange(0, dim)
+
+        theta = sd.W
+        adj_mat = jnp.where(sd.W != 0, 1.0, 0.0)
+        swapped_ordering = ordering[jnp.where(sd.P, size=dim)[1].argsort()]
+        noise_terms = jnp.multiply(eps, random.normal(rng_key, shape=(dim,)))
+
+        # Traverse node topologically
+        for j in swapped_ordering:
+            mean = sample[:-1] @ theta[:, j]
+            sample = index_update(sample, index[j], mean + noise_terms[j])
+
+        return sample[:-1]
+
+def ancestral_sample(rng_key):
+    """
+        Gives `n_samples` = len(interv_targets) of data generated from one weighted_adj_mat and interventions from `interv_targets`. 
+        Each of these samples will be an ancestral sample taking into account the ith intervention in interv_targets
+    """
+
+    rng_keys = rnd.split(rng_key, x.shape[0])
+    samples = vmap(eltwise_ancestral_sample, (0), (0))(rng_keys)
+    return samples
+
 
 def likelihood_loss(decoder_params, Xs):
-    n, dim = Xs.shape
+    n, _ = Xs.shape
     decoder_matrix = decoder_params['decoder/~/linear']['w']
-
     cov_x = decoder_matrix.T @ cov_z @ decoder_matrix
     d_cross = jnp.linalg.pinv(decoder_matrix)
-
     prec_x = d_cross @ prec_z @ d_cross.T
-    # prec_x = jnp.linalg.inv(cov_x)
-
-    log_det_precision = jnp.linalg.det(prec_x)
-
-    def datapoint_exponent(x):  
-        return -0.5 * x.T @ prec_x @ x
-
+    log_det_precision = jnp.log(jnp.linalg.det(prec_x))
+    def datapoint_exponent(x):  return -0.5 * x.T @ prec_x @ x
     log_exponent = vmap(datapoint_exponent)(Xs)
-
-    return (0.5  * (log_det_precision - opt.proj_dims * jnp.log(2 * jnp.pi))
-        + (jnp.sum(log_exponent) / n)
-    )
-    # return jnp.sum(log_exponent)
-
+    return (0.5  * (log_det_precision - opt.proj_dims * jnp.log(2 * jnp.pi)) + (jnp.sum(log_exponent) / n))
 
 @jit
 def LL_loss(decoder_params, rng_key):
     x_pred = forward.apply(decoder_params, rng_key, z_gt)
     # loss = get_mse(x, x_pred)
     loss = likelihood_loss(decoder_params, x)
-    return jnp.mean(loss), tree_map(lambda x: x, None)
+    return -jnp.mean(loss), tree_map(lambda x: x, None)
 
-def mse_loss(decoder_params, rng_key):
-    x_pred = forward.apply(decoder_params, rng_key, z_gt)
+@jit
+def mse_loss(decoder_params, rng_key, z_samples):
+    x_pred = forward.apply(decoder_params, rng_key, z_samples)
     loss = get_mse(x, x_pred)
     return jnp.mean(loss), tree_map(lambda x: x, None)
 
 
-loss_type = 'LL'
+loss_type = opt.train_loss
 
 
-for i in range(4000):
+for i in range(40000):
+    if opt.z_sample == 'fixed': z_samples = z_gt
+    elif opt.z_sample == 'sample': z_samples = ancestral_sample(rng_key)
+    
     if loss_type == 'mse':
-        (loss, _), decoder_grad = value_and_grad(mse_loss, argnums=(0), has_aux=True)(decoder_params, rng_key)
+        (loss, _), decoder_grad = value_and_grad(mse_loss, argnums=(0), has_aux=True)(decoder_params, rng_key, z_samples)
+    
     elif loss_type == 'LL':
         (loss, _), decoder_grad = value_and_grad(LL_loss, argnums=(0), has_aux=True)(decoder_params, rng_key)
-        decoder_grad = tree_map(lambda x: - x, decoder_grad)
+        decoder_grad = tree_map(lambda x: x, decoder_grad)
 
     decoder_updates, decoder_opt_params = opt_decoder.update(decoder_grad, decoder_opt_params, decoder_params)
     decoder_params = optax.apply_updates(decoder_params, decoder_updates)
+    wandb_dict = {"Loss": onp.array(loss)}
 
-    if i == 0:
-        decoder_matrix = decoder_params['decoder/~/linear']['w']
-        decoder_matrix_norm_error = jnp.linalg.norm(decoder_matrix, ord=2) - jnp.linalg.norm(proj_matrix, ord=2)
-        print(f"Step {i} | Loss type: {loss_type} | Loss: {loss} | Decoder Norm Error: {decoder_matrix_norm_error}")
-        
+    if (i+1) % 200 == 0 or i == 0:
+        # ! Decoder metrics for when it is linear
+        if opt.decoder_layers == 'linear':
+            decoder_matrix = decoder_params['decoder/~/linear']['w']
+            decoder_mse = get_mse(proj_matrix, decoder_matrix)
+            decoder_matrix_norm_error = jnp.linalg.norm(decoder_matrix, ord=2) - jnp.linalg.norm(proj_matrix, ord=2)
+            wandb_dict['Decoder 2-Norm'] = onp.array(decoder_matrix_norm_error)
+            wandb_dict['Decoder MSE'] = onp.array(decoder_mse)
+            
+            print(f"Step {i} | Loss type: {loss_type} | Loss: {loss} | Decoder Norm Error: {decoder_matrix_norm_error} | Decoder MSE: {decoder_mse}")
 
-    if (i+1) % 200 == 0:
-        decoder_matrix = decoder_params['decoder/~/linear']['w']
-        decoder_matrix_norm_error = jnp.linalg.norm(decoder_matrix, ord=2) - jnp.linalg.norm(proj_matrix, ord=2)
-        print(f"Step {i} | Loss type: {loss_type} | Loss: {loss} | Decoder Norm Error: {decoder_matrix_norm_error}")
-
-    # if (i+1) % 1000 == 0:
-    #     print(proj_matrix - decoder_matrix)
-    #     print()
-        
+        if opt.off_wandb is False:  wandb.log(wandb_dict, step=i)
