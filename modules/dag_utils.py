@@ -17,7 +17,7 @@ class SyntheticDataset(object):
     _logger = logging.getLogger(__name__)
 
     def __init__(self, n, d, graph_type, degree, sem_type, noise_scale=1.0, 
-        dataset_type="linear", quadratic_scale=None):
+        dataset_type="linear", quadratic_scale=None, data_seed=0):
         
         self.n = n
         self.d = d
@@ -28,13 +28,14 @@ class SyntheticDataset(object):
         self.dataset_type = dataset_type
         self.w_range = (0.5, 2.0)
         self.quadratic_scale = quadratic_scale
+        self.data_seed = data_seed
 
         self._setup()
         self._logger.debug("Finished setting up dataset class")
 
     def _setup(self):
         self.W, self.W_2, self.P = SyntheticDataset.simulate_random_dag(
-            self.d, self.degree, self.graph_type, self.w_range, (self.dataset_type != "linear"))
+            self.d, self.degree, self.graph_type, self.w_range, self.data_seed, (self.dataset_type != "linear"))
 
         if self.dataset_type != "linear":
             assert self.W_2 is not None
@@ -44,7 +45,7 @@ class SyntheticDataset(object):
                                                 self.noise_scale, self.dataset_type, self.W_2)
 
     @staticmethod
-    def simulate_random_dag(d, degree, graph_type, w_range, return_w_2=False):
+    def simulate_random_dag(d, degree, graph_type, w_range, data_seed, return_w_2=False):
         """Simulate random DAG with some expected degree.
 
         Args:
@@ -61,7 +62,9 @@ class SyntheticDataset(object):
         """
         if graph_type == "erdos-renyi":
             prob = float(degree) / (d - 1)
+            np.random.seed(data_seed)
             B = np.tril((np.random.rand(d, d) < prob).astype(float), k=-1)
+
         elif graph_type == "barabasi-albert":
             m = int(round(degree / 2))
             B = np.zeros([d, d])
@@ -77,11 +80,13 @@ class SyntheticDataset(object):
         else:
             raise ValueError("Unknown graph type")
         # random permutation
-        P = np.random.permutation(np.eye(d, d))  # permutes first axis only
+        # P = np.random.permutation(np.eye(d, d))  # permutes first axis only
+        P = np.eye(d, d)  # permutes first axis only # ! permutation is always identity, remove this later on
         B_perm = P.T.dot(B).dot(P)
 
         U = np.random.uniform(low=w_range[0], high=w_range[1], size=[d, d])
         U[np.random.rand(d, d) < 0.5] *= -1
+        
         W = (B_perm != 0).astype(float) * U
         U_2 = np.random.uniform(low=w_range[0], high=w_range[1], size=[d, d])
         U_2[np.random.rand(d, d) < 0.5] *= -1
