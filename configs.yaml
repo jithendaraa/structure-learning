@@ -222,16 +222,18 @@ linear_bcd:
   exp_name: 'linear_bcd'
   ckpt_id: 'linear_bcd'
   model: 'BCD'
-  num_nodes: 4
+  num_nodes: 6
   proj_dims: 10
   exp_edges: 1.0
   likelihood: 'linear'
   sem_type: 'linear-gauss'
-  lr: 5e-3
+  lr: 1e-3
   data_seed: 0
   num_steps: 20000
-  off_wandb: False
+  off_wandb: True
   num_samples: 100
+  L_KL: False
+  # P_KL: True
 
 
 linear_decoder_bcd:
@@ -239,17 +241,55 @@ linear_decoder_bcd:
   ckpt_id: 'linear_decoder_bcd'
   model: 'Decoder_BCD'
   num_nodes: 6
-  proj_dims: 10
+  proj_dims: 6
   exp_edges: 1.0
   likelihood: 'linear'
   sem_type: 'linear-gauss'
-  lr: 2e-3
-  data_seed: 4
+  lr: 1e-3
+  data_seed: 0
+  num_steps: 20000
+  num_samples: 300
+  obs_data: 300
+  off_wandb: False
+  
+  train_loss: 'mse'
+  decoder_layers: 'nonlinear'
+  learn_noise: False
+  
+  learn_L: 'partial'
+  learn_P: False
+  L_KL: False
+  P_KL: False
+  Z_KL: False
+
+  l2_reg: False
+  tau_scaling: False
+  cov_space: False
+  fix_decoder: False
+
+decoder:
+  exp_name: 'only_decoder'
+  ckpt_id: 'only_decoder'
+  model: 'Decoder_BCD'
+  num_nodes: 6
+  proj_dims: 6
+  exp_edges: 1.0
+  likelihood: 'linear'
+  sem_type: 'linear-gauss'
+  lr: 1e-3
+  data_seed: 0
   num_steps: 5000
   off_wandb: True
-  num_samples: 100
-  obs_data: 100
+  num_samples: 200
+  obs_data: 200
+  train_loss: 'mse'
+  decoder_layers: 'linear'
   learn_noise: False
+  learn_L: True
+  l2_reg: False
+  z_sample: 'sample'
+  L_KL: True
+  P_KL: False
 
 
 # ? 9. Decoder_DIBS
