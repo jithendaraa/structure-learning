@@ -478,6 +478,27 @@ def npperm(M):
         j = f[0]
     return p / 2 ** (n - 1)
 
+def get_joint_dist_params(node_mus, node_vars, theta, P):
+    """
+        Get variances on each causal variable for a given theta in a linear gaussian additive noise model, 
+        given noise variances.
+        
+        node_vars: noise variances on each node
+        theta: weighted adj matrix, jnp.array
+        P: permutation matrix
+    """
+    dim = node_vars.shape[0]
+    ordering = jnp.arange(0, dim)
+    swapped_ordering = ordering[jnp.where(P, size=dim)[1].argsort()]
+
+    # Only for linear gaussian setting
+    for j in swapped_ordering:
+        node_vars = node_vars.at[j].set( node_vars[j] + jnp.dot( theta[:, j]**2, node_vars) )
+        node_mus = node_mus.at[j].set( node_mus[j] + jnp.dot( theta[:, j], node_mus) )
+
+    node_covars = jnp.diag(node_vars)
+    return node_mus, node_covars
+
 
 
 

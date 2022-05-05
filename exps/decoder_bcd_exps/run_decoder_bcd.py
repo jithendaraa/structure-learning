@@ -38,6 +38,7 @@ from bcd_utils import *
 from models.Decoder_BCD import Decoder_BCD
 from loss_fns import *
 from haiku._src import data_structures
+from loss_fns import get_single_kl
 
 
 def log_gt_graph(ground_truth_W, logdir, exp_config_dict):
@@ -97,6 +98,7 @@ n_interv_sets = 10
 calc_shd_c = False
 sem_type = opt.sem_type
 eval_eid = opt.eval_eid
+num_bethe_iters = 20
 
 
 if do_ev_noise: noise_dim = 1
@@ -107,7 +109,6 @@ log_stds_max: Optional[float] = 10.0
 if opt.fixed_tau is not None: tau = opt.fixed_tau
 else: raise NotImplementedError
 tau_scaling_factor = 1.0 / tau
-
 
 
 # noise sigma usually around 0.1 but in original BCD nets code it is set to 1
@@ -124,24 +125,16 @@ print()
 obs_data = sd.simulate_sem(ground_truth_W, n_data, sd.sem_type, noise_scale=opt.noise_sigma, dataset_type="linear")
 obs_data = cast(jnp.ndarray, obs_data)
 
+
 # ! [TODO] Supports only single interventions currently; will not work for more than 1-node intervs
 ( obs_data, interv_data, z_gt, 
 no_interv_targets, x, 
 sample_mean, sample_covariance, proj_matrix ) = datagen.get_data(opt, n_interv_sets, sd, obs_data, model='bcd')
 
-ordering = jnp.arange(0, dim)
-theta = sd.W
-adj_mat = jnp.where(theta != 0, 1.0, 0.0)
-swapped_ordering = ordering[jnp.where(sd.P, size=dim)[1].argsort()]
-node_vars = jnp.zeros((dim)) 
+node_mus = jnp.ones((dim)) * opt.noise_mu
+node_vars = jnp.ones((dim)) * (opt.noise_sigma**2)
 
-# if opt.do_ev_noise: 
-#     for j in swapped_ordering:
-#         print(f"Node {j}")
-#         pdb.set_trace()
-#         adj_mat[:, j]
-    
-#     pdb.set_trace()
+p_z_mu, p_z_covar = get_joint_dist_params(node_mus, node_vars, sd.W, sd.P)
 
 # else:
 #     raise NotImplementedError("")
@@ -224,7 +217,6 @@ def log_prob_X(Xs, log_sigmas, P, L, rng_key, decoder_matrix, subsample=False, s
     log_exponent = vmap(datapoint_exponent)(Xs)
     return adjustment_factor * (0.5 * (log_det_precision - opt.proj_dims * jnp.log(2 * jnp.pi)) + jnp.sum(log_exponent)/n)
 
-num_bethe_iters = 20
 
 # @jit
 def hard_elbo(P_params: PParamType, L_params: hk.Params, rng_key: PRNGKey, interv_nodes: jnp.ndarray) -> Tuple[jnp.ndarray, LStateType]:
@@ -269,14 +261,20 @@ def hard_elbo(P_params: PParamType, L_params: hk.Params, rng_key: PRNGKey, inter
             KL_term_L = full_log_prob_l - l_prior_probs
             final_term -= KL_term_L
 
-        return (-jnp.mean(final_term))
+        if opt.Z_KL is True:
+            node_mus = jnp.ones((dim)) * opt.noise_mu
+            node_vars = jnp.ones((opt.batch_size, dim)) * jnp.exp(2 * batched_log_noises)
+            batched_get_joint_dist_params = vmap(get_joint_dist_params, (None, 0, 0, 0), (0, 0))
+            q_z_mus, q_z_covars = batched_get_joint_dist_params(node_mus, node_vars, batched_W, batched_P)
+            KL_term_Z = vmap(get_single_kl, (None, None, 0, 0, None), (0))(p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt)
+            final_term -= KL_term_Z
 
+        return (-jnp.mean(final_term))
+    
+    # elbos = outer_loop(rng_keys[0])
     _, elbos = lax.scan(lambda _, rng_key: (None, outer_loop(rng_key)), None, rng_keys)
     return jnp.mean(elbos)
 
-
-bcd_decoder = None
-update_freq = 3
 
 def eval_mean(P_params, L_params, data, rng_key, do_shd_c=True, tau=1, step = None):
     """Computes mean error statistics for P, L parameters and data"""
@@ -330,13 +328,12 @@ def eval_mean(P_params, L_params, data, rng_key, do_shd_c=True, tau=1, step = No
     out_stats["auroc"] = auroc(batched_W, ground_truth_W, 0.3)
     return out_stats
 
-@jit
+# @jit
 def gradient_step(P_params, L_params, rng_key):
     # * Get loss and gradients of loss wrt to P and L
     loss, grads = value_and_grad(hard_elbo, argnums=(0, 1))(P_params, L_params, rng_key, interv_nodes)
     
     if opt.tau_scaling is True: 
-        pdb.set_trace()
         if opt.learn_P is False:
             # ! Needs fix 
             elbo_grad_P = None
