@@ -56,6 +56,7 @@ max_steps = 20000
 def plot_data(key, seed_data, ax, label = None, color='blue'):
     if label is None: label = ''
     x_axis = np.array(seed_data['_step'][0])
+    # pdb.set_trace()
     y_axis_seeds = np.array(seed_data[key])
     yaxis = y_axis_seeds.mean(0)
     fill = y_axis_seeds.std(0)
@@ -94,7 +95,7 @@ def plot_metrics_for_nodes(num_nodes, proj_dims, reqd_keys, exp_config):
     num_subplots = len(reqd_keys) - 1
     h = int(np.sqrt(num_subplots))
     w = int(num_subplots / h)
-    f, axes = plt.subplots(h, w, figsize = (12, 5) )
+    f, axes = plt.subplots(h, w, figsize = (10, 5) )
 
     idxs = []
     for i in range(h):
@@ -130,8 +131,9 @@ def plot_metrics_for_nodes(num_nodes, proj_dims, reqd_keys, exp_config):
     f.text(0.5, 0.02, 'Num. Iterations', ha='center')
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     f.savefig(f'plot_n{num_nodes}p{proj_dims}_er12.png')
+    print(f'Saved figure: plot_n{num_nodes}p{proj_dims}_er12.png')
 
 plot_metrics_for_nodes(4, 10, reqd_keys, exp_config)
 plot_metrics_for_nodes(5, 10, reqd_keys, exp_config)
-plot_metrics_for_nodes(10, 20, reqd_keys, exp_config)
+# plot_metrics_for_nodes(10, 20, reqd_keys, exp_config)
 plot_metrics_for_nodes(20, 50, reqd_keys, exp_config)
