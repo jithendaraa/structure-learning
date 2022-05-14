@@ -56,17 +56,15 @@ max_steps = 20000
 def plot_data(key, seed_data, ax, label = None, color='blue'):
     if label is None: label = ''
     x_axis = np.array(seed_data['_step'][0])
-    # pdb.set_trace()
     y_axis_seeds = np.array(seed_data[key])
     yaxis = y_axis_seeds.mean(0)
     fill = y_axis_seeds.std(0)
     ax.plot(x_axis, yaxis, label=label, color=color)
     ax.fill_between(x_axis, yaxis - fill, yaxis + fill, alpha=0.3, color=color)
 
-def set_axes_details(ax, xlabel, ylabel, title=None, set_legend=True):
+def set_axes_details(ax, xlabel, ylabel, title=None):
     if xlabel: ax.set_xlabel(xlabel)
     ax.set_ylabel(ylabel)
-    # if set_legend: ax.legend()
     if title: ax.title.set_text(f"{title}")
     ax.grid()
     
@@ -85,13 +83,13 @@ exp_config = {
 }
 
 reqd_keys = ['_step', 'Evaluations/AUROC (empirical)', 
-            'Evaluations/AUROC (marginal)', 'Evaluations/MEC or GT recovery %', 
-            'Evaluations/Exp. SHD (Empirical)', 'Evaluations/Exp. SHD (Marginal)', 
+            'Evaluations/MEC or GT recovery %', 
+            'Evaluations/Exp. SHD (Empirical)', 
             'Evaluations/CPDAG SHD']
 max_steps = 4000
 
 
-def plot_metrics_for_nodes(num_nodes, proj_dims, reqd_keys, exp_config):
+def plot_metrics_for_nodes(num_nodes, reqd_keys, exp_config, x_text, fname):
     num_subplots = len(reqd_keys) - 1
     h = int(np.sqrt(num_subplots))
     w = int(num_subplots / h)
@@ -116,6 +114,7 @@ def plot_metrics_for_nodes(num_nodes, proj_dims, reqd_keys, exp_config):
     exp_config['exp_edges'] = 1.0
     reqd_runs = get_reqd_runs(exp_config)
     print(f'Fetched {len(reqd_runs)} runs')
+
     plotting_data = get_plotting_data(reqd_runs, reqd_keys)
 
     for i in range(num_subplots):
@@ -128,12 +127,50 @@ def plot_metrics_for_nodes(num_nodes, proj_dims, reqd_keys, exp_config):
     lines, labels = [sum(lol, []) for lol in zip(*lines_labels)]
 
     f.legend(lines[:2], labels[:2])
-    f.text(0.5, 0.02, 'Num. Iterations', ha='center')
+    f.text(0.5, 0.02, x_text, ha='center')
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    f.savefig(f'plot_n{num_nodes}p{proj_dims}_er12.png')
-    print(f'Saved figure: plot_n{num_nodes}p{proj_dims}_er12.png')
+    f.savefig(fname)
+    print(f'Saved figure: {fname}')
 
-plot_metrics_for_nodes(4, 10, reqd_keys, exp_config)
-plot_metrics_for_nodes(5, 10, reqd_keys, exp_config)
-# plot_metrics_for_nodes(10, 20, reqd_keys, exp_config)
-plot_metrics_for_nodes(20, 50, reqd_keys, exp_config)
+# plot_metrics_for_nodes(4, reqd_keys, exp_config, 'Num. Iterations', 'plot_n4p10_er12.png')
+# plot_metrics_for_nodes(5, reqd_keys, exp_config, 'Num. Iterations', 'plot_n5p10_er12.png')
+# plot_metrics_for_nodes(10, reqd_keys, exp_config, 'Num. Iterations', 'plot_n10p20_er12.png')
+# plot_metrics_for_nodes(20, reqd_keys, exp_config, 'Num. Iterations', 'plot_n20p50_er12.png')
+
+# ! linear joint dibs, interv data, across_interv.
+exp_config = {
+    'exp_name': 'linear_joint_dibs',
+    'across_interv': True,
+    'num_samples': 500,
+    'obs_data': 300
+}
+
+reqd_keys = ['_step', '(Interventional) Evaluations/AUROC (empirical)', 
+            '(Interventional) Evaluations/AUROC (marginal)', '(Interventional) Evaluations/MEC or GT recovery %', 
+            '(Interventional) Evaluations/Exp. SHD (Empirical)', '(Interventional) Evaluations/Exp. SHD (Marginal)', 
+            '(Interventional) Evaluations/CPDAG SHD']
+
+# plot_metrics_for_nodes(5, reqd_keys, exp_config, 'Num. interventional data', 
+#                         'dibs interv d5 er12.png')
+# plot_metrics_for_nodes(20, reqd_keys, exp_config, 'Num. interventional data', 
+#                         'dibs interv d20 er12.png')
+
+
+# ! linear joint decoder dibs, interv data, across_interv.
+exp_config = {
+    'exp_name': 'linear_decoder_dibs',
+    'across_interv': True,
+    'num_samples': 500,
+    'obs_data': 300,
+    'supervised': True
+}
+
+reqd_keys = ['_step', '(Interventional) Evaluations/AUROC (empirical)', 
+            '(Interventional) Evaluations/AUROC (marginal)', '(Interventional) Evaluations/MEC or GT recovery %', 
+            '(Interventional) Evaluations/Exp. SHD (Empirical)', '(Interventional) Evaluations/Exp. SHD (Marginal)', 
+            '(Interventional) Evaluations/CPDAG SHD']
+
+plot_metrics_for_nodes(5, reqd_keys, exp_config, 'Num. interventional data', 
+                        'Dec dibs interv d5 er12.png')
+# plot_metrics_for_nodes(20, reqd_keys, exp_config, 'Num. interventional data', 
+#                         'Dec dibs interv d20 er12.png')
