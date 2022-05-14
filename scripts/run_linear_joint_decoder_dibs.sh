@@ -14,13 +14,13 @@ seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
 lrs=(0.001)
 dibs_lrs=(0.005)
 
-num_nodes=4
-proj_dims=10
-exp_edges=(0.5)
-steps=(11000)
-num_updates=(1000)
-num_samples=(400)
-num_obs_data=200
+num_nodes=20
+proj_dims=50
+exp_edges=(1.0)
+steps=(15000)
+num_updates=(5000)
+num_samples=(500)
+num_obs_data=300
 reinit='True'
 clamp='False'
 

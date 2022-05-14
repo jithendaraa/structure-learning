@@ -14,11 +14,11 @@ seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
 lrs=(0.001)
 dibs_lrs=(0.005)
 
-exp_edges=(2.0)
-num_updates=(2000)
-num_nodes=4
-num_samples=(200)
-num_obs_data=100
+exp_edges=(1.0)
+num_updates=(4000)
+num_nodes=20
+num_samples=(500)
+num_obs_data=300
 across_interv='True'
 grad_estimator='reparam'
 

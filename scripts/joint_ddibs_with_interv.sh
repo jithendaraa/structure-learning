@@ -17,12 +17,12 @@ dibs_lrs=(0.005)
 num_updates=(1000)
 steps=(10000)
 
-num_samples=(400)
-num_obs_data=200
-num_nodes=4
+num_samples=(500)
+num_obs_data=300
+num_nodes=5
 proj_dims=10
 across_interv='True'
-datagen='nonlinear'
+datagen='linear'
 
 algo='def'
 n_particles=20

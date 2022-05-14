@@ -70,4 +70,9 @@ elif [ ${exp_id} == '11s' ]
 then
     bash script_runners/linear_decoder_bcd_job_run.sh ${dataset} ${train} 'Decoder_BCD' ${time}
 
+# ! linear decoder BCD across interv- Search over hyperparams
+elif [ ${exp_id} == '12s' ]   
+then
+    bash script_runners/linear_decoder_bcd_across_interv_job_run.sh ${dataset} ${train} 'Decoder_BCD' ${time}
+
 fi
