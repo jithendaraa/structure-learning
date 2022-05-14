@@ -45,3 +45,32 @@ def calc_loss(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus,
         mse_loss, kl_z_loss, loss = get_mse_and_kls(recons, x, p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt)
     z_dist += mse_over_recons(pred_zs, z_gt)
     return loss, mse_loss, kl_z_loss, z_dist
+
+
+def log_prob_X(Xs, log_sigmas, P, L, decoder_matrix, proj_matrix, fix_decoder=False, cov_space=False, s_prior_std=3.0):
+    proj_dims = proj_matrix.shape[1]
+
+    n, dim = Xs.shape
+    Sigma = jnp.diag(jnp.array([jnp.exp(log_sigmas) ** 2] * dim))
+
+    W = (P @ L @ P.T).T
+
+    if fix_decoder: d_cross = jnp.linalg.pinv(proj_matrix)
+    else:   d_cross = jnp.linalg.pinv(decoder_matrix)
+
+    cov_z = jnp.linalg.inv(jnp.eye(dim) - W).T @ Sigma @ jnp.linalg.inv(jnp.eye(dim) - W)
+    prec_z = jnp.linalg.inv(cov_z)
+    cov_x = decoder_matrix.T @ cov_z @ decoder_matrix
+
+    if cov_space is True:       precision_x = jnp.linalg.inv(cov_x)
+    else:                       precision_x = d_cross @ prec_z @ d_cross.T
+
+    log_det_precision = jnp.log(jnp.linalg.det(precision_x))
+    def datapoint_exponent(x_): return -0.5 * x_.T @ precision_x @ x_
+    log_exponent = vmap(datapoint_exponent)(Xs)
+
+    return (0.5 * (log_det_precision - proj_dims * jnp.log(2 * jnp.pi)) + jnp.sum(log_exponent) / n)
+
+
+
+

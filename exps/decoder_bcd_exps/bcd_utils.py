@@ -1,10 +1,16 @@
+import sys, optax
+sys.path.append("../../models")
+sys.path.append("../../modules")
+from models.Decoder_BCD import Decoder_BCD
+from tensorflow_probability.substrates.jax.distributions import Horseshoe
+
 from typing import Union, Callable, cast, Any, Tuple
 import jax.numpy as jnp
 import haiku as hk
 import jax, pdb, time, cdt, optax
 import jax.random as rnd
 import numpy as np
-from jax import vmap, jit, vjp, ops, grad
+from jax import vmap, jit, vjp, ops, grad, lax, config, value_and_grad
 from sklearn.metrics import roc_curve, auc
 
 # cdt.SETTINGS.rpath = "/path/to/Rscript/binary""
@@ -17,10 +23,10 @@ from divergences import *
 import haiku as hk
 from jax.flatten_util import ravel_pytree
 from jax import tree_util
-from jax.tree_util import tree_map
+from jax.tree_util import tree_map, tree_multimap
 from haiku._src import data_structures
-
-
+from loss_fns import log_prob_X
+from functools import partial
 
 Tensor = Any
 PRNGKey = Any
@@ -478,13 +484,47 @@ def npperm(M):
         j = f[0]
     return p / 2 ** (n - 1)
 
-def get_joint_dist_params(node_mus, node_vars, theta, P):
+
+def get_joint_dist_params(sigma, W):
+    """
+        Gets the joint distribution for some SCM that performs: 
+        z = W.T @ z + eps where eps ~ Normal(0, sigma**2*I)
+    """
+    dim, _ = W.shape
+    Sigma = sigma**2 * jnp.eye(dim)
+    inv_matrix = jnp.linalg.inv((jnp.eye(dim) - W))
+    
+    mu_joint = jnp.array([0.] * dim)
+    Sigma_joint = inv_matrix.T @ Sigma @ inv_matrix
+    
+    return mu_joint, Sigma_joint
+
+def get_interv_joint_dist_params(sigma, W):
+    """
+        Give the joint interventional distribution for every single node intervention
+    """
+    interv_mu_joints, interv_Sigma_joints = None, None
+    dim, _ = W.shape
+
+    for interv_idx in range(dim):
+        W_tilde = W.at[:, interv_idx].set(0.)
+        interv_mu_joint, interv_Sigma_joint = get_joint_dist_params(sigma, W_tilde)
+        
+        if interv_mu_joints is None or interv_Sigma_joints is None:
+            interv_mu_joints, interv_Sigma_joints = interv_mu_joint[jnp.newaxis, :], interv_Sigma_joint[jnp.newaxis, :]
+        else:
+            interv_mu_joints = jnp.concatenate((interv_mu_joints, interv_mu_joint[jnp.newaxis, :]), axis=0)
+            interv_Sigma_joints = jnp.concatenate((interv_Sigma_joints, interv_Sigma_joint[jnp.newaxis, :]), axis=0)
+
+    return interv_mu_joints, interv_Sigma_joints
+
+def get_cond_dist_params(node_mus, node_vars, W, P):
     """
         Get variances on each causal variable for a given theta in a linear gaussian additive noise model, 
         given noise variances.
         
         node_vars: noise variances on each node
-        theta: weighted adj matrix, jnp.array
+        W: weighted adj matrix, jnp.array
         P: permutation matrix
     """
     dim = node_vars.shape[0]
@@ -493,12 +533,121 @@ def get_joint_dist_params(node_mus, node_vars, theta, P):
 
     # Only for linear gaussian setting
     for j in swapped_ordering:
-        node_vars = node_vars.at[j].set( node_vars[j] + jnp.dot( theta[:, j]**2, node_vars) )
-        node_mus = node_mus.at[j].set( node_mus[j] + jnp.dot( theta[:, j], node_mus) )
+        node_mus = node_mus.at[j].set( node_mus[j] + jnp.dot( W[:, j], node_mus) )
+        node_vars = node_vars.at[j].set( node_vars[j] + jnp.dot( W[:, j]**2, node_vars) )
 
     node_covars = jnp.diag(node_vars)
     return node_mus, node_covars
 
+def get_W_tilde(W, idx):
+    W.at[:, idx].set(0.)
+    return W
+
+def get_interv_dists_for_interv(node_mu, node_vars, batch_W, batch_P, interv_idx):
+    idx = jnp.where(interv_idx, size=1)
+    batch_W_tilde = vmap(get_W_tilde, (0, None), (0))(batch_W, idx)
+    batch_qz_mu_interv, batch_qz_covar_interv = vmap(get_cond_dist_params, (None, 0, 0, 0), (0, 0))(node_mu, node_vars, batch_W_tilde, batch_P)
+    return batch_qz_mu_interv, batch_qz_covar_interv, batch_W_tilde
+
+def get_posterior_interv_dists(node_mus, node_vars, batch_W, batch_P, interv_idxs):
+    batch_qz_mu_intervs, batch_qz_covar_intervs, batch_W_tildes = vmap(get_interv_dists_for_interv, (None, None, None, None, 0), (0, 0, 0))(node_mus, node_vars, batch_W, batch_P, interv_idxs)
+    return batch_qz_mu_intervs, batch_qz_covar_intervs
+
+def get_prior_interv_dists(node_mus, node_vars, W, P, opt):
+    pz_mu_intervs, pz_covar_intervs = None, None
+
+    for i in range(opt.num_nodes):
+        interv = onp.array([False] * opt.num_nodes)
+        interv[i] = True
+        w_tilde = onp.array(W, copy=True)
+        w_tilde[:, i] = 0.0
+
+        pz_mu_interv, pz_covar_interv = get_cond_dist_params(node_mus, node_vars, w_tilde, P)
+
+        if pz_mu_intervs is None:
+            pz_mu_intervs, pz_covar_intervs = pz_mu_interv[jnp.newaxis, :], pz_covar_interv[jnp.newaxis, :]
+        else:
+            pz_mu_intervs = jnp.concatenate((pz_mu_intervs, pz_mu_interv[jnp.newaxis, :]), axis=0)
+            pz_covar_intervs = jnp.concatenate((pz_covar_intervs, pz_covar_interv[jnp.newaxis, :]), axis=0)
+
+    return pz_mu_intervs, pz_covar_intervs
+
+def forward_fn(hard, rng_keys, interv_targets, init, opt, horseshoe_tau, proj_matrix,
+                ground_truth_L, P_params=None, L_params=None, log_stds_max=10.0):
+    dim = opt.num_nodes
+    l_dim = dim * (dim - 1) // 2
+    do_ev_noise = opt.do_ev_noise
+    if do_ev_noise: noise_dim = 1
+    else:           noise_dim = dim
+
+    model = Decoder_BCD(dim, l_dim, noise_dim, opt.batch_size, opt.hidden_size, opt.max_deviation, do_ev_noise, 
+            opt.proj_dims, log_stds_max, opt.logit_constraint, opt.fixed_tau, opt.subsample, opt.s_prior_std, 
+            horseshoe_tau=horseshoe_tau, learn_noise=opt.learn_noise, noise_sigma=opt.noise_sigma, 
+            P=proj_matrix, L=jnp.array(ground_truth_L), decoder_layers=opt.decoder_layers, 
+            learn_L=opt.learn_L, pred_last_L=opt.pred_last_L)
+
+    return model(hard, rng_keys, interv_targets, init, P_params, L_params)
+
+def init_parallel_params(rng_key, key, opt, num_devices, no_interv_targets, 
+                        horseshoe_tau, proj_matrix, L):
+    dim = opt.num_nodes
+    l_dim = dim * (dim - 1) // 2
+    forward = hk.transform(forward_fn)
+
+    P_layers = [optax.scale_by_belief(eps=1e-8), optax.scale(-opt.lr)]
+    L_layers = [optax.scale_by_belief(eps=1e-8), optax.scale(-opt.lr)]
+    opt_P = optax.chain(*P_layers)
+    opt_L = optax.chain(*L_layers)
+    
+    # @pmap
+    def init_params(rng_key: PRNGKey):
+        # * mus and stds (indicated by -1) of L
+        L_params = jnp.concatenate((jnp.zeros(l_dim), jnp.zeros(l_dim) - 1, ))
+        P_params = forward.init(next(key), False, rng_key, jnp.array(no_interv_targets), True, opt,
+                        horseshoe_tau, proj_matrix, L)
+        if opt.factorized:  raise NotImplementedError
+        P_opt_params = opt_P.init(P_params)
+        L_opt_params = opt_L.init(L_params)
+        return P_params, L_params, P_opt_params, L_opt_params
+
+    rng_keys = jnp.tile(rng_key[None, :], (num_devices, 1))
+    P_params, L_params, P_opt_params, L_opt_params = init_params(rng_keys)
+    
+    rng_keys = rnd.split(rng_key, num_devices)
+    print(f"L model has {ff2(num_params(L_params))} parameters")
+    print(f"P model has {ff2(num_params(P_params))} parameters")
+
+    return (P_params, L_params, P_opt_params, L_opt_params, rng_keys, forward, opt_P, opt_L)
+
+def get_lower_elems(L, dim, k=-1):
+    return L[jnp.tril_indices(dim, k=k)]
 
 
 
+# @partial
+# def gradient_step(P_params, L_params, rng_keys, rng_key, x, z_gt, interv_nodes, 
+#                 horseshoe_tau, opt, proj_matrix, forward, gt_L, noise_dim, dim):
+
+#     hard = True
+#     num_outer = 1
+#     l_dim = dim * (dim - 1) // 2
+#     gt_L_elems = get_lower_elems(gt_L, dim)
+
+#     if opt.tau_scaling is True: raise NotImplementedError("tau_scaling True is not implemented")
+
+    
+
+    
+    
+
+
+#     (loss, rng_key, elbo_grad_P, elbo_grad_L, mse_dict, batch_W) = take_step(P_params, L_params, rng_key)
+
+#     # p_grad_norm = 0.
+#     # for p in jax.tree_leaves(elbo_grad_P):
+#     #     for val in p: 
+#     #         p_grad_norm += (jnp.linalg.norm(val, ord='fro') ** 2)
+
+#     # l_grad_norm = jnp.sum(elbo_grad_L ** 2)
+    
+#     return (loss, rng_key, elbo_grad_P, elbo_grad_L, mse_dict, batch_W)

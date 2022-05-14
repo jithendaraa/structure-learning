@@ -8,7 +8,7 @@ from jax import numpy as jnp
 import torch, pdb
 from random import sample
 from jax import random
-
+from typing import Optional, Tuple, Union, cast
 
 
 def single_node_interv_data(opt, n_interv_sets, no_interv_targets, target, model='dibs', interv_value=0.0):
@@ -28,7 +28,6 @@ def single_node_interv_data(opt, n_interv_sets, no_interv_targets, target, model
         assert num_interv_data <= len(target.x_interv[0][1])
 
     for i in range(n_interv_sets):
-        interv_targets = []
         idx_i = np.random.randint(0, opt.num_nodes)
         
         no_interv_targets[opt.obs_data + i * interv_data_pts_per_set : opt.obs_data + (i+1) * interv_data_pts_per_set, idx_i] = True
@@ -39,8 +38,7 @@ def single_node_interv_data(opt, n_interv_sets, no_interv_targets, target, model
         
         elif model in ['bcd']:
             interv_data = jnp.array(target.intervene_sem(target.W, interv_data_pts_per_set, opt.sem_type,
-                                sigmas=[opt.noise_sigma], idx_to_fix=idx_i,
-                                value_to_fix=interv_value))
+                                sigmas=[opt.noise_sigma], idx_to_fix=idx_i, value_to_fix=interv_value))
             data_.append(interv_data)
 
     return data_, no_interv_targets
@@ -81,14 +79,17 @@ def generate_interv_data(opt, n_interv_sets, target, model='dibs'):
         if opt.interv_type == 'single':
             data_, no_interv_targets = single_node_interv_data(opt, n_interv_sets, no_interv_targets, target, model)
         elif opt.interv_type == 'multi':
+            raise NotImplementedError("Doesnt work")
             data_, no_interv_targets = multi_node_interv_data(opt, n_interv_sets, no_interv_targets, target)
         
     data_, no_interv_targets = jnp.array(data_).reshape(num_interv_data, opt.num_nodes), jnp.array(no_interv_targets)
     return data_, no_interv_targets
 
 def get_data(opt, n_intervention_sets, target, data_=None, model='dibs'):
-
-    if data_ is None:   obs_data = jnp.array(target.x)[:opt.obs_data]
+    if model == 'bcd':
+        obs_data = target.simulate_sem(target.W, opt.obs_data, target.sem_type, noise_scale=opt.noise_sigma, dataset_type="linear")
+        obs_data = cast(jnp.ndarray, obs_data)
+    elif data_ is None:   obs_data = jnp.array(target.x)[:opt.obs_data]
     else:   obs_data = jnp.array(data_)[:opt.obs_data]
 
     num_interv_data = opt.num_samples - opt.obs_data
@@ -102,9 +103,8 @@ def get_data(opt, n_intervention_sets, target, data_=None, model='dibs'):
         no_interv_targets = jnp.zeros((opt.num_samples, opt.num_nodes)).astype(bool)
 
     if opt.proj == 'linear': 
-        projection_matrix = torch.rand(opt.num_nodes, opt.proj_dims)
-        P = projection_matrix.numpy()
-        true_decoder = P
+        # P = torch.rand(opt.num_nodes, opt.proj_dims).numpy()
+        P = np.eye(opt.num_nodes)
         projected_samples = x @ P
         print(f'Data matrix after linear projection from {opt.num_nodes} dims to {opt.proj_dims} dims: {projected_samples.shape}')  
         sample_mean = np.mean(obs_data, axis=0)
@@ -117,7 +117,6 @@ def gen_data_from_dist(rng, q_z_mu, q_z_covar, num_samples, interv_targets, clam
     q_z_mu = jnp.expand_dims(q_z_mu, 0).repeat(num_samples, axis=0)
     q_z_covar = jnp.expand_dims(q_z_covar, 0).repeat(num_samples, axis=0)
     data = random.multivariate_normal(rng, q_z_mu, q_z_covar)
-    if clamp is True:
-        data = jnp.where(interv_targets, 0.0, data)
+    if clamp is True:   data = jnp.where(interv_targets, 0.0, data)
     return data
 
