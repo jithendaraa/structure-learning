@@ -26,7 +26,7 @@ class Decoder_BCD(hk.Module):
     def __init__(self, dim, l_dim, noise_dim, batch_size, hidden_size, max_deviation, 
                 do_ev_noise, proj_dims, log_stds_max=10.0, logit_constraint=10, tau=None, subsample=False, 
                 s_prior_std=3.0, num_bethe_iters=20, horseshoe_tau=None, learn_noise=False, noise_sigma=0.1,
-                P=None, L=None, decoder_layers='linear', learn_L=True, z_gt=None):
+                P=None, L=None, decoder_layers='linear', learn_L=True, pred_last_L = 1):
         super().__init__()
 
         self.dim = dim
@@ -46,7 +46,7 @@ class Decoder_BCD(hk.Module):
         self.learn_L = learn_L
         self.P = P
         self.L = L
-        self.z_gt = z_gt
+        self.num_elems = pred_last_L
 
         if self.do_ev_noise:
             self.noise_sigma = jnp.array([[noise_sigma]] * self.batch_size)
@@ -83,11 +83,14 @@ class Decoder_BCD(hk.Module):
         return data @ self.P
 
     def sample_W(self, L, P):
-        return (P @ L @ P.T).T
+        W = (P @ L @ P.T).T
+        return W
 
     def lower(self, theta: Tensor, dim: int) -> Tensor:
-        """Given n(n-1)/2 parameters theta, form a
-        strictly lower-triangular matrix"""
+        """
+            Given n(n-1)/2 parameters theta, form a
+            strictly lower-triangular matrix
+        """
         out = jnp.zeros((self.dim, self.dim))
         out = ops.index_update(out, jnp.tril_indices(self.dim, -1), theta)
         return out
@@ -115,7 +118,6 @@ class Decoder_BCD(hk.Module):
         ordering = jnp.arange(0, self.dim)
 
         theta = weighted_adj_mat
-        adj_mat = jnp.where(weighted_adj_mat != 0, 1.0, 0.0)
         swapped_ordering = ordering[jnp.where(perm_mat, size=self.dim)[1].argsort()]
         noise_terms = jnp.multiply(eps, random.normal(rng_key, shape=(self.dim,)))
 
@@ -189,7 +191,7 @@ class Decoder_BCD(hk.Module):
         else:   raise NotImplementedError
         
         # ? log likelihood for q_ϕ(L)
-        full_l_batch = full_l_batch.at[:, :-1].set(gt_means[:, :-1])
+        full_l_batch = full_l_batch.at[:, :-self.num_elems].set(gt_means[:, :-self.num_elems])
         full_log_prob_l = jnp.sum(l_distribution.log_prob(full_l_batch), axis=1)  
         full_log_prob_l = cast(jnp.ndarray, full_log_prob_l)
 
@@ -237,7 +239,7 @@ class Decoder_BCD(hk.Module):
         # else:   batched_P = self.ds.sample_soft_batched_logits(batched_P_logits, self.tau, rng_key)
 
         batched_W = vmap(self.sample_W, (0, 0), (0))(batched_L, batched_P)
-        batched_adj_mats = jnp.where(batched_W != 0, 1.0, 0.0)
+        
         rng_keys = rnd.split(rng_key, self.batch_size)
         batched_qz_samples = vmap(self.ancestral_sample, (0, 0, 0, 0, None, None), (0))(batched_W, batched_P, jnp.exp(batched_log_noises), rng_keys, interv_targets, 0.0)
 

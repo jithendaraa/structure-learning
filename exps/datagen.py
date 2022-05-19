@@ -103,14 +103,22 @@ def get_data(opt, n_intervention_sets, target, data_=None, model='dibs'):
         no_interv_targets = jnp.zeros((opt.num_samples, opt.num_nodes)).astype(bool)
 
     if opt.proj == 'linear': 
-        # P = torch.rand(opt.num_nodes, opt.proj_dims).numpy()
+        # P = jnp.array(10 * np.random.rand(opt.num_nodes, opt.proj_dims)) 
         P = np.eye(opt.num_nodes)
         projected_samples = x @ P
         print(f'Data matrix after linear projection from {opt.num_nodes} dims to {opt.proj_dims} dims: {projected_samples.shape}')  
-        sample_mean = np.mean(obs_data, axis=0)
-        sample_covariance = jnp.array(torch.cov(torch.transpose(torch.tensor(np.array(obs_data)), 0, 1)))
+        
+        z_mean = jnp.mean(obs_data, axis=0)
+        z_cov = jnp.cov(obs_data.T)
+        print(f"Z Mean: {z_mean}")
+        print(f"Det. Z Covariance: {jnp.linalg.det(z_cov)}")
 
-    return obs_data, interv_data, x, no_interv_targets, projected_samples, sample_mean, sample_covariance, jnp.array(P)
+        x_mean = jnp.mean(projected_samples, axis=0)
+        x_cov = jnp.cov(projected_samples.T)
+        print(f"X Mean: {x_mean}")
+        print(f"Det. X Covariance: {jnp.linalg.det(x_cov)}")
+
+    return obs_data, interv_data, x, no_interv_targets, projected_samples, z_mean, z_cov, P
 
 
 def gen_data_from_dist(rng, q_z_mu, q_z_covar, num_samples, interv_targets, clamp=True):

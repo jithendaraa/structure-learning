@@ -158,7 +158,6 @@ print()
 
 @jit
 def hard_elbo(P_params, L_params, rng_key, interv_nodes, x_data):
-        
     l_prior = Horseshoe(scale=jnp.ones(l_dim + noise_dim) * horseshoe_tau)  # * Horseshoe prior over lower triangular matrix L
     rng_key = rnd.split(rng_key, num_outer)[0]
 
@@ -184,8 +183,7 @@ def hard_elbo(P_params, L_params, rng_key, interv_nodes, x_data):
         if opt.train_loss == "mse":     # ! MSE Loss
             likelihoods = -jit(vmap(get_mse, (None, 0), 0))(x_data, X_recons)
         
-        
-        elif opt.train_loss == "LL":    # ! -NLL loss
+        elif opt.train_loss == "LL":    # ! -LL loss
             vectorized_log_prob_X = vmap(log_prob_X, in_axes=(None, 0, 0, 0, None, None, None, None, None))
             likelihoods = vectorized_log_prob_X(x, batch_log_noises, batch_P, batch_L, decoder_params, 
                                                 proj_matrix, opt.fix_decoder, opt.cov_space, opt.s_prior_std)
@@ -256,24 +254,23 @@ def gradient_step(P_params, L_params, rng_key, interv_nodes, z_gt_data, x_data):
 
     L_elems = vmap(get_lower_elems, (0, None), 0)(batch_L, dim)
 
+    batch_get_obs_joint_dist_params = vmap(get_joint_dist_params, (0, 0), (0, 0))
+    batch_q_z_obs_joint_mus, batch_q_z_obs_joint_covars = batch_get_obs_joint_dist_params(jnp.exp(batch_log_noises), batch_W)
+    obs_KL_term_Z = vmap(get_single_kl, (None, None, 0, 0, None), (0))(p_z_obs_joint_covar, 
+                                                                        p_z_obs_joint_mu, 
+                                                                        batch_q_z_obs_joint_covars, 
+                                                                        batch_q_z_obs_joint_mus, 
+                                                                        opt) 
+
     mse_dict = {
         "L_mse": jnp.mean(vmap(get_mse, (None, 0), 0)(gt_L_elems, L_elems)),
         "z_mse": jnp.mean(vmap(get_mse, (None, 0), 0)(z_gt_data, z_samples)),
         "x_mse": jnp.mean(vmap(get_mse, (None, 0), 0)(x_data, X_recons)),
         "L_elems": jnp.mean(L_elems[:, -1]),
+        "obs_KL_term_Z": jnp.mean(obs_KL_term_Z)
     }
 
-    if opt.obs_Z_KL is True:
-        batch_get_obs_joint_dist_params = vmap(get_joint_dist_params, (0, 0), (0, 0))
-        batch_q_z_obs_joint_mus, batch_q_z_obs_joint_covars = batch_get_obs_joint_dist_params(jnp.exp(batch_log_noises), batch_W)
-        obs_KL_term_Z = vmap(get_single_kl, (None, None, 0, 0, None), (0))(p_z_obs_joint_covar, 
-                                                                            p_z_obs_joint_mu, 
-                                                                            batch_q_z_obs_joint_covars, 
-                                                                            batch_q_z_obs_joint_mus, 
-                                                                            opt) 
-        mse_dict['obs_KL_term_Z'] = obs_KL_term_Z
-
-    if opt.interv_Z_KL is True:
+    if opt.interv_Z_KL is True and opt.Z_KL == 'joint':
         batch_get_interv_joint_dist_params = vmap(get_interv_joint_dist_params, (0, 0), (0, 0))
         batch_q_z_interv_joint_mus, batch_q_z_interv_joint_covars = batch_get_interv_joint_dist_params(jnp.exp(batch_log_noises), batch_W)
         kl_across_interv = vmap(get_single_kl, (0, 0, 0, 0, None), (0))
@@ -285,8 +282,8 @@ def gradient_step(P_params, L_params, rng_key, interv_nodes, z_gt_data, x_data):
                                                     opt)
 
         mse_dict['interv_KL_term_Z'] = interv_KL_term_Z
-
-    return (loss, rng_key, elbo_grad_P, elbo_grad_L, mse_dict, batch_W)
+    
+    return (loss, rng_key, elbo_grad_P, elbo_grad_L, mse_dict, batch_W, z_samples)
 
 
 assert opt.num_samples > opt.obs_data
@@ -296,7 +293,7 @@ for i in range(n_interv_sets + 1):
     x_data = x[ : opt.obs_data + int(i * interv_data_per_set) ]
     z_gt_data = z_gt[ : opt.obs_data + int(i * interv_data_per_set) ]
     interv_targets_ = interv_nodes[ : opt.obs_data + int(i * interv_data_per_set) ]
-    
+
     ( P_params, L_params, 
     P_opt_params, L_opt_params, 
     rng_keys, forward,
@@ -305,16 +302,14 @@ for i in range(n_interv_sets + 1):
 
     for step in tqdm(range(opt.num_steps)):
         (loss, rng_key, elbo_grad_P, 
-        elbo_grad_L, mse_dict, batch_W) = gradient_step(P_params, L_params, rng_key, interv_targets_, z_gt_data, x_data)
+        elbo_grad_L, mse_dict, batch_W, z_samples) = gradient_step(P_params, L_params, rng_key, interv_targets_, z_gt_data, x_data)
 
-        # * Update P network
+        # * Update P and decoder
         P_updates, P_opt_params = opt_P.update(elbo_grad_P, P_opt_params, P_params)
         P_params = optax.apply_updates(P_params, P_updates)
-
         # * Update L network
         L_updates, L_opt_params = opt_L.update(elbo_grad_L, L_opt_params, L_params)
         L_params = optax.apply_updates(L_params, L_updates)
-
         if jnp.any(jnp.isnan(ravel_pytree(L_params)[0])):   raise Exception("Got NaNs in L params")
 
     print(f"Trained on {opt.obs_data} observational data and {int(i * interv_data_per_set)} interventional data")
@@ -329,15 +324,14 @@ for i in range(n_interv_sets + 1):
         "X_MSE": onp.array(mse_dict["x_mse"]),
         "L_MSE": onp.array(mse_dict["L_mse"]),
         "L_elems_avg": onp.array(mse_dict["L_elems"]),
+        "obs_KL_term_Z": onp.array(mse_dict["obs_KL_term_Z"]),
         "Evaluations/SHD": mean_dict["shd"],
         "Evaluations/SHD_C": mean_dict["shd_c"],
         "Evaluations/AUROC": mean_dict["auroc"],
         "train sample KL": mean_dict["sample_kl"],
     }
 
-    if opt.obs_Z_KL is True and opt.Z_KL == 'joint':    wandb_dict['obs_KL_term_Z'] = onp.array(mse_dict['obs_KL_term_Z'])
     if opt.interv_Z_KL is True and opt.Z_KL == 'joint':    wandb_dict['interv_KL_term_Z'] = onp.array(mse_dict['interv_KL_term_Z'])
-
     x_axis = int(i * interv_data_per_set)
     print_metrics(x_axis, loss, mse_dict, mean_dict, opt)
 
@@ -346,7 +340,6 @@ for i in range(n_interv_sets + 1):
         plt.savefig(join(logdir, 'pred_w.png'))
         wandb_dict["graph_structure(GT-pred)/Predicted W"] = wandb.Image(join(logdir, 'pred_w.png'))
         wandb.log(wandb_dict, step=x_axis)
-
 
 
 

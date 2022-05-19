@@ -116,6 +116,8 @@ defaults:
   s_prior_std: 3.0
   num_outer: 1
   eval_eid: False
+  pred_last_L: 1
+
 
 # ? DIBS
 linear_dibs:
@@ -125,15 +127,15 @@ linear_dibs:
   datagen: 'linear'
   model: 'DIBS'
   data_seed: 2
-  num_nodes: 4
+  num_nodes: 5
   num_updates: 1000
-  num_samples: 200
-  obs_data: 100
+  num_samples: 500
+  obs_data: 300
   across_interv: True
   interv_type: 'single'  # ['single', 'multi']
   exp_edges: 0.5
   grad_estimator: 'reparam'
-  off_wandb: True
+  off_wandb: False
 
 nonlinear_dibs:
   exp_name: 'nonlinear_joint_dibs'
@@ -161,16 +163,16 @@ linear_decoder_dibs:
   datagen: 'linear'
   model: 'Decoder_JointDiBS'
   linear_decoder: False
-  num_nodes: 4
+  num_nodes: 5
   proj_dims: 10
   exp_edges: 0.5
   lr: 8e-4
 
-  steps: 11000
-  num_updates: 1000
-  data_seed: 1
-  num_samples: 300
-  obs_data: 100
+  steps: 14000
+  num_updates: 4000
+  data_seed: 12
+  num_samples: 500
+  obs_data: 300
   off_wandb: True
   clamp: False 
   reinit: False # reinit target and model every iter
@@ -237,7 +239,7 @@ linear_bcd:
 
 
 linear_decoder_bcd:
-  exp_name: 'linear_decoder_bcd'
+  exp_name: 'linear_decoder_bcd_across_intervs'
   ckpt_id: 'linear_decoder_bcd'
   model: 'Decoder_BCD'
   num_nodes: 6
@@ -245,34 +247,41 @@ linear_decoder_bcd:
   exp_edges: 1.0
   likelihood: 'linear'
   sem_type: 'linear-gauss'
-  lr: 1e-3
-  data_seed: 0
-  num_steps: 20000
-  num_samples: 300
-  obs_data: 300
+  lr: 2e-3
+  data_seed: 2
+  num_steps: 5000
   off_wandb: False
+  num_samples: 3600
+  obs_data: 300
+  interv_type: 'single'
   
   train_loss: 'mse'
-  decoder_layers: 'nonlinear'
+  decoder_layers: 'linear'
   learn_noise: False
   
-  learn_L: 'partial'
+  learn_L: True    # 'partial'
+  obs_Z_KL: False
+  interv_Z_KL: False
+  Z_KL: 'joint' # 'joint' or 'conditional'
+  pred_last_L: 1
+
   learn_P: False
   L_KL: False
   P_KL: False
-  Z_KL: False
-
   l2_reg: False
   tau_scaling: False
   cov_space: False
   fix_decoder: False
+  kl_nodes: 1
+  across_interv: True
+  reg_decoder: False
 
 decoder:
   exp_name: 'only_decoder'
   ckpt_id: 'only_decoder'
   model: 'Decoder_BCD'
   num_nodes: 6
-  proj_dims: 6
+  proj_dims: 10
   exp_edges: 1.0
   likelihood: 'linear'
   sem_type: 'linear-gauss'
@@ -282,14 +291,16 @@ decoder:
   off_wandb: True
   num_samples: 200
   obs_data: 200
-  train_loss: 'mse'
+  train_loss: 'LL'
   decoder_layers: 'linear'
   learn_noise: False
-  learn_L: True
+  learn_L: False
   l2_reg: False
   z_sample: 'sample'
-  L_KL: True
+  L_KL: False
   P_KL: False
+  interv_Z_KL: False
+  Z_KL: False
 
 
 # ? 9. Decoder_DIBS

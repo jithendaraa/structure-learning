@@ -18,6 +18,10 @@ class SyntheticDataset(object):
 
     def __init__(self, n, d, graph_type, degree, sem_type, noise_scale=1.0, 
         dataset_type="linear", quadratic_scale=None, data_seed=0):
+
+        """
+            [TODO]
+        """
         
         self.n = n
         self.d = d
