@@ -71,7 +71,7 @@ degree = opt.exp_edges
 do_ev_noise = opt.do_ev_noise
 num_outer = opt.num_outer
 s_prior_std = opt.s_prior_std
-n_interv_sets = 10
+n_interv_sets = 20
 calc_shd_c = False
 sem_type = opt.sem_type
 eval_eid = opt.eval_eid
@@ -107,22 +107,34 @@ ground_truth_sigmas = opt.noise_sigma * jnp.ones(opt.num_nodes)
 print(ground_truth_W)
 print()
 
-
 # ! [TODO] Supports only single interventions currently; will not work for more than 1-node intervs
 (obs_data, interv_data, z_gt, no_interv_targets, x, 
-sample_mean, sample_covariance, proj_matrix) = datagen.get_data(opt, n_interv_sets, sd, model="bcd")
+sample_mean, sample_covariance, proj_matrix) = datagen.get_data(opt, n_interv_sets, sd, model="bcd", interv_value=opt.interv_value)
+
+
+W_proxy = rnd.multivariate_normal(rng_key, mean=sd.W.flatten(), cov=opt.edge_noise * jnp.eye(dim*dim), shape=(1, ))[0].reshape(dim, dim)
+
+if opt.fix_edges is True:
+    binary_mask_no_edges = jnp.where(sd.W, 1.0, 0.0)
+    W_proxy = jnp.multiply(W_proxy, binary_mask_no_edges)
 
 node_mus = jnp.ones((dim)) * opt.noise_mu
 node_vars = jnp.ones((dim)) * (opt.noise_sigma**2)
 interv_types = onp.eye(dim, dtype=onp.bool)
 
-# ! Get conditional observational and interventional distributions
+# ! Get conditional observational and interventional distributions  
 p_z_mu, p_z_covar = get_cond_dist_params(node_mus, node_vars, sd.W, sd.P)
 pz_mu_intervs, pz_covar_intervs = get_prior_interv_dists(node_mus, node_vars, sd.W, sd.P, opt)
 
 # ! Get GT observational and interventional joint distributions
+if opt.use_proxy is True:
+    print(f'W_proxy: {W_proxy}')
+    proxy_p_z_obs_joint_mu, proxy_p_z_obs_joint_covar = get_joint_dist_params(opt.noise_sigma, W_proxy)
+    proxy_p_z_interv_joint_mus, proxy_p_z_interv_joint_covars = get_interv_joint_dist_params(opt.noise_sigma, W_proxy)
+
 p_z_obs_joint_mu, p_z_obs_joint_covar = get_joint_dist_params(opt.noise_sigma, jnp.array(sd.W))
 p_z_interv_joint_mus, p_z_interv_joint_covars = get_interv_joint_dist_params(opt.noise_sigma, jnp.array(sd.W))
+
 
 # ? Set parameter for Horseshoe prior on L
 horseshoe_tau = (1 / onp.sqrt(n_data)) * (2 * degree / ((dim - 1) - 2 * degree))
@@ -135,7 +147,9 @@ log_gt_graph(ground_truth_W, logdir, exp_config, opt, writer)
 hard = True
 max_cols = jnp.max(no_interv_targets.sum(1))
 data_idx_array = jnp.array([jnp.arange(opt.num_nodes + 1)] * opt.num_samples)
-interv_nodes = jnp.split(data_idx_array[no_interv_targets], no_interv_targets.sum(1).cumsum()[:-1])
+
+interv_nodes = onp.split(data_idx_array[no_interv_targets], no_interv_targets.sum(1).cumsum()[:-1])
+
 interv_nodes = jnp.array([jnp.concatenate((interv_nodes[i], jnp.array([opt.num_nodes] * (max_cols - len(interv_nodes[i])))))
         for i in range(opt.num_samples)]).astype(int)
 
@@ -148,6 +162,15 @@ print()
 
 def matmul(m1, m2):
     return m1 @ m2
+
+def lower(theta):
+    """
+        Given n(n-1)/2 parameters theta, form a
+        strictly lower-triangular matrix
+    """
+    out = jnp.zeros((dim, dim))
+    out = ops.index_update(out, jnp.tril_indices(dim, -1), theta)
+    return out.T
 
 # @jit
 def hard_elbo(P_params, L_params, rng_key, interv_nodes, x_data):
@@ -170,7 +193,7 @@ def hard_elbo(P_params, L_params, rng_key, interv_nodes, x_data):
             full_log_prob_l,
             X_recons, 
         ) = forward.apply(P_params, rng_key, hard, rng_key, interv_nodes, False, opt,
-                        horseshoe_tau, proj_matrix, ground_truth_L, P_params, L_params)
+                        horseshoe_tau, proj_matrix, ground_truth_L, P_params, L_params, opt.interv_value)
 
         if opt.train_loss == "mse":     # ! MSE Loss
             likelihoods = -jit(vmap(get_mse, (None, 0), 0))(x_data, X_recons)
@@ -195,14 +218,19 @@ def hard_elbo(P_params, L_params, rng_key, interv_nodes, x_data):
             KL_term_L = full_log_prob_l - l_prior_probs
             final_term -= KL_term_L
 
-        if opt.obs_Z_KL is True and opt.Z_KL == 'joint':
+        if (opt.obs_Z_KL is True or opt.use_proxy is True) and opt.Z_KL == 'joint':
             batch_get_obs_joint_dist_params = vmap(get_joint_dist_params, (0, 0), (0, 0))
             batch_q_z_obs_joint_mus, batch_q_z_obs_joint_covars = batch_get_obs_joint_dist_params(jnp.exp(batch_log_noises), batch_W)
-            obs_KL_term_Z = vmap(get_single_kl, (None, None, 0, 0, None), (0))(p_z_obs_joint_covar, 
-                                                                                p_z_obs_joint_mu, 
-                                                                                batch_q_z_obs_joint_covars, 
-                                                                                batch_q_z_obs_joint_mus, 
-                                                                                opt) 
+            vmapped_kl = vmap(get_single_kl, (None, None, 0, 0, None), (0))
+
+            if opt.use_proxy is True:
+                obs_KL_term_Z = vmapped_kl(proxy_p_z_obs_joint_covar, proxy_p_z_obs_joint_mu, 
+                                            batch_q_z_obs_joint_covars, batch_q_z_obs_joint_mus, 
+                                            opt) 
+            else:
+                obs_KL_term_Z = vmapped_kl(p_z_obs_joint_covar, p_z_obs_joint_mu, 
+                                            batch_q_z_obs_joint_covars, batch_q_z_obs_joint_mus, opt) 
+            
             final_term -= obs_KL_term_Z
 
         if opt.interv_Z_KL is True and opt.Z_KL == 'joint':
@@ -210,11 +238,13 @@ def hard_elbo(P_params, L_params, rng_key, interv_nodes, x_data):
             batch_q_z_interv_joint_mus, batch_q_z_interv_joint_covars = batch_get_interv_joint_dist_params(jnp.exp(batch_log_noises), batch_W)
             kl_across_interv = vmap(get_single_kl, (0, 0, 0, 0, None), (0))
             batch_KL_across_interv = vmap(kl_across_interv, (None, None, 0, 0, None), 0)
-            interv_KL_term_Z = batch_KL_across_interv(p_z_interv_joint_covars,
-                                                        p_z_interv_joint_mus,
-                                                        batch_q_z_interv_joint_covars,
-                                                        batch_q_z_interv_joint_mus,
-                                                        opt)
+            
+            if opt.use_proxy is True:
+                interv_KL_term_Z = batch_KL_across_interv(proxy_p_z_interv_joint_covars, proxy_p_z_interv_joint_mus,
+                                                        batch_q_z_interv_joint_covars, batch_q_z_interv_joint_mus, opt) 
+            else:
+                interv_KL_term_Z = batch_KL_across_interv(p_z_interv_joint_covars, p_z_interv_joint_mus,
+                                                        batch_q_z_interv_joint_covars, batch_q_z_interv_joint_mus, opt)
             final_term -= jnp.mean(interv_KL_term_Z, axis=1)
 
         return -jnp.mean(final_term)
@@ -247,34 +277,46 @@ def gradient_step(P_params, L_params, rng_key, interv_nodes, z_gt_data, x_data):
 
     batch_get_obs_joint_dist_params = vmap(get_joint_dist_params, (0, 0), (0, 0))
     batch_q_z_obs_joint_mus, batch_q_z_obs_joint_covars = batch_get_obs_joint_dist_params(jnp.exp(batch_log_noises), batch_W)
-    obs_KL_term_Z = vmap(get_single_kl, (None, None, 0, 0, None), (0))(p_z_obs_joint_covar, 
+    true_obs_KL_term_Z = vmap(get_single_kl, (None, None, 0, 0, None), (0))(p_z_obs_joint_covar, 
                                                                         p_z_obs_joint_mu, 
                                                                         batch_q_z_obs_joint_covars, 
                                                                         batch_q_z_obs_joint_mus, 
                                                                         opt) 
 
-    mse_dict = {
+    log_dict = {
         "L_mse": jnp.mean(vmap(get_mse, (None, 0), 0)(gt_L_elems, L_elems)),
         "z_mse": jnp.mean(vmap(get_mse, (None, 0), 0)(z_gt_data, z_samples)),
         "x_mse": jnp.mean(vmap(get_mse, (None, 0), 0)(x_data, X_recons)),
         "L_elems": jnp.mean(L_elems[:, -1]),
-        "obs_KL_term_Z": jnp.mean(obs_KL_term_Z)
+        "true_obs_KL_term_Z": jnp.mean(true_obs_KL_term_Z)
     }
+
+    if opt.use_proxy is True:
+        proxy_obs_KL_term_Z = vmap(get_single_kl, (None, None, 0, 0, None), (0))(proxy_p_z_obs_joint_covar, 
+                                                                                proxy_p_z_obs_joint_mu, 
+                                                                                batch_q_z_obs_joint_covars, 
+                                                                                batch_q_z_obs_joint_mus, 
+                                                                                opt) 
+        log_dict['proxy_obs_KL_term_Z'] = jnp.mean(proxy_obs_KL_term_Z)
 
     if opt.interv_Z_KL is True and opt.Z_KL == 'joint':
         batch_get_interv_joint_dist_params = vmap(get_interv_joint_dist_params, (0, 0), (0, 0))
         batch_q_z_interv_joint_mus, batch_q_z_interv_joint_covars = batch_get_interv_joint_dist_params(jnp.exp(batch_log_noises), batch_W)
         kl_across_interv = vmap(get_single_kl, (0, 0, 0, 0, None), (0))
         batch_KL_across_interv = vmap(kl_across_interv, (None, None, 0, 0, None), 0)
-        interv_KL_term_Z = batch_KL_across_interv(p_z_interv_joint_covars,
-                                                    p_z_interv_joint_mus,
-                                                    batch_q_z_interv_joint_covars,
-                                                    batch_q_z_interv_joint_mus,
-                                                    opt)
 
-        mse_dict['interv_KL_term_Z'] = interv_KL_term_Z
+        if opt.use_proxy is True:
+            proxy_interv_KL_term_Z = batch_KL_across_interv(proxy_p_z_interv_joint_covars, proxy_p_z_interv_joint_mus,
+                                                            batch_q_z_interv_joint_covars, batch_q_z_interv_joint_mus, opt)
+            mse_dict['proxy_interv_KL_term_Z'] = proxy_interv_KL_term_Z
+        
+        else:
+            interv_KL_term_Z = batch_KL_across_interv(p_z_interv_joint_covars, p_z_interv_joint_mus,
+                                                    batch_q_z_interv_joint_covars, batch_q_z_interv_joint_mus, opt)
+
+        mse_dict['true_interv_KL_term_Z'] = interv_KL_term_Z
     
-    return (loss, rng_key, elbo_grad_P, elbo_grad_L, mse_dict, batch_W, z_samples)
+    return (loss, rng_key, elbo_grad_P, elbo_grad_L, log_dict, batch_W, z_samples, X_recons)
 
 ( P_params, L_params, 
     P_opt_params, L_opt_params, 
@@ -284,9 +326,10 @@ def gradient_step(P_params, L_params, rng_key, interv_nodes, z_gt_data, x_data):
 
 for i in range(opt.num_steps):
     (loss, rng_key, elbo_grad_P, 
-    elbo_grad_L, mse_dict, batch_W, z_samples) = gradient_step(P_params, L_params, rng_key, interv_nodes, z_gt, x)
+    elbo_grad_L, mse_dict, batch_W, z_samples, X_recons) = gradient_step(P_params, L_params, rng_key, interv_nodes, z_gt, x)
 
     if i % 200 == 0:
+        
         mean_dict = eval_mean(P_params, L_params, z_gt, rk(i), True, tau, i, 
                     interv_nodes, forward, horseshoe_tau, proj_matrix, ground_truth_L, 
                     sd.W, ground_truth_sigmas, opt)
@@ -297,19 +340,25 @@ for i in range(opt.num_steps):
             "X_MSE": onp.array(mse_dict["x_mse"]),
             "L_MSE": onp.array(mse_dict["L_mse"]),
             "L_elems_avg": onp.array(mse_dict["L_elems"]),
-            "obs_KL_term_Z": onp.array(mse_dict["obs_KL_term_Z"]),
+            "true_obs_KL_term_Z": onp.array(mse_dict["true_obs_KL_term_Z"]),
             "Evaluations/SHD": mean_dict["shd"],
             "Evaluations/SHD_C": mean_dict["shd_c"],
             "Evaluations/AUROC": mean_dict["auroc"],
             "train sample KL": mean_dict["sample_kl"],
         }
 
+        if opt.use_proxy:
+            wandb_dict['proxy_obs_KL_term_Z'] = onp.array(mse_dict["proxy_obs_KL_term_Z"])
+
         if opt.interv_Z_KL is True and opt.Z_KL == 'joint':    wandb_dict['interv_KL_term_Z'] = onp.array(mse_dict['interv_KL_term_Z'])
         print_metrics(i, loss, mse_dict, mean_dict, opt)
-        print("Obs. KL Z: ", wandb_dict['obs_KL_term_Z'])
+        print(f"True Obs. KL Z: {wandb_dict['true_obs_KL_term_Z']}" )
+
+        pred_W_means, pred_W_stds = lower(L_params[:l_dim]), lower(jnp.exp(L_params[l_dim:]))
+        print(pred_W_means)
 
         if opt.off_wandb is False:  
-            plt.imshow(batch_W[0])
+            plt.imshow(pred_W_means)
             plt.savefig(join(logdir, 'pred_w.png'))
             wandb_dict["graph_structure(GT-pred)/Predicted W"] = wandb.Image(join(logdir, 'pred_w.png'))
             wandb.log(wandb_dict, step=i)
@@ -317,7 +366,6 @@ for i in range(opt.num_steps):
         if opt.decoder_layers == 'linear':
             decoder_params = P_params["decoder_bcd/~/linear"]["w"]
             print("decoder: ", decoder_params)
-            print("pred. W: ", batch_W[0])
 
     # * Update P and decoder
     P_updates, P_opt_params = opt_P.update(elbo_grad_P, P_opt_params, P_params)
@@ -327,3 +375,7 @@ for i in range(opt.num_steps):
     L_params = optax.apply_updates(L_params, L_updates)
     if jnp.any(jnp.isnan(ravel_pytree(L_params)[0])):   raise Exception("Got NaNs in L params")
 
+
+errs = (sd.W - pred_W_means)**2
+print(errs[jnp.triu_indices(dim, k=1)])
+print(pred_W_stds[jnp.triu_indices(dim, k=1)])
