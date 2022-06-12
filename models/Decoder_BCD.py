@@ -198,7 +198,7 @@ class Decoder_BCD(hk.Module):
         return full_l_batch, full_log_prob_l
     
     def __call__(self, hard, rng_key, interv_targets, init=False, 
-                P_params=None, L_params=None):
+                P_params=None, L_params=None, interv_value=0.0):
         """
             [TODO]
         """
@@ -241,7 +241,7 @@ class Decoder_BCD(hk.Module):
         batched_W = vmap(self.sample_W, (0, 0), (0))(batched_L, batched_P)
         
         rng_keys = rnd.split(rng_key, self.batch_size)
-        batched_qz_samples = vmap(self.ancestral_sample, (0, 0, 0, 0, None, None), (0))(batched_W, batched_P, jnp.exp(batched_log_noises), rng_keys, interv_targets, 0.0)
+        batched_qz_samples = vmap(self.ancestral_sample, (0, 0, 0, 0, None, None), (0))(batched_W, batched_P, jnp.exp(batched_log_noises), rng_keys, interv_targets, interv_value)
 
         X_recons = vmap(vmap(self.decoder, (0), (0)), (0), (0))(batched_qz_samples)
         # X_recons = vmap(self.project, (0), (0))(batched_qz_samples)
