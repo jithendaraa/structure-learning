@@ -1,9 +1,9 @@
 defaults:
   batch_size: 64
-  model: 'SlotAttention_img'
+  model: 'Decoder_BCD'
   dataset: 'er'
   datatype: 'er'
-  ckpt_id: 'train_clevr_sa_img'
+  ckpt_id: 'linear_decoder_bcd'
 
   # ? Directories
   logdir: "logs"
@@ -37,7 +37,7 @@ defaults:
   encoder_out_ch: 64
 
   # ? hyperparams
-  lr: 5e-3
+  lr: 2e-3
   decay_rate: 0.5
   steps: 10000
   clip: -1
@@ -99,6 +99,10 @@ defaults:
   algo: 'def'
   interv_type: 'single'
 
+  # ? linear_decoder_bcd
+  likelihood: 'linear'
+  sem_type: 'linear-gauss'
+
   # ? BCD Nets
   max_deviation: 0.01
   use_alternative_horseshoe_tau: False
@@ -117,6 +121,7 @@ defaults:
   num_outer: 1
   eval_eid: False
   pred_last_L: 1
+  fix_edges: False
 
 
 # ? DIBS
@@ -240,19 +245,14 @@ linear_bcd:
 
 linear_decoder_bcd:
   exp_name: 'linear_decoder_bcd_across_intervs'
-  ckpt_id: 'linear_decoder_bcd'
-  model: 'Decoder_BCD'
   num_nodes: 6
   proj_dims: 6
   exp_edges: 1.0
-  likelihood: 'linear'
-  sem_type: 'linear-gauss'
-  lr: 2e-3
   data_seed: 2
   num_steps: 5000
-  off_wandb: False
-  num_samples: 3600
-  obs_data: 300
+  off_wandb: True
+  num_samples: 6000
+  obs_data: 1200
   interv_type: 'single'
   
   train_loss: 'mse'
@@ -260,7 +260,7 @@ linear_decoder_bcd:
   learn_noise: False
   
   learn_L: True    # 'partial'
-  obs_Z_KL: False
+  obs_Z_KL: True
   interv_Z_KL: False
   Z_KL: 'joint' # 'joint' or 'conditional'
   pred_last_L: 1
@@ -273,8 +273,49 @@ linear_decoder_bcd:
   cov_space: False
   fix_decoder: False
   kl_nodes: 1
-  across_interv: True
+  across_interv: False
   reg_decoder: False
+  interv_value: 100.0
+  edge_noise: 0.1
+  use_proxy: True
+
+uncertain_dag_dbcd:
+  exp_name: 'uncertain dag decoder bcd'
+  num_nodes: 6
+  proj_dims: 6
+  exp_edges: 1.0
+  data_seed: 2
+  num_steps: 5000
+  off_wandb: True
+  num_samples: 3000
+  obs_data: 3000
+  interv_type: 'single'
+  
+  train_loss: 'mse'
+  decoder_layers: 'linear'
+  learn_noise: False
+  
+  learn_L: True    # 'partial'
+  obs_Z_KL: True
+  use_proxy: True
+  edge_noise: 0.1
+  interv_Z_KL: False
+  Z_KL: 'joint' # 'joint' or 'conditional'
+  pred_last_L: 1
+
+  learn_P: False
+  L_KL: False
+  P_KL: False
+  l2_reg: False
+  tau_scaling: False
+  cov_space: False
+  fix_decoder: False
+  kl_nodes: 1
+  across_interv: False
+  reg_decoder: False
+  interv_value: 100.0
+  
+
 
 decoder:
   exp_name: 'only_decoder'
