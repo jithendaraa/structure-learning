@@ -13,10 +13,10 @@
 seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
 exp_edges=(1.0)
 lrs=(0.002)
-num_steps=(20000)
+num_steps=(5000)
 
-num_samples=(900)
-obs_data=900
+num_samples=(1800)
+obs_data=1800
 num_nodes=6
 proj_dims=6
 off_wandb='False'
@@ -25,7 +25,7 @@ learn_L='True'
 Z_KL='joint'
 interv_Z_KL='False'
 obs_Z_KL='False'
-exp_name='linear_decoder_bcd'
+use_proxy='False'
 
 L_KL='False'
 P_KL='False'
@@ -36,9 +36,13 @@ train_loss='mse'
 decoder_layers='linear'
 across_interv='False'
 reg_decoder='False'
+interv_type='multi'
+fix_edges='False'
+interv_value=100.0
+edge_noise=0.1
+
 
 array_len=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#num_steps[@]} * ${#num_samples[@]} ))
-
 defg=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#num_steps[@]} * ${#num_samples[@]} ))
 efg=$(( ${#lrs[@]} * ${#num_steps[@]} * ${#num_samples[@]} ))
 fg=$(( ${#num_steps[@]} * ${#num_samples[@]} ))
@@ -61,10 +65,10 @@ module unload cuda/11.2 && module load cuda/11.0
 deactivate
 act_bcd
 echo `date` "Python starting"
-echo "python run_decoder_bcd.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --train_loss ${train_loss} --decoder_layers ${decoder_layers} --learn_L ${learn_L} --learn_P ${learn_P} --L_KL ${L_KL} --P_KL ${P_KL} --Z_KL ${Z_KL} --learn_noise ${learn_noise} --interv_Z_KL ${interv_Z_KL} --obs_Z_KL ${obs_Z_KL} --across_interv ${across_interv} --reg_decoder ${reg_decoder} --exp_name ${exp_name}"
+echo "python run_decoder_bcd.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --train_loss ${train_loss} --decoder_layers ${decoder_layers} --learn_L ${learn_L} --learn_P ${learn_P} --L_KL ${L_KL} --P_KL ${P_KL} --Z_KL ${Z_KL} --learn_noise ${learn_noise} --interv_Z_KL ${interv_Z_KL} --obs_Z_KL ${obs_Z_KL} --across_interv ${across_interv} --reg_decoder ${reg_decoder} --interv_type ${interv_type} --interv_value ${interv_value} --edge_noise ${edge_noise} --fix_edges ${fix_edges} --use_proxy ${use_proxy}"
 
 cd exps/decoder_bcd_exps
-python run_decoder_bcd.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --train_loss ${train_loss} --decoder_layers ${decoder_layers} --learn_L ${learn_L} --learn_P ${learn_P} --L_KL ${L_KL} --P_KL ${P_KL} --Z_KL ${Z_KL} --learn_noise ${learn_noise} --interv_Z_KL ${interv_Z_KL} --obs_Z_KL ${obs_Z_KL} --across_interv ${across_interv} --reg_decoder ${reg_decoder} --exp_name ${exp_name}
+python run_decoder_bcd.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --train_loss ${train_loss} --decoder_layers ${decoder_layers} --learn_L ${learn_L} --learn_P ${learn_P} --L_KL ${L_KL} --P_KL ${P_KL} --Z_KL ${Z_KL} --learn_noise ${learn_noise} --interv_Z_KL ${interv_Z_KL} --obs_Z_KL ${obs_Z_KL} --across_interv ${across_interv} --reg_decoder ${reg_decoder} --interv_type ${interv_type} --interv_value ${interv_value} --edge_noise ${edge_noise} --fix_edges ${fix_edges} --use_proxy ${use_proxy}
 cd ../..
 
 echo $end

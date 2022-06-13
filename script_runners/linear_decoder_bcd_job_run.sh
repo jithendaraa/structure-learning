@@ -4,6 +4,7 @@ dataset=$1
 train=$2
 model=$3
 time=$4
+config=$5
 
 keys=("seed" "exp_edges" "lr" "num_steps" "num_samples")
 
@@ -19,7 +20,6 @@ if [ ${train} == 'train' ]
 then
     if [ ${dataset} == 'er' ]
     then
-        config='linear_decoder_bcd'
         output_file="out/Decoder_BCD/linear_decoder_bcd-%A_%a.out"
         echo "Train Decoder BCD ER: ${config}"
     else

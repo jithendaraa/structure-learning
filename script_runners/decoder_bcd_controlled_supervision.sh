@@ -29,7 +29,7 @@ else
     echo "Not implemented dataset ${train}" 
 fi
 
-command="sbatch --array=1-${array_len}%512 --job-name ${config} --output ${output_file} --time ${time} scripts/linear_decoder_bcd_across_interv_job.sh ${config}"   
+command="sbatch --array=1-${array_len}%512 --job-name ${config} --output ${output_file} --time ${time} scripts/controlled_supervision_decoder_bcd_job.sh ${config}"   
 echo ""
 echo ${command}
 echo ""

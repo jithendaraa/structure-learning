@@ -15,17 +15,17 @@ exp_edges=(1.0)
 lrs=(0.002)
 num_steps=(5000)
 
-num_samples=(3000)
-obs_data=600
+num_samples=(1800)
+obs_data=1800
 num_nodes=6
 proj_dims=6
 off_wandb='False'
-exp_name='linear_decoder_bcd_across_intervs'
 
 learn_L='True'
 Z_KL='joint'
-obs_Z_KL='False'
 interv_Z_KL='False'
+obs_Z_KL='False'
+use_proxy='False'
 
 L_KL='False'
 P_KL='False'
@@ -34,10 +34,12 @@ learn_P='False'
 fix_decoder='False'
 train_loss='mse'    
 decoder_layers='linear'
-across_interv='True'
+across_interv='False'
 reg_decoder='False'
 interv_type='multi'
+fix_edges='False'
 interv_value=100.0
+
 
 array_len=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#num_steps[@]} * ${#num_samples[@]} ))
 defg=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#num_steps[@]} * ${#num_samples[@]} ))
@@ -62,10 +64,10 @@ module unload cuda/11.2 && module load cuda/11.0
 deactivate
 act_bcd
 echo `date` "Python starting"
-echo "python run_decoder_bcd_across_interv.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --train_loss ${train_loss} --decoder_layers ${decoder_layers} --learn_L ${learn_L} --learn_P ${learn_P} --L_KL ${L_KL} --P_KL ${P_KL} --Z_KL ${Z_KL} --learn_noise ${learn_noise} --interv_Z_KL ${interv_Z_KL} --obs_Z_KL ${obs_Z_KL} --across_interv ${across_interv} --reg_decoder ${reg_decoder} --exp_name ${exp_name} --interv_type ${interv_type} --interv_value ${interv_value}"
+echo "python controlled_supervision.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --train_loss ${train_loss} --decoder_layers ${decoder_layers} --learn_L ${learn_L} --learn_P ${learn_P} --L_KL ${L_KL} --P_KL ${P_KL} --Z_KL ${Z_KL} --learn_noise ${learn_noise} --interv_Z_KL ${interv_Z_KL} --obs_Z_KL ${obs_Z_KL} --across_interv ${across_interv} --reg_decoder ${reg_decoder} --interv_type ${interv_type} --interv_value ${interv_value} --fix_edges ${fix_edges} --use_proxy ${use_proxy}"
 
 cd exps/decoder_bcd_exps
-python run_decoder_bcd_across_interv.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --train_loss ${train_loss} --decoder_layers ${decoder_layers} --learn_L ${learn_L} --learn_P ${learn_P} --L_KL ${L_KL} --P_KL ${P_KL} --Z_KL ${Z_KL} --learn_noise ${learn_noise} --interv_Z_KL ${interv_Z_KL} --obs_Z_KL ${obs_Z_KL} --across_interv ${across_interv} --reg_decoder ${reg_decoder} --exp_name ${exp_name} --interv_type ${interv_type} --interv_value ${interv_value}
+python controlled_supervision.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --train_loss ${train_loss} --decoder_layers ${decoder_layers} --learn_L ${learn_L} --learn_P ${learn_P} --L_KL ${L_KL} --P_KL ${P_KL} --Z_KL ${Z_KL} --learn_noise ${learn_noise} --interv_Z_KL ${interv_Z_KL} --obs_Z_KL ${obs_Z_KL} --across_interv ${across_interv} --reg_decoder ${reg_decoder} --interv_type ${interv_type} --interv_value ${interv_value} --fix_edges ${fix_edges} --use_proxy ${use_proxy}
 cd ../..
 
 echo $end

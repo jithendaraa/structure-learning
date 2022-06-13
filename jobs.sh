@@ -4,6 +4,7 @@ dataset=${2:-'clevr'}  # ['clevr', 'er']
 train=${3:-'train'}
 def_time='23:00:00'
 time=${4:-$def_time}
+config=${5:-'linear_decoder_bcd'}
 
 # ! Run Slot_attention_img
 if [ ${exp_id} == '0' ]     
@@ -68,11 +69,17 @@ then
 # ! linear decoder BCD - Search over hyperparams
 elif [ ${exp_id} == '11s' ]   
 then
-    bash script_runners/linear_decoder_bcd_job_run.sh ${dataset} ${train} 'Decoder_BCD' ${time}
+    bash script_runners/linear_decoder_bcd_job_run.sh ${dataset} ${train} 'Decoder_BCD' ${time} ${config}
 
 # ! linear decoder BCD across interv- Search over hyperparams
 elif [ ${exp_id} == '12s' ]   
 then
-    bash script_runners/linear_decoder_bcd_across_interv_job_run.sh ${dataset} ${train} 'Decoder_BCD' ${time}
+    bash script_runners/linear_decoder_bcd_across_interv_job_run.sh ${dataset} ${train} 'Decoder_BCD' ${time} ${config}
+
+# ! linear decoder BCD controlled supervision with edge noise
+elif [ ${exp_id} == '13s' ]   
+then
+    bash script_runners/decoder_bcd_controlled_supervision.sh ${dataset} ${train} 'Decoder_BCD' ${time} ${config}
+
 
 fi
