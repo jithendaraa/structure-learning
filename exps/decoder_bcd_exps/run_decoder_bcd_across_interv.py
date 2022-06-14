@@ -81,7 +81,7 @@ degree = opt.exp_edges
 do_ev_noise = opt.do_ev_noise
 num_outer = opt.num_outer
 s_prior_std = opt.s_prior_std
-n_interv_sets = 10
+n_interv_sets = 20
 calc_shd_c = False
 sem_type = opt.sem_type
 eval_eid = opt.eval_eid
@@ -117,7 +117,6 @@ ground_truth_sigmas = opt.noise_sigma * jnp.ones(opt.num_nodes)
 print(ground_truth_W)
 print()
 
-
 # ! [TODO] Supports only single interventions currently; will not work for more than 1-node intervs
 (obs_data, interv_data, z_gt, no_interv_targets, x, 
 sample_mean, sample_covariance, proj_matrix) = datagen.get_data(opt, n_interv_sets, sd, model="bcd")
@@ -145,7 +144,7 @@ log_gt_graph(ground_truth_W, logdir, exp_config, opt, writer)
 hard = True
 max_cols = jnp.max(no_interv_targets.sum(1))
 data_idx_array = jnp.array([jnp.arange(opt.num_nodes + 1)] * opt.num_samples)
-interv_nodes = jnp.split(data_idx_array[no_interv_targets], no_interv_targets.sum(1).cumsum()[:-1])
+interv_nodes = onp.split(data_idx_array[no_interv_targets], no_interv_targets.sum(1).cumsum()[:-1])
 interv_nodes = jnp.array([jnp.concatenate((interv_nodes[i], jnp.array([opt.num_nodes] * (max_cols - len(interv_nodes[i])))))
         for i in range(opt.num_samples)]).astype(int)
 
@@ -285,6 +284,14 @@ def gradient_step(P_params, L_params, rng_key, interv_nodes, z_gt_data, x_data):
     
     return (loss, rng_key, elbo_grad_P, elbo_grad_L, mse_dict, batch_W, z_samples)
 
+def lower(theta):
+    """
+        Given n(n-1)/2 parameters theta, form a
+        strictly lower-triangular matrix
+    """
+    out = jnp.zeros((dim, dim))
+    out = ops.index_update(out, jnp.tril_indices(dim, -1), theta)
+    return out.T
 
 assert opt.num_samples > opt.obs_data
 
@@ -307,6 +314,7 @@ for i in range(n_interv_sets + 1):
         # * Update P and decoder
         P_updates, P_opt_params = opt_P.update(elbo_grad_P, P_opt_params, P_params)
         P_params = optax.apply_updates(P_params, P_updates)
+
         # * Update L network
         L_updates, L_opt_params = opt_L.update(elbo_grad_L, L_opt_params, L_params)
         L_params = optax.apply_updates(L_params, L_updates)
@@ -335,8 +343,12 @@ for i in range(n_interv_sets + 1):
     x_axis = int(i * interv_data_per_set)
     print_metrics(x_axis, loss, mse_dict, mean_dict, opt)
 
+    pred_W_means, pred_W_stds = lower(L_params[:l_dim]), lower(jnp.exp(L_params[l_dim:]))
+    print("pred_W_means: ", pred_W_means)
+    print("pred_W_stds: ", pred_W_stds)
+
     if opt.off_wandb is False:  
-        plt.imshow(batch_W[0])
+        plt.imshow(pred_W_means)
         plt.savefig(join(logdir, 'pred_w.png'))
         wandb_dict["graph_structure(GT-pred)/Predicted W"] = wandb.Image(join(logdir, 'pred_w.png'))
         wandb.log(wandb_dict, step=x_axis)

@@ -196,7 +196,7 @@ class SyntheticDataset(object):
             n: number of samples
             sem_type: {linear-gauss,linear-exp,linear-gumbel}
             noise_scale: scale parameter of noise distribution in linear SEM
-            idx_to_fix: intervened node
+            idx_to_fix: intervened node or list of intervened nodes
             value_to_fix: intervened value
         Returns:
             X: [n,d] sample matrix
@@ -210,9 +210,13 @@ class SyntheticDataset(object):
 
         ordered_vertices = list(nx.topological_sort(G))
         assert len(ordered_vertices) == d
+
         for j in ordered_vertices:
             parents = list(G.predecessors(j))
-            if j == idx_to_fix:
+
+            if isinstance(idx_to_fix, int) and j == idx_to_fix:
+                X[:, j] = value_to_fix
+            elif len(np.argwhere(idx_to_fix == j)) > 0:
                 X[:, j] = value_to_fix
             else:
                 eta = X[:, parents].dot(W[parents, j])

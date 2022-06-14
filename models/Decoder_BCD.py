@@ -79,8 +79,8 @@ class Decoder_BCD(hk.Module):
         self.ds = GumbelSinkhorn(dim, noise_type="gumbel", tol=max_deviation)
         self.l_prior = Horseshoe(scale=jnp.ones(self.l_dim) * self.horseshoe_tau)
 
-    def project(self, data):
-        return data @ self.P
+    def project(self, data, proj_matrix):
+        return jnp.matmul(data, proj_matrix)
 
     def sample_W(self, L, P):
         W = (P @ L @ P.T).T
@@ -198,7 +198,7 @@ class Decoder_BCD(hk.Module):
         return full_l_batch, full_log_prob_l
     
     def __call__(self, hard, rng_key, interv_targets, init=False, 
-                P_params=None, L_params=None, interv_value=0.0):
+                P_params=None, L_params=None, decoder_params=None, interv_value=0.0):
         """
             [TODO]
         """
@@ -243,8 +243,9 @@ class Decoder_BCD(hk.Module):
         rng_keys = rnd.split(rng_key, self.batch_size)
         batched_qz_samples = vmap(self.ancestral_sample, (0, 0, 0, 0, None, None), (0))(batched_W, batched_P, jnp.exp(batched_log_noises), rng_keys, interv_targets, interv_value)
 
-        X_recons = vmap(vmap(self.decoder, (0), (0)), (0), (0))(batched_qz_samples)
-        # X_recons = vmap(self.project, (0), (0))(batched_qz_samples)
+        # X_recons = vmap(vmap(self.decoder, (0), (0)), (0), (0))(batched_qz_samples)
+        # X_recons = vmap(self.project, (0), (0))(batched_qz_samples, self.P)
+        X_recons = vmap(self.project, (0, None), (0))(batched_qz_samples, decoder_params)
 
         return (batched_P, batched_P_logits, batched_L, batched_log_noises, 
                 batched_W, batched_qz_samples, full_l_batch, full_log_prob_l, X_recons)

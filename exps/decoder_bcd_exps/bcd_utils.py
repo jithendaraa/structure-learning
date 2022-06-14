@@ -573,7 +573,7 @@ def get_prior_interv_dists(node_mus, node_vars, W, P, opt):
     return pz_mu_intervs, pz_covar_intervs
 
 def forward_fn(hard, rng_keys, interv_targets, init, opt, horseshoe_tau, proj_matrix,
-                ground_truth_L, P_params=None, L_params=None, log_stds_max=10.0):
+                ground_truth_L, P_params=None, L_params=None, decoder_params=None, log_stds_max=10.0):
     dim = opt.num_nodes
     l_dim = dim * (dim - 1) // 2
     do_ev_noise = opt.do_ev_noise
@@ -586,30 +586,50 @@ def forward_fn(hard, rng_keys, interv_targets, init, opt, horseshoe_tau, proj_ma
             P=proj_matrix, L=jnp.array(ground_truth_L), decoder_layers=opt.decoder_layers, 
             learn_L=opt.learn_L, pred_last_L=opt.pred_last_L)
 
-    return model(hard, rng_keys, interv_targets, init, P_params, L_params)
+    return model(hard, rng_keys, interv_targets, init, P_params, L_params, decoder_params, opt.interv_value)
 
 def init_parallel_params(rng_key, key, opt, num_devices, no_interv_targets, 
                         horseshoe_tau, proj_matrix, L):
     dim = opt.num_nodes
     l_dim = dim * (dim - 1) // 2
     forward = hk.transform(forward_fn)
+    temp_key = rnd.PRNGKey(0)
+
+    assert opt.proj_dims == dim
 
     P_layers = [optax.scale_by_belief(eps=1e-8), optax.scale(-opt.lr)]
     L_layers = [optax.scale_by_belief(eps=1e-8), optax.scale(-opt.lr)]
+    decoder_layers = [optax.scale_by_belief(eps=1e-8), optax.scale(-opt.lr)]
+
     opt_P = optax.chain(*P_layers)
     opt_L = optax.chain(*L_layers)
+    opt_decoder = optax.chain(*decoder_layers)
+
+    sparsity_mask = jnp.eye(dim)
+    
+    if opt.proj_sparsity == 0.0: 
+        sparsity_mask = jnp.ones((dim, dim))
+
+    elif opt.proj_sparsity < 1.0:
+        raise NotImplementedError
+        sparsity_mask = jnp.where(sparsity_mask, 1.0, rnd.bernoulli(key, 1 - opt.proj_sparsity))
+    
+    decoder_params = jnp.multiply(sparsity_mask, rnd.uniform(temp_key, shape=(dim, dim), minval=-1.0, maxval=1.0))
     
     # @pmap
     def init_params(rng_key: PRNGKey):
         # * mus and stds (indicated by -1) of L
         L_params = jnp.concatenate((jnp.zeros(l_dim), jnp.zeros(l_dim) - 1, ))
+        
         P_params = forward.init(next(key), False, rng_key, jnp.array(no_interv_targets), True, opt,
                         horseshoe_tau, proj_matrix, L)
+        
         if opt.factorized:  raise NotImplementedError
         P_opt_params = opt_P.init(P_params)
         L_opt_params = opt_L.init(L_params)
         return P_params, L_params, P_opt_params, L_opt_params
 
+    decoder_opt_params = opt_decoder.init(decoder_params)
     rng_keys = jnp.tile(rng_key[None, :], (num_devices, 1))
     P_params, L_params, P_opt_params, L_opt_params = init_params(rng_keys)
     
@@ -617,37 +637,19 @@ def init_parallel_params(rng_key, key, opt, num_devices, no_interv_targets,
     print(f"L model has {ff2(num_params(L_params))} parameters")
     print(f"P model has {ff2(num_params(P_params))} parameters")
 
-    return (P_params, L_params, P_opt_params, L_opt_params, rng_keys, forward, opt_P, opt_L)
+    return (P_params, L_params, decoder_params, 
+            P_opt_params, L_opt_params, decoder_opt_params, 
+            rng_keys, forward, opt_P, opt_L, opt_decoder)
 
 def get_lower_elems(L, dim, k=-1):
     return L[jnp.tril_indices(dim, k=k)]
 
+def lower(theta, dim):
+    """
+        Given n(n-1)/2 parameters theta, form a
+        strictly lower-triangular matrix
+    """
+    out = jnp.zeros((dim, dim))
+    out = ops.index_update(out, jnp.tril_indices(dim, -1), theta)
+    return out.T
 
-
-# @partial
-# def gradient_step(P_params, L_params, rng_keys, rng_key, x, z_gt, interv_nodes, 
-#                 horseshoe_tau, opt, proj_matrix, forward, gt_L, noise_dim, dim):
-
-#     hard = True
-#     num_outer = 1
-#     l_dim = dim * (dim - 1) // 2
-#     gt_L_elems = get_lower_elems(gt_L, dim)
-
-#     if opt.tau_scaling is True: raise NotImplementedError("tau_scaling True is not implemented")
-
-    
-
-    
-    
-
-
-#     (loss, rng_key, elbo_grad_P, elbo_grad_L, mse_dict, batch_W) = take_step(P_params, L_params, rng_key)
-
-#     # p_grad_norm = 0.
-#     # for p in jax.tree_leaves(elbo_grad_P):
-#     #     for val in p: 
-#     #         p_grad_norm += (jnp.linalg.norm(val, ord='fro') ** 2)
-
-#     # l_grad_norm = jnp.sum(elbo_grad_L ** 2)
-    
-#     return (loss, rng_key, elbo_grad_P, elbo_grad_L, mse_dict, batch_W)

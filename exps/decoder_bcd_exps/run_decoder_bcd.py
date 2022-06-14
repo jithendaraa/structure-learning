@@ -172,16 +172,12 @@ def lower(theta):
     out = ops.index_update(out, jnp.tril_indices(dim, -1), theta)
     return out.T
 
-# @jit
-def hard_elbo(P_params, L_params, rng_key, interv_nodes, x_data):
+def hard_elbo(P_params, L_params, proj_params, rng_key, interv_nodes, x_data):
     l_prior = Horseshoe(scale=jnp.ones(l_dim + noise_dim) * horseshoe_tau)  # * Horseshoe prior over lower triangular matrix L
     rng_key = rnd.split(rng_key, num_outer)[0]
 
     def outer_loop(rng_key: PRNGKey):
         """Computes a term of the outer expectation, averaging over batch size"""
-
-        if opt.learn_P is False and opt.decoder_layers == "linear":
-            decoder_params = P_params["decoder_bcd/~/linear"]["w"]
 
         (   batch_P,
             batch_P_logits,
@@ -192,8 +188,8 @@ def hard_elbo(P_params, L_params, rng_key, interv_nodes, x_data):
             full_l_batch,
             full_log_prob_l,
             X_recons, 
-        ) = forward.apply(P_params, rng_key, hard, rng_key, interv_nodes, False, opt,
-                        horseshoe_tau, proj_matrix, ground_truth_L, P_params, L_params, opt.interv_value)
+        ) = forward.apply(P_params, rng_key, hard, rng_key, interv_nodes, False, opt, horseshoe_tau, 
+                        proj_matrix, ground_truth_L, P_params, L_params, proj_params, opt.interv_value)
 
         if opt.train_loss == "mse":     # ! MSE Loss
             likelihoods = -jit(vmap(get_mse, (None, 0), 0))(x_data, X_recons)
@@ -253,9 +249,9 @@ def hard_elbo(P_params, L_params, rng_key, interv_nodes, x_data):
     return jnp.mean(elbos)
 
 @jit
-def gradient_step(P_params, L_params, rng_key, interv_nodes, z_gt_data, x_data):
-    loss, grads = value_and_grad(hard_elbo, argnums=(0, 1))(P_params, L_params, rng_key, interv_nodes, x_data)
-    elbo_grad_P, elbo_grad_L = tree_map(lambda x_: x_, grads)
+def gradient_step(P_params, L_params, proj_params, rng_key, interv_nodes, z_gt_data, x_data):
+    loss, grads = value_and_grad(hard_elbo, argnums=(0, 1, 2))(P_params, L_params, proj_params, rng_key, interv_nodes, x_data)
+    elbo_grad_P, elbo_grad_L, elbo_grad_decoder = tree_map(lambda x_: x_, grads)
 
     # * L2 regularization over parameters of P (contains p network and decoder)
     if opt.l2_reg is True:
@@ -270,7 +266,7 @@ def gradient_step(P_params, L_params, rng_key, interv_nodes, z_gt_data, x_data):
 
     (batch_P, _, batch_L, batch_log_noises, batch_W, z_samples, _, _, X_recons) = forward.apply(
         P_params, rng_key_, hard, rng_key_, interv_nodes, False, opt,
-        horseshoe_tau, proj_matrix, ground_truth_L, P_params, L_params
+        horseshoe_tau, proj_matrix, ground_truth_L, P_params, L_params, proj_params
     )
 
     L_elems = vmap(get_lower_elems, (0, None), 0)(batch_L, dim)
@@ -316,21 +312,21 @@ def gradient_step(P_params, L_params, rng_key, interv_nodes, z_gt_data, x_data):
 
         mse_dict['true_interv_KL_term_Z'] = interv_KL_term_Z
     
-    return (loss, rng_key, elbo_grad_P, elbo_grad_L, log_dict, batch_W, z_samples, X_recons)
+    return (loss, rng_key, elbo_grad_P, elbo_grad_L, elbo_grad_decoder, log_dict, batch_W, z_samples, X_recons)
 
-( P_params, L_params, 
-    P_opt_params, L_opt_params, 
-    rng_keys, forward,
-    opt_P, opt_L ) = init_parallel_params(rng_key, key, opt, num_devices, interv_nodes, 
+( P_params, L_params, decoder_params, P_opt_params, 
+    L_opt_params, decoder_opt_params, rng_keys, 
+    forward, opt_P, opt_L, opt_decoder) = init_parallel_params(rng_key, key, opt, num_devices, interv_nodes, 
                                             horseshoe_tau, proj_matrix, ground_truth_L)
-
+decoder_sparsity_mask = jnp.where(decoder_params != 0., 1.0, 0.0)
+print(decoder_sparsity_mask)
+pdb.set_trace()
 for i in range(opt.num_steps):
-    (loss, rng_key, elbo_grad_P, 
-    elbo_grad_L, mse_dict, batch_W, z_samples, X_recons) = gradient_step(P_params, L_params, rng_key, interv_nodes, z_gt, x)
+    (loss, rng_key, elbo_grad_P, elbo_grad_L, 
+    elbo_grad_decoder, mse_dict, batch_W, z_samples, X_recons) = gradient_step(P_params, L_params, decoder_params, rng_key, interv_nodes, z_gt, x)
 
-    if i % 200 == 0:
-        
-        mean_dict = eval_mean(P_params, L_params, z_gt, rk(i), True, tau, i, 
+    if i % 200 == 0:        
+        mean_dict = eval_mean(P_params, L_params, decoder_params, z_gt, rk(i), True, tau, i, 
                     interv_nodes, forward, horseshoe_tau, proj_matrix, ground_truth_L, 
                     sd.W, ground_truth_sigmas, opt)
         
@@ -364,7 +360,7 @@ for i in range(opt.num_steps):
             wandb.log(wandb_dict, step=i)
         
         if opt.decoder_layers == 'linear':
-            decoder_params = P_params["decoder_bcd/~/linear"]["w"]
+            # lin_layer_params = P_params["decoder_bcd/~/linear"]["w"]
             print("decoder: ", decoder_params)
 
     # * Update P and decoder
@@ -373,6 +369,11 @@ for i in range(opt.num_steps):
     # * Update L
     L_updates, L_opt_params = opt_L.update(elbo_grad_L, L_opt_params, L_params)
     L_params = optax.apply_updates(L_params, L_updates)
+    
+    elbo_grad_decoder = jnp.multiply(elbo_grad_decoder, decoder_sparsity_mask)
+    decoder_updates, decoder_opt_params = opt_decoder.update(elbo_grad_decoder, decoder_opt_params, decoder_params)
+    decoder_params = optax.apply_updates(decoder_params, decoder_updates)
+
     if jnp.any(jnp.isnan(ravel_pytree(L_params)[0])):   raise Exception("Got NaNs in L params")
 
 

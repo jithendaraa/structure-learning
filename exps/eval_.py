@@ -128,7 +128,7 @@ def print_metrics(i, loss, mse_dict, mean_dict, opt):
 
 
 
-def eval_mean(P_params, L_params, data, rng_key, do_shd_c=True, tau=1, step = None, 
+def eval_mean(P_params, L_params, decoder_params, data, rng_key, do_shd_c=True, tau=1, step = None, 
             interv_nodes=None, forward=None, horseshoe_tau=None, proj_matrix=None, gt_L=None, 
             ground_truth_W=None, ground_truth_sigmas=None, opt=None):
     
@@ -148,7 +148,7 @@ def eval_mean(P_params, L_params, data, rng_key, do_shd_c=True, tau=1, step = No
     (batched_P, batched_P_logits, batched_L, batched_log_noises, 
     batched_W, batched_qz_samples, full_l_batch, 
     full_log_prob_l, X_recons) = forward.apply(P_params, rng_key, hard, rng_key, interv_nodes, False, 
-                                    opt, horseshoe_tau, proj_matrix, gt_L, P_params, L_params)
+                                    opt, horseshoe_tau, proj_matrix, gt_L, P_params, L_params, decoder_params)
 
     z_prec = onp.linalg.inv(jnp.cov(data.T))
     w_noise = full_l_batch[:, -noise_dim:]
