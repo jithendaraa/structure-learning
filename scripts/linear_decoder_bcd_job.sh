@@ -15,8 +15,8 @@ exp_edges=(1.0)
 lrs=(0.002)
 num_steps=(5000)
 
-num_samples=(1800)
-obs_data=1800
+num_samples=(2400)
+obs_data=600
 num_nodes=6
 proj_dims=6
 off_wandb='False'
@@ -25,7 +25,9 @@ learn_L='True'
 Z_KL='joint'
 interv_Z_KL='False'
 obs_Z_KL='False'
-use_proxy='False'
+use_proxy='True'
+edge_noise=0.9
+interv_type='multi'
 
 L_KL='False'
 P_KL='False'
@@ -36,10 +38,8 @@ train_loss='mse'
 decoder_layers='linear'
 across_interv='False'
 reg_decoder='False'
-interv_type='multi'
 fix_edges='False'
 interv_value=100.0
-edge_noise=0.1
 
 
 array_len=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#num_steps[@]} * ${#num_samples[@]} ))

@@ -584,7 +584,7 @@ def forward_fn(hard, rng_keys, interv_targets, init, opt, horseshoe_tau, proj_ma
             opt.proj_dims, log_stds_max, opt.logit_constraint, opt.fixed_tau, opt.subsample, opt.s_prior_std, 
             horseshoe_tau=horseshoe_tau, learn_noise=opt.learn_noise, noise_sigma=opt.noise_sigma, 
             P=proj_matrix, L=jnp.array(ground_truth_L), decoder_layers=opt.decoder_layers, 
-            learn_L=opt.learn_L, pred_last_L=opt.pred_last_L)
+            learn_L=opt.learn_L, pred_last_L=opt.pred_last_L, fix_decoder=opt.fix_decoder)
 
     return model(hard, rng_keys, interv_targets, init, P_params, L_params, decoder_params, opt.interv_value)
 
@@ -653,3 +653,5 @@ def lower(theta, dim):
     out = ops.index_update(out, jnp.tril_indices(dim, -1), theta)
     return out.T
 
+def get_covar(z):
+    return jnp.cov(z.T)

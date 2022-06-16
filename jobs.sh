@@ -81,5 +81,9 @@ elif [ ${exp_id} == '13s' ]
 then
     bash script_runners/decoder_bcd_controlled_supervision.sh ${dataset} ${train} 'Decoder_BCD' ${time} ${config}
 
+# ! linear decoder BCD supervised
+elif [ ${exp_id} == '14s' ]   
+then
+    bash script_runners/decoder_bcd_supervision.sh ${dataset} ${train} 'Decoder_BCD' ${time} ${config}
 
 fi

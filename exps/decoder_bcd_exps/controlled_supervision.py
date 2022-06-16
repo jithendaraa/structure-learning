@@ -133,7 +133,7 @@ interv_nodes = onp.split(data_idx_array[no_interv_targets], no_interv_targets.su
 interv_nodes = jnp.array([jnp.concatenate((interv_nodes[i], jnp.array([opt.num_nodes] * (max_cols - len(interv_nodes[i])))))
         for i in range(opt.num_samples)]).astype(int)
 
-edge_noises = [0.3, 0.25, 0.20, 0.15, 0.1, 0.05, 0.01]
+edge_noises = [2.0, 1.8, 1.5, 1.2, 0.9, 0.6, 0.3, 0.1]
 
 for j in range(len(edge_noises)):
     edge_noise = edge_noises[j] 
@@ -341,6 +341,7 @@ for j in range(len(edge_noises)):
         "Evaluations/SHD_C": mean_dict["shd_c"],
         "Evaluations/AUROC": mean_dict["auroc"],
         "train sample KL": mean_dict["sample_kl"],
+        'edge_noise': edge_noise,
     }
 
     if opt.interv_Z_KL is True and opt.Z_KL == 'joint':    
