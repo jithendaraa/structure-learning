@@ -120,9 +120,290 @@ defaults:
   s_prior_std: 3.0
   num_outer: 1
   eval_eid: False
+  
+  # ? Decoder BCD
+  learn_P: False
+  L_KL: False
+  P_KL: False
+  Z_KL: 'joint' # 'joint' or 'conditional'
+  tau_scaling: False
+  learn_noise: False
+  train_loss: 'mse'
+  decoder_layers: 'linear'
+  l2_reg: False  
+  cov_space: False
+  kl_nodes: 1
+  reg_decoder: False
   pred_last_L: 1
   fix_edges: False
+  proj_sparsity: 0.0
+  use_proxy: False
+  z_mse: False
+  num_steps: 5000
 
+obs_supervised_dbcd:
+  exp_name: 'supervised decoder bcd (observational)'
+  num_nodes: 6
+  proj_dims: 6
+  exp_edges: 1.0
+  data_seed: 2
+  off_wandb: True
+  num_samples: 2400
+  obs_data: 2400
+  interv_type: 'single'
+  
+  learn_L: True    # 'partial'
+  obs_Z_KL: True
+  across_interv: False
+ 
+  interv_value: 100.0
+  use_proxy: False
+  identity_proj: False
+  proj_sparsity: 1.0
+  fix_decoder: False
+
+z_supervised_dbcd_obs:
+  exp_name: 'Z MSE supervised decoder bcd (observational)'
+  num_nodes: 6
+  proj_dims: 6
+  exp_edges: 1.0
+  data_seed: 2
+  num_steps: 5000
+  off_wandb: False
+  num_samples: 2400
+  obs_data: 2400
+  interv_type: 'single'
+  
+  learn_L: True    # 'partial'
+  obs_Z_KL: False
+  across_interv: False
+ 
+  interv_value: 100.0
+  use_proxy: False
+  identity_proj: True
+  proj_sparsity: 0.0
+  fix_decoder: False
+  z_mse: True
+
+fixed_decoder_supervised_dbcd:
+  exp_name: 'fixed decoder supervised decoder bcd (observational)'
+  num_nodes: 6
+  proj_dims: 6
+  exp_edges: 1.0
+  data_seed: 2
+  num_steps: 5000
+  off_wandb: False
+  num_samples: 6000
+  obs_data: 6000
+  interv_type: 'single'
+  
+  learn_L: True    # 'partial'
+  obs_Z_KL: True
+  across_interv: False
+ 
+  interv_value: 100.0
+  use_proxy: False
+  identity_proj: True
+  proj_sparsity: 1.0
+  fix_decoder: True
+
+decoder_bcd_across_intervs:
+  exp_name: 'linear_decoder_bcd_across_intervs'
+  num_nodes: 6
+  proj_dims: 6
+  exp_edges: 1.0
+  data_seed: 2
+  off_wandb: True
+  num_samples: 3600
+  obs_data: 300
+  interv_type: 'single'
+
+  learn_L: True    # 'partial'
+  obs_Z_KL: False
+  across_interv: True
+ 
+  interv_value: 100.0
+  use_proxy: False
+  identity_proj: False
+  proj_sparsity: 0.0
+  fix_decoder: False
+
+linear_decoder_bcd:
+  exp_name: 'linear_decoder_bcd'
+  num_nodes: 6
+  proj_dims: 6
+  exp_edges: 1.0
+  data_seed: 2
+  num_steps: 5000
+  off_wandb: False
+  num_samples: 3000
+  obs_data: 2700
+  interv_type: 'single'
+  
+  train_loss: 'mse'
+  decoder_layers: 'linear'
+  learn_noise: False
+  
+  learn_L: True    # 'partial'
+  obs_Z_KL: False
+  Z_KL: 'joint' # 'joint' or 'conditional'
+  pred_last_L: 1
+
+  learn_P: False
+  L_KL: False
+  P_KL: False
+  l2_reg: False
+  tau_scaling: False
+  cov_space: False
+  fix_decoder: False
+  kl_nodes: 1
+  across_interv: False
+  reg_decoder: False
+  interv_value: 100.0
+  use_proxy: True
+  identity_proj: True
+  proj_sparsity: 1.0
+  edge_noise: 0.8
+
+controlled_supervision:
+  exp_name: 'controlled supervision decoder bcd'
+  num_nodes: 6
+  proj_dims: 6
+  exp_edges: 1.0
+  data_seed: 2
+  num_steps: 5000
+  off_wandb: False
+  num_samples: 2400
+  obs_data: 2100
+  interv_type: 'single'
+  
+  train_loss: 'mse'
+  decoder_layers: 'linear'
+  learn_noise: False
+  
+  learn_L: True    # 'partial'
+  obs_Z_KL: False
+  use_proxy: True
+  edge_noise: 0.1
+  Z_KL: 'joint' # 'joint' or 'conditional'
+  pred_last_L: 1
+
+  learn_P: False
+  L_KL: False
+  P_KL: False
+  l2_reg: False
+  tau_scaling: False
+  cov_space: False
+  fix_decoder: False
+  kl_nodes: 1
+  across_interv: False
+  reg_decoder: False
+  interv_value: 100.0
+  proj_sparsity: 1.0
+  identity_proj: True
+
+sparse_dbcd:
+  exp_name: 'sparse projection decoder bcd'
+  num_nodes: 6
+  proj_dims: 6
+  exp_edges: 1.0
+  data_seed: 2
+  num_steps: 5000
+  off_wandb: False
+  num_samples: 3000
+  obs_data: 3000
+  interv_type: 'single'
+  
+  train_loss: 'mse'
+  decoder_layers: 'linear'
+  learn_noise: False
+  
+  learn_L: True    # 'partial'
+  obs_Z_KL: False
+  use_proxy: False
+  Z_KL: 'joint' # 'joint' or 'conditional'
+  pred_last_L: 1
+
+  learn_P: False
+  L_KL: False
+  P_KL: False
+  l2_reg: False
+  tau_scaling: False
+  cov_space: False
+  fix_decoder: False
+  kl_nodes: 1
+  across_interv: False
+  reg_decoder: False
+  interv_value: 100.0
+  proj_sparsity: 1.0
+  identity_proj: True
+
+linear_bcd:
+  exp_name: 'linear_bcd'
+  ckpt_id: 'linear_bcd'
+  model: 'BCD'
+  num_nodes: 6
+  proj_dims: 10
+  exp_edges: 1.0
+  likelihood: 'linear'
+  sem_type: 'linear-gauss'
+  lr: 1e-3
+  data_seed: 0
+  num_steps: 20000
+  off_wandb: True
+  num_samples: 100
+  L_KL: False
+  # P_KL: True
+
+decoder:
+  exp_name: 'only_decoder'
+  ckpt_id: 'only_decoder'
+  model: 'Decoder_BCD'
+  num_nodes: 6
+  proj_dims: 10
+  exp_edges: 1.0
+  likelihood: 'linear'
+  sem_type: 'linear-gauss'
+  lr: 1e-3
+  data_seed: 0
+  num_steps: 5000
+  off_wandb: True
+  num_samples: 200
+  obs_data: 200
+  train_loss: 'LL'
+  decoder_layers: 'linear'
+  learn_noise: False
+  learn_L: False
+  l2_reg: False
+  z_sample: 'sample'
+  L_KL: False
+  P_KL: False
+  Z_KL: False
+
+# ? 9. Decoder_DIBS
+# ! python main.py --config defaults decoder_dibs_er experimental
+decoder_dibs_er:
+  ckpt_id: 'decoder_dibs_er'
+  model: 'Decoder_DIBS'
+  proj: 'linear'
+  linear_decoder: False
+  # ? TODO has to be changed to 'reparam' later
+  grad_estimator: 'score' # ['score', 'reparam']
+  z_prior: 'sample'   # TODO: 'actual' needs fixing from std to covar so use 'sample for now' | ['actual', 'sample'] 
+  algo: 'def'
+  num_nodes: 4
+  lr: 8e-4
+
+  steps: 1000
+  num_updates: 500
+  proj_dims: 10
+  data_seed: 1
+  exp_edges: 0.5
+  num_samples: 200
+  obs_data: 200
+  projection: 'random'
+  likelihood: 'nonlinear'  # ['bge', 'nonlinear']
+  datagen: 'linear'
 
 # ? DIBS
 linear_dibs:
@@ -225,151 +506,6 @@ nonlinear_decoder_dibs:
   grad_estimator: 'reparam'
 
 
-linear_bcd:
-  exp_name: 'linear_bcd'
-  ckpt_id: 'linear_bcd'
-  model: 'BCD'
-  num_nodes: 6
-  proj_dims: 10
-  exp_edges: 1.0
-  likelihood: 'linear'
-  sem_type: 'linear-gauss'
-  lr: 1e-3
-  data_seed: 0
-  num_steps: 20000
-  off_wandb: True
-  num_samples: 100
-  L_KL: False
-  # P_KL: True
-
-
-linear_decoder_bcd:
-  exp_name: 'linear_decoder_bcd_across_intervs'
-  num_nodes: 6
-  proj_dims: 6
-  exp_edges: 1.0
-  data_seed: 2
-  num_steps: 5000
-  off_wandb: True
-  num_samples: 6000
-  obs_data: 1200
-  interv_type: 'single'
-  
-  train_loss: 'mse'
-  decoder_layers: 'linear'
-  learn_noise: False
-  
-  learn_L: True    # 'partial'
-  obs_Z_KL: True
-  interv_Z_KL: False
-  Z_KL: 'joint' # 'joint' or 'conditional'
-  pred_last_L: 1
-
-  learn_P: False
-  L_KL: False
-  P_KL: False
-  l2_reg: False
-  tau_scaling: False
-  cov_space: False
-  fix_decoder: False
-  kl_nodes: 1
-  across_interv: False
-  reg_decoder: False
-  interv_value: 100.0
-  edge_noise: 0.1
-  use_proxy: True
-
-uncertain_dag_dbcd:
-  exp_name: 'uncertain dag decoder bcd'
-  num_nodes: 6
-  proj_dims: 6
-  exp_edges: 1.0
-  data_seed: 2
-  num_steps: 5000
-  off_wandb: True
-  num_samples: 3000
-  obs_data: 3000
-  interv_type: 'single'
-  
-  train_loss: 'mse'
-  decoder_layers: 'linear'
-  learn_noise: False
-  
-  learn_L: True    # 'partial'
-  obs_Z_KL: True
-  use_proxy: True
-  edge_noise: 0.1
-  interv_Z_KL: False
-  Z_KL: 'joint' # 'joint' or 'conditional'
-  pred_last_L: 1
-
-  learn_P: False
-  L_KL: False
-  P_KL: False
-  l2_reg: False
-  tau_scaling: False
-  cov_space: False
-  fix_decoder: False
-  kl_nodes: 1
-  across_interv: False
-  reg_decoder: False
-  interv_value: 100.0
-  
-
-
-decoder:
-  exp_name: 'only_decoder'
-  ckpt_id: 'only_decoder'
-  model: 'Decoder_BCD'
-  num_nodes: 6
-  proj_dims: 10
-  exp_edges: 1.0
-  likelihood: 'linear'
-  sem_type: 'linear-gauss'
-  lr: 1e-3
-  data_seed: 0
-  num_steps: 5000
-  off_wandb: True
-  num_samples: 200
-  obs_data: 200
-  train_loss: 'LL'
-  decoder_layers: 'linear'
-  learn_noise: False
-  learn_L: False
-  l2_reg: False
-  z_sample: 'sample'
-  L_KL: False
-  P_KL: False
-  interv_Z_KL: False
-  Z_KL: False
-
-
-# ? 9. Decoder_DIBS
-# ! python main.py --config defaults decoder_dibs_er experimental
-decoder_dibs_er:
-  ckpt_id: 'decoder_dibs_er'
-  model: 'Decoder_DIBS'
-  proj: 'linear'
-  linear_decoder: False
-  # ? TODO has to be changed to 'reparam' later
-  grad_estimator: 'score' # ['score', 'reparam']
-  z_prior: 'sample'   # TODO: 'actual' needs fixing from std to covar so use 'sample for now' | ['actual', 'sample'] 
-  algo: 'def'
-  num_nodes: 4
-  lr: 8e-4
-
-  steps: 1000
-  num_updates: 500
-  proj_dims: 10
-  data_seed: 1
-  exp_edges: 0.5
-  num_samples: 200
-  obs_data: 200
-  projection: 'random'
-  likelihood: 'nonlinear'  # ['bge', 'nonlinear']
-  datagen: 'linear'
-
-
 # ? 8. VAE_DIBS
 # ! python main.py --config defaults experimental linear_vaedibs_er
 linear_vaedibs_er:
@@ -403,115 +539,115 @@ mila:
   offline_wandb: False
 
 
-# ? 1. Vanilla Slot attention
-train_clevr_sa_img:
-  ckpt_id: 'train_clevr_sa_img'
-  model: 'SlotAttention_img'
-  dataset: 'clevr'
-  steps: 100000
+# # ? 1. Vanilla Slot attention
+# train_clevr_sa_img:
+#   ckpt_id: 'train_clevr_sa_img'
+#   model: 'SlotAttention_img'
+#   dataset: 'clevr'
+#   steps: 100000
 
-# ? 2a Vanilla VCN (numerical)
-# ! python main.py --config defaults experimental train_vcn
-train_vcn:
-  ckpt_id: 'train_vcn' 
-  dataset: 'er'
-  datatype: 'er'
-  batch_size: 1000
-  seed: 10
-  data_seed: 11
-  lr: 1e-2
-  steps: 30000
-  model: 'VCN'
-  num_nodes: 4
-  opti: 'default'
-  num_samples: 500
-  exp_edges: 0.7
+# # ? 2a Vanilla VCN (numerical)
+# # ! python main.py --config defaults experimental train_vcn
+# train_vcn:
+#   ckpt_id: 'train_vcn' 
+#   dataset: 'er'
+#   datatype: 'er'
+#   batch_size: 1000
+#   seed: 10
+#   data_seed: 11
+#   lr: 1e-2
+#   steps: 30000
+#   model: 'VCN'
+#   num_nodes: 4
+#   opti: 'default'
+#   num_samples: 500
+#   exp_edges: 0.7
 
-# ? 3. Image VCN
-train_clevr_vcn_img:
-  ckpt_id: 'train_clevr_vcn_img' 
-  model: 'VCN_img'
-  batch_size: 64
-  lr: 8e-4
-  steps: 30000
-  dataset: 'clevr'
-  datatype: 'image'
-  loss_log_freq: 50
-  media_log_freq: 100
-  ckpt_save_freq: 1000
-  chan_per_node: 6
-  num_nodes: 3
+# # ? 3. Image VCN
+# train_clevr_vcn_img:
+#   ckpt_id: 'train_clevr_vcn_img' 
+#   model: 'VCN_img'
+#   batch_size: 64
+#   lr: 8e-4
+#   steps: 30000
+#   dataset: 'clevr'
+#   datatype: 'image'
+#   loss_log_freq: 50
+#   media_log_freq: 100
+#   ckpt_save_freq: 1000
+#   chan_per_node: 6
+#   num_nodes: 3
 
-# ? 4. Slot-Image VCN
-train_clevr_slot1d_vcn_img:
-  ckpt_id: 'train_clevr_slot1d_vcn_img' 
-  model: 'Slot_VCN_img'
-  batch_size: 64
-  lr: 1e-3
-  steps: 20 
-  dataset: 'clevr'
-  loss_log_freq: 20
-  media_log_freq: 50
-  ckpt_save_freq: 1000
-  hidden_dims: 64
-  slot_size: 64
-  num_slots: 3
-  num_nodes: 3
-  slot_space: '1d' # can be 1d or 2d
+# # ? 4. Slot-Image VCN
+# train_clevr_slot1d_vcn_img:
+#   ckpt_id: 'train_clevr_slot1d_vcn_img' 
+#   model: 'Slot_VCN_img'
+#   batch_size: 64
+#   lr: 1e-3
+#   steps: 20 
+#   dataset: 'clevr'
+#   loss_log_freq: 20
+#   media_log_freq: 50
+#   ckpt_save_freq: 1000
+#   hidden_dims: 64
+#   slot_size: 64
+#   num_slots: 3
+#   num_nodes: 3
+#   slot_space: '1d' # can be 1d or 2d
 
-# ? 5. Graph VAE
-train_graph_vae:
-  ckpt_id: 'train_graph_vae' 
-  model: 'GraphVAE'
-  batch_size: 64
-  lr: 1e-3
-  steps: 2000
-  dataset: 'mnist'
-  loss_log_freq: 10
-  media_log_freq: 10
-  ckpt_save_freq: 1000
-  N: 5
-  M: 80
-  dims_per_node: 16 # N': dims per node
+# # ? 5. Graph VAE
+# train_graph_vae:
+#   ckpt_id: 'train_graph_vae' 
+#   model: 'GraphVAE'
+#   batch_size: 64
+#   lr: 1e-3
+#   steps: 2000
+#   dataset: 'mnist'
+#   loss_log_freq: 10
+#   media_log_freq: 10
+#   ckpt_save_freq: 1000
+#   N: 5
+#   M: 80
+#   dims_per_node: 16 # N': dims per node
   
 
-# ? 6a VAE_VCN: linear projection to higher dims (numerical)
-train_vaevcn_linearproj:
-  ckpt_id: 'train_vaevcn_linearproj' 
-  dataset: 'er'
-  datatype: 'er'
-  seed: 10
-  data_seed: 1
-  lr: 1e-3
-  steps: 30000
-  model: 'VAEVCN'
-  num_nodes: 3
-  proj: 'linear'
+# # ? 6a VAE_VCN: linear projection to higher dims (numerical)
+# train_vaevcn_linearproj:
+#   ckpt_id: 'train_vaevcn_linearproj' 
+#   dataset: 'er'
+#   datatype: 'er'
+#   seed: 10
+#   data_seed: 1
+#   lr: 1e-3
+#   steps: 30000
+#   model: 'VAEVCN'
+#   num_nodes: 3
+#   proj: 'linear'
 
-# ? 6b VAE_VCN: linear projection to higher dims (numerical) with known decoder == projection matrix
-train_vaevcn_linearproj_knownED:
-  ckpt_id: 'train_vaevcn_linearproj_knownED'
-  seed: 10
-  data_seed: 1
-  lr: 1e-3
-  steps: 30000
-  model: 'VAEVCN'
-  num_nodes: 3
-  proj: 'linear'
-  known_ED: True
+# # ? 6b VAE_VCN: linear projection to higher dims (numerical) with known decoder == projection matrix
+# train_vaevcn_linearproj_knownED:
+#   ckpt_id: 'train_vaevcn_linearproj_knownED'
+#   seed: 10
+#   data_seed: 1
+#   lr: 1e-3
+#   steps: 30000
+#   model: 'VAEVCN'
+#   num_nodes: 3
+#   proj: 'linear'
+#   known_ED: True
 
-# ? 6c Vanilla VCN: nonlinear projection to higher dims (numerical)
-train_vcn_nonlinearproj:
-  ckpt_id: 'train_vcn_nonlinearproj' 
-  seed: 10
-  data_seed: 1
-  lr: 1e-2
-  steps: 30000
-  model: 'VCN'
-  datatype: 'er'
-  loss_log_freq: 100
-  media_log_freq: 500
-  ckpt_save_freq: 5000
-  num_nodes: 3
-  proj: 'nonlinear'
+# # ? 6c Vanilla VCN: nonlinear projection to higher dims (numerical)
+# train_vcn_nonlinearproj:
+#   ckpt_id: 'train_vcn_nonlinearproj' 
+#   seed: 10
+#   data_seed: 1
+#   lr: 1e-2
+#   steps: 30000
+#   model: 'VCN'
+#   datatype: 'er'
+#   loss_log_freq: 100
+#   media_log_freq: 500
+#   ckpt_save_freq: 5000
+#   num_nodes: 3
+#   proj: 'nonlinear'
 

@@ -1,3 +1,4 @@
+from re import L
 import networkx as nx 
 from modules.data.erdos_renyi import ER
 from modules.BGe import BGe
@@ -11,7 +12,7 @@ from jax import random
 from typing import Optional, Tuple, Union, cast
 
 
-def single_node_interv_data(opt, n_interv_sets, no_interv_targets, target, model='dibs', interv_value=0.0, interv_node=None):
+def single_node_interv_data(opt, n_interv_sets, no_interv_targets, target, model='dibs', interv_values=0.0, interv_node=None):
     """
         For every `n_interv_sets`, randomly choose an index idx_i in 0, 1.... (opt.num_nodes-1) where n = 
         Let n = interventional data points per set = num_interv_data / n_interv_sets 
@@ -31,6 +32,7 @@ def single_node_interv_data(opt, n_interv_sets, no_interv_targets, target, model
         if interv_node is not None: idx_i = interv_node
         no_interv_targets[opt.obs_data + i * interv_data_pts_per_set : opt.obs_data + (i+1) * interv_data_pts_per_set, idx_i] = True
         print(f'Intervened node: {idx_i}')
+        interv_value = interv_values[opt.obs_data + i * interv_data_pts_per_set : opt.obs_data + (i+1) * interv_data_pts_per_set]
         
         if model in ['dibs']:
             data_idxs = sample(range(len(interv_data[idx_i][1])), interv_data_pts_per_set)
@@ -38,13 +40,13 @@ def single_node_interv_data(opt, n_interv_sets, no_interv_targets, target, model
         
         elif model in ['bcd']:
             interv_data = jnp.array(target.intervene_sem(target.W, interv_data_pts_per_set, opt.sem_type,
-                                sigmas=[opt.noise_sigma], idx_to_fix=idx_i, value_to_fix=interv_value))
+                                sigmas=[opt.noise_sigma], idx_to_fix=idx_i, values_to_fix=interv_value))
             data_.append(interv_data)
 
     return data_, no_interv_targets
 
 
-def multi_node_interv_data(opt, n_interv_sets, no_interv_targets, target, model, interv_value=0.0):
+def multi_node_interv_data(opt, n_interv_sets, no_interv_targets, target, model, interv_values=0.0):
     """
         Generates `n_interv_sets` sets of interventional data.
         Each set has `interv_data_per_node_per_set` interv. data points per node equally spread
@@ -64,9 +66,11 @@ def multi_node_interv_data(opt, n_interv_sets, no_interv_targets, target, model,
         intervened_node_idxs = np.random.choice(opt.num_nodes, interv_k_nodes, replace=False)
         print(f'Intervened nodes: {intervened_node_idxs}')
 
+        interv_value = interv_values[opt.obs_data + i * interv_data_pts_per_set : opt.obs_data + (i+1) * interv_data_pts_per_set]
+        
         interv_data = target.intervene_sem(target.W, interv_data_pts_per_set, opt.sem_type,
                                             sigmas=[opt.noise_sigma], idx_to_fix=intervened_node_idxs, 
-                                            value_to_fix=interv_value)
+                                            values_to_fix=interv_value)
 
         data_.append(interv_data)
         no_interv_targets[opt.obs_data + i * interv_data_pts_per_set : opt.obs_data + (i+1) * interv_data_pts_per_set, intervened_node_idxs] = True
@@ -77,15 +81,23 @@ def multi_node_interv_data(opt, n_interv_sets, no_interv_targets, target, model,
 def generate_interv_data(opt, n_interv_sets, target, model='dibs', interv_node=None, interv_value=0.0):
     no_interv_targets = np.zeros((opt.num_samples, opt.num_nodes)).astype(bool) # observational
     num_interv_data = opt.num_samples - opt.obs_data
+    rng_key = random.PRNGKey(0)
+
+    # ? TODO
+    if opt.interv_value == 'uniform':
+        interv_values = random.uniform(rng_key, shape=(opt.num_samples, opt.num_nodes), minval=-10.0, maxval=10.0)
+    else:
+        interv_values = jnp.array([[float(opt.interv_value)]] * opt.num_samples)
 
     if num_interv_data > 0:
-        if opt.interv_type == 'single':
-            data_, no_interv_targets = single_node_interv_data(opt, n_interv_sets, no_interv_targets, target, model, interv_value, interv_node)
-        elif opt.interv_type == 'multi':
-            data_, no_interv_targets = multi_node_interv_data(opt, n_interv_sets, no_interv_targets, target, model, interv_value)
+        if opt.interv_type == 'single':     
+            data_, no_interv_targets = single_node_interv_data(opt, n_interv_sets, no_interv_targets, target, model, interv_values, interv_node)
+        elif opt.interv_type == 'multi':    
+            data_, no_interv_targets = multi_node_interv_data(opt, n_interv_sets, no_interv_targets, target, model, interv_values)
         
     data_, no_interv_targets = jnp.array(data_).reshape(num_interv_data, opt.num_nodes), jnp.array(no_interv_targets)
-    return data_, no_interv_targets
+    return data_, no_interv_targets, interv_values
+
 
 def get_data(opt, n_intervention_sets, target, data_=None, model='dibs', interv_node=None, interv_value=0.0):
     if model == 'bcd':
@@ -98,12 +110,13 @@ def get_data(opt, n_intervention_sets, target, data_=None, model='dibs', interv_
     num_interv_data = opt.num_samples - opt.obs_data
 
     if num_interv_data > 0:
-        interv_data, no_interv_targets = generate_interv_data(opt, n_intervention_sets, target, model, interv_node, interv_value=interv_value)
+        interv_data, no_interv_targets, interv_values = generate_interv_data(opt, n_intervention_sets, target, model, interv_node, interv_value=interv_value)
         z = jnp.concatenate((obs_data, interv_data), axis=0)
     else:
         interv_data = None
         z = jnp.array(obs_data)
         no_interv_targets = jnp.zeros((opt.num_samples, opt.num_nodes)).astype(bool)
+        interv_values = jnp.zeros((opt.num_samples, opt.num_nodes))
 
     if opt.proj == 'linear': 
         if opt.identity_proj is True:   P = jnp.eye(opt.proj_dims)
@@ -122,7 +135,7 @@ def get_data(opt, n_intervention_sets, target, data_=None, model='dibs', interv_
         print(f"X Mean: {x_mean}")
         print(f"Det. X Covariance: {jnp.linalg.det(x_cov)}")
 
-    return obs_data, interv_data, z, no_interv_targets, x, z_mean, z_cov, P
+    return obs_data, interv_data, z, no_interv_targets, x, z_mean, z_cov, P, interv_values
 
 
 def gen_data_from_dist(rng, q_z_mu, q_z_covar, num_samples, interv_targets, clamp=True):

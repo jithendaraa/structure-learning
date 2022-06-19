@@ -117,28 +117,21 @@ ground_truth_sigmas = opt.noise_sigma * jnp.ones(opt.num_nodes)
 print(ground_truth_W)
 print()
 
-# ! [TODO] Supports only single interventions currently; will not work for more than 1-node intervs
 (obs_data, interv_data, z_gt, no_interv_targets, x, 
-sample_mean, sample_covariance, proj_matrix) = datagen.get_data(opt, n_interv_sets, sd, model="bcd")
+sample_mean, sample_covariance, proj_matrix, interv_values) = datagen.get_data(opt, n_interv_sets, sd, model="bcd", interv_value=opt.interv_value)
 
 node_mus = jnp.ones((dim)) * opt.noise_mu
 node_vars = jnp.ones((dim)) * (opt.noise_sigma**2)
 interv_types = onp.eye(dim, dtype=onp.bool)
 
-# ! Get conditional observational and interventional distributions
-p_z_mu, p_z_covar = get_cond_dist_params(node_mus, node_vars, sd.W, sd.P)
-pz_mu_intervs, pz_covar_intervs = get_prior_interv_dists(node_mus, node_vars, sd.W, sd.P, opt)
-
-# ! Get GT observational and interventional joint distributions
+# ! Get GT observational joint distributions
 p_z_obs_joint_mu, p_z_obs_joint_covar = get_joint_dist_params(opt.noise_sigma, jnp.array(sd.W))
-p_z_interv_joint_mus, p_z_interv_joint_covars = get_interv_joint_dist_params(opt.noise_sigma, jnp.array(sd.W))
 
 # ? Set parameter for Horseshoe prior on L
 horseshoe_tau = (1 / onp.sqrt(n_data)) * (2 * degree / ((dim - 1) - 2 * degree))
 if horseshoe_tau < 0:   horseshoe_tau = 1 / (2 * dim)
 print(f"Horseshoe tau is {horseshoe_tau}")
 
-# ? 1. Set optimizers for P and L
 log_gt_graph(ground_truth_W, logdir, exp_config, opt, writer)
 
 hard = True
@@ -155,17 +148,15 @@ num_interv_data = int(opt.num_samples - opt.obs_data)
 interv_data_per_set = int(num_interv_data / n_interv_sets)
 print()
 
-@jit
-def hard_elbo(P_params, L_params, rng_key, interv_nodes, x_data):
+assert opt.num_samples > opt.obs_data
+
+
+def hard_elbo(P_params, L_params, proj_params, rng_key, interv_nodes, x_data, interv_values_):
     l_prior = Horseshoe(scale=jnp.ones(l_dim + noise_dim) * horseshoe_tau)  # * Horseshoe prior over lower triangular matrix L
     rng_key = rnd.split(rng_key, num_outer)[0]
 
     def outer_loop(rng_key: PRNGKey):
         """Computes a term of the outer expectation, averaging over batch size"""
-        obs_KL_term_Z, interv_KL_term_Z = 0., 0.
-
-        if opt.learn_P is False and opt.decoder_layers == "linear":
-            decoder_params = P_params["decoder_bcd/~/linear"]["w"]
 
         (   batch_P,
             batch_P_logits,
@@ -176,18 +167,22 @@ def hard_elbo(P_params, L_params, rng_key, interv_nodes, x_data):
             full_l_batch,
             full_log_prob_l,
             X_recons, 
-        ) = forward.apply(P_params, rng_key, hard, rng_key, interv_nodes, False, opt,
-                        horseshoe_tau, proj_matrix, ground_truth_L, P_params, L_params)
+        ) = forward.apply(P_params, rng_key, hard, rng_key, interv_nodes, False, opt, horseshoe_tau, 
+                proj_matrix, ground_truth_L, interv_values_, P_params, L_params, proj_params)
 
         if opt.train_loss == "mse":     # ! MSE Loss
             likelihoods = -jit(vmap(get_mse, (None, 0), 0))(x_data, X_recons)
+            z_mse = 0.0
+            
+            if opt.z_mse and opt.z_mse is True:
+                z_mse = 10 * jit(vmap(get_mse, (None, 0), 0))(z_gt, batch_qz_samples)
         
-        elif opt.train_loss == "LL":    # ! -LL loss
+        elif opt.train_loss == "LL":    # ! NLL loss
             vectorized_log_prob_X = vmap(log_prob_X, in_axes=(None, 0, 0, 0, None, None, None, None, None))
             likelihoods = vectorized_log_prob_X(x, batch_log_noises, batch_P, batch_L, decoder_params, 
                                                 proj_matrix, opt.fix_decoder, opt.cov_space, opt.s_prior_std)
 
-        final_term = likelihoods
+        final_term = likelihoods - z_mse
 
         # ! KL over P
         if opt.P_KL is True:
@@ -202,115 +197,84 @@ def hard_elbo(P_params, L_params, rng_key, interv_nodes, x_data):
             KL_term_L = full_log_prob_l - l_prior_probs
             final_term -= KL_term_L
 
-
         if opt.obs_Z_KL is True and opt.Z_KL == 'joint':
-
             batch_get_obs_joint_dist_params = vmap(get_joint_dist_params, (0, 0), (0, 0))
             batch_q_z_obs_joint_mus, batch_q_z_obs_joint_covars = batch_get_obs_joint_dist_params(jnp.exp(batch_log_noises), batch_W)
-            obs_KL_term_Z = vmap(get_single_kl, (None, None, 0, 0, None), (0))(p_z_obs_joint_covar, 
-                                                                                p_z_obs_joint_mu, 
-                                                                                batch_q_z_obs_joint_covars, 
-                                                                                batch_q_z_obs_joint_mus, 
-                                                                                opt) 
+            vmapped_kl = vmap(get_single_kl, (None, None, 0, 0, None), (0))
+            obs_KL_term_Z = vmapped_kl(p_z_obs_joint_covar, p_z_obs_joint_mu, 
+                                        batch_q_z_obs_joint_covars, batch_q_z_obs_joint_mus, opt) 
+            
             final_term -= obs_KL_term_Z
 
-        if opt.interv_Z_KL is True and opt.Z_KL == 'joint':
-
-            batch_get_interv_joint_dist_params = vmap(get_interv_joint_dist_params, (0, 0), (0, 0))
-            batch_q_z_interv_joint_mus, batch_q_z_interv_joint_covars = batch_get_interv_joint_dist_params(jnp.exp(batch_log_noises), batch_W)
-            kl_across_interv = vmap(get_single_kl, (0, 0, 0, 0, None), (0))
-            batch_KL_across_interv = vmap(kl_across_interv, (None, None, 0, 0, None), 0)
-            interv_KL_term_Z = batch_KL_across_interv(p_z_interv_joint_covars,
-                                                        p_z_interv_joint_mus,
-                                                        batch_q_z_interv_joint_covars,
-                                                        batch_q_z_interv_joint_mus,
-                                                        opt)
-            final_term -= jnp.mean(interv_KL_term_Z, axis=1)
-
         return -jnp.mean(final_term)
-
-    # outer_loop(rng_keys[0])
+    
     _, elbos = lax.scan(lambda _, rng_key: (None, outer_loop(rng_key)), None, rng_keys)
     return jnp.mean(elbos)
 
-@jit
-def gradient_step(P_params, L_params, rng_key, interv_nodes, z_gt_data, x_data):
-    loss, grads = value_and_grad(hard_elbo, argnums=(0, 1))(P_params, L_params, rng_key, interv_nodes, x_data)
 
-    elbo_grad_P, elbo_grad_L = tree_map(lambda x_: x_, grads)
+@jit
+def gradient_step(P_params, L_params, proj_params, rng_key, interv_nodes, z_gt_data, x_data, interv_values_):
+    loss, grads = value_and_grad(hard_elbo, argnums=(0, 1, 2))(P_params, L_params, proj_params, rng_key, interv_nodes, x_data, interv_values_)
+    elbo_grad_P, elbo_grad_L, elbo_grad_decoder = tree_map(lambda x_: x_, grads)
 
     # * L2 regularization over parameters of P (contains p network and decoder)
     if opt.l2_reg is True:
         l2_elbo_grad_P = grad(lambda p: 0.5 * sum(jnp.sum(jnp.square(param)) for param in jax.tree_leaves(p)))(P_params)
         elbo_grad_P = tree_multimap(lambda x_, y: x_ + y, elbo_grad_P, l2_elbo_grad_P)
 
+    if opt.reg_decoder is True and opt.decoder_layers == 'linear' and opt.learn_P is False:
+        l1_elbo_grad_P = grad(lambda p: sum(jnp.sum(jnp.abs(param)) for param in jax.tree_leaves(p)))(P_params)
+        elbo_grad_P = tree_multimap(lambda x_, y: x_ + y, elbo_grad_P, l1_elbo_grad_P)
+
     rng_key_ = rnd.split(rng_key, num_outer)[0]
 
-    (batch_P, _, batch_L, batch_log_noises, batch_W, z_samples, _, _, X_recons) = forward.apply(
-        P_params, rng_key_, hard, rng_key_, interv_nodes, False, opt,
-        horseshoe_tau, proj_matrix, ground_truth_L, P_params, L_params
-    )
+    (   batch_P,
+        batch_P_logits,
+        batch_L,
+        batch_log_noises,
+        batch_W,
+        z_samples,
+        full_l_batch,
+        full_log_prob_l,
+        X_recons, 
+    ) = forward.apply(P_params, rng_key, hard, rng_key, interv_nodes, False, opt, horseshoe_tau, 
+            proj_matrix, ground_truth_L, interv_values_, P_params, L_params, proj_params)
 
     L_elems = vmap(get_lower_elems, (0, None), 0)(batch_L, dim)
-
     batch_get_obs_joint_dist_params = vmap(get_joint_dist_params, (0, 0), (0, 0))
     batch_q_z_obs_joint_mus, batch_q_z_obs_joint_covars = batch_get_obs_joint_dist_params(jnp.exp(batch_log_noises), batch_W)
-    obs_KL_term_Z = vmap(get_single_kl, (None, None, 0, 0, None), (0))(p_z_obs_joint_covar, 
-                                                                        p_z_obs_joint_mu, 
-                                                                        batch_q_z_obs_joint_covars, 
-                                                                        batch_q_z_obs_joint_mus, 
-                                                                        opt) 
+    true_obs_KL_term_Z = vmap(get_single_kl, (None, None, 0, 0, None), (0))(p_z_obs_joint_covar, p_z_obs_joint_mu, 
+                                                                        batch_q_z_obs_joint_covars, batch_q_z_obs_joint_mus, opt) 
 
-    mse_dict = {
+    log_dict = {
         "L_mse": jnp.mean(vmap(get_mse, (None, 0), 0)(gt_L_elems, L_elems)),
         "z_mse": jnp.mean(vmap(get_mse, (None, 0), 0)(z_gt_data, z_samples)),
         "x_mse": jnp.mean(vmap(get_mse, (None, 0), 0)(x_data, X_recons)),
         "L_elems": jnp.mean(L_elems[:, -1]),
-        "obs_KL_term_Z": jnp.mean(obs_KL_term_Z)
+        "true_obs_KL_term_Z": jnp.mean(true_obs_KL_term_Z)
     }
-
-    if opt.interv_Z_KL is True and opt.Z_KL == 'joint':
-        batch_get_interv_joint_dist_params = vmap(get_interv_joint_dist_params, (0, 0), (0, 0))
-        batch_q_z_interv_joint_mus, batch_q_z_interv_joint_covars = batch_get_interv_joint_dist_params(jnp.exp(batch_log_noises), batch_W)
-        kl_across_interv = vmap(get_single_kl, (0, 0, 0, 0, None), (0))
-        batch_KL_across_interv = vmap(kl_across_interv, (None, None, 0, 0, None), 0)
-        interv_KL_term_Z = batch_KL_across_interv(p_z_interv_joint_covars,
-                                                    p_z_interv_joint_mus,
-                                                    batch_q_z_interv_joint_covars,
-                                                    batch_q_z_interv_joint_mus,
-                                                    opt)
-
-        mse_dict['interv_KL_term_Z'] = interv_KL_term_Z
     
-    return (loss, rng_key, elbo_grad_P, elbo_grad_L, mse_dict, batch_W, z_samples)
+    return (loss, rng_key, elbo_grad_P, elbo_grad_L, elbo_grad_decoder, log_dict, batch_W, z_samples, X_recons)
 
-def lower(theta):
-    """
-        Given n(n-1)/2 parameters theta, form a
-        strictly lower-triangular matrix
-    """
-    out = jnp.zeros((dim, dim))
-    out = ops.index_update(out, jnp.tril_indices(dim, -1), theta)
-    return out.T
 
-assert opt.num_samples > opt.obs_data
 
 for i in range(n_interv_sets + 1):
-
     x_data = x[ : opt.obs_data + int(i * interv_data_per_set) ]
     z_gt_data = z_gt[ : opt.obs_data + int(i * interv_data_per_set) ]
-    interv_targets_ = interv_nodes[ : opt.obs_data + int(i * interv_data_per_set) ]
 
-    ( P_params, L_params, 
-    P_opt_params, L_opt_params, 
-    rng_keys, forward,
-    opt_P, opt_L ) = init_parallel_params(rng_key, key, opt, num_devices, interv_targets_, 
-                                            horseshoe_tau, proj_matrix, ground_truth_L)
+    interv_targets_ = interv_nodes[ : opt.obs_data + int(i * interv_data_per_set) ]
+    interv_values_ = interv_values[ : opt.obs_data + int(i * interv_data_per_set) ]
+
+    ( P_params, L_params, decoder_params, P_opt_params, 
+        L_opt_params, decoder_opt_params, rng_keys, 
+        forward, opt_P, opt_L, opt_decoder) = init_parallel_params(rng_key, key, opt, num_devices, interv_targets_, 
+                                                horseshoe_tau, proj_matrix, ground_truth_L, interv_values_)
+    decoder_sparsity_mask = jnp.where(decoder_params != 0., 1.0, 0.0)
 
     for step in tqdm(range(opt.num_steps)):
-        (loss, rng_key, elbo_grad_P, 
-        elbo_grad_L, mse_dict, batch_W, z_samples) = gradient_step(P_params, L_params, rng_key, interv_targets_, z_gt_data, x_data)
-
+        (loss, rng_key, elbo_grad_P, elbo_grad_L, elbo_grad_decoder, 
+        mse_dict, batch_W, z_samples, X_recons) = gradient_step(P_params, L_params, decoder_params, rng_key, interv_targets_, z_gt_data, x_data, interv_values_)
+        
         # * Update P and decoder
         P_updates, P_opt_params = opt_P.update(elbo_grad_P, P_opt_params, P_params)
         P_params = optax.apply_updates(P_params, P_updates)
@@ -318,11 +282,17 @@ for i in range(n_interv_sets + 1):
         # * Update L network
         L_updates, L_opt_params = opt_L.update(elbo_grad_L, L_opt_params, L_params)
         L_params = optax.apply_updates(L_params, L_updates)
+
+        # * update decoder
+        elbo_grad_decoder = jnp.multiply(elbo_grad_decoder, decoder_sparsity_mask)
+        decoder_updates, decoder_opt_params = opt_decoder.update(elbo_grad_decoder, decoder_opt_params, decoder_params)
+        decoder_params = optax.apply_updates(decoder_params, decoder_updates)
+
         if jnp.any(jnp.isnan(ravel_pytree(L_params)[0])):   raise Exception("Got NaNs in L params")
 
     print(f"Trained on {opt.obs_data} observational data and {int(i * interv_data_per_set)} interventional data")
 
-    mean_dict = eval_mean(P_params, L_params, z_gt_data, rk(step), True, tau, step, 
+    mean_dict = eval_mean(P_params, L_params, decoder_params, z_gt_data, rk(step), True, tau, step, 
                 interv_targets_, forward, horseshoe_tau, proj_matrix, ground_truth_L, 
                 sd.W, ground_truth_sigmas, opt)
 
@@ -332,7 +302,7 @@ for i in range(n_interv_sets + 1):
         "X_MSE": onp.array(mse_dict["x_mse"]),
         "L_MSE": onp.array(mse_dict["L_mse"]),
         "L_elems_avg": onp.array(mse_dict["L_elems"]),
-        "obs_KL_term_Z": onp.array(mse_dict["obs_KL_term_Z"]),
+        "true_obs_KL_term_Z": onp.array(mse_dict["true_obs_KL_term_Z"]),
         "Evaluations/SHD": mean_dict["shd"],
         "Evaluations/SHD_C": mean_dict["shd_c"],
         "Evaluations/AUROC": mean_dict["auroc"],
@@ -343,7 +313,7 @@ for i in range(n_interv_sets + 1):
     x_axis = int(i * interv_data_per_set)
     print_metrics(x_axis, loss, mse_dict, mean_dict, opt)
 
-    pred_W_means, pred_W_stds = lower(L_params[:l_dim]), lower(jnp.exp(L_params[l_dim:]))
+    pred_W_means, pred_W_stds = lower(L_params[:l_dim], dim), lower(jnp.exp(L_params[l_dim:]), dim)
     print("pred_W_means: ", pred_W_means)
     print("pred_W_stds: ", pred_W_stds)
 
@@ -352,14 +322,3 @@ for i in range(n_interv_sets + 1):
         plt.savefig(join(logdir, 'pred_w.png'))
         wandb_dict["graph_structure(GT-pred)/Predicted W"] = wandb.Image(join(logdir, 'pred_w.png'))
         wandb.log(wandb_dict, step=x_axis)
-
-
-
-
-
-
-
-
-
-
-

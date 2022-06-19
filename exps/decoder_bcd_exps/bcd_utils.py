@@ -499,6 +499,7 @@ def get_joint_dist_params(sigma, W):
     
     return mu_joint, Sigma_joint
 
+
 def get_interv_joint_dist_params(sigma, W):
     """
         Give the joint interventional distribution for every single node intervention
@@ -517,6 +518,7 @@ def get_interv_joint_dist_params(sigma, W):
             interv_Sigma_joints = jnp.concatenate((interv_Sigma_joints, interv_Sigma_joint[jnp.newaxis, :]), axis=0)
 
     return interv_mu_joints, interv_Sigma_joints
+
 
 def get_cond_dist_params(node_mus, node_vars, W, P):
     """
@@ -539,9 +541,11 @@ def get_cond_dist_params(node_mus, node_vars, W, P):
     node_covars = jnp.diag(node_vars)
     return node_mus, node_covars
 
+
 def get_W_tilde(W, idx):
     W.at[:, idx].set(0.)
     return W
+
 
 def get_interv_dists_for_interv(node_mu, node_vars, batch_W, batch_P, interv_idx):
     idx = jnp.where(interv_idx, size=1)
@@ -549,9 +553,11 @@ def get_interv_dists_for_interv(node_mu, node_vars, batch_W, batch_P, interv_idx
     batch_qz_mu_interv, batch_qz_covar_interv = vmap(get_cond_dist_params, (None, 0, 0, 0), (0, 0))(node_mu, node_vars, batch_W_tilde, batch_P)
     return batch_qz_mu_interv, batch_qz_covar_interv, batch_W_tilde
 
+
 def get_posterior_interv_dists(node_mus, node_vars, batch_W, batch_P, interv_idxs):
     batch_qz_mu_intervs, batch_qz_covar_intervs, batch_W_tildes = vmap(get_interv_dists_for_interv, (None, None, None, None, 0), (0, 0, 0))(node_mus, node_vars, batch_W, batch_P, interv_idxs)
     return batch_qz_mu_intervs, batch_qz_covar_intervs
+
 
 def get_prior_interv_dists(node_mus, node_vars, W, P, opt):
     pz_mu_intervs, pz_covar_intervs = None, None
@@ -572,8 +578,9 @@ def get_prior_interv_dists(node_mus, node_vars, W, P, opt):
 
     return pz_mu_intervs, pz_covar_intervs
 
+
 def forward_fn(hard, rng_keys, interv_targets, init, opt, horseshoe_tau, proj_matrix,
-                ground_truth_L, P_params=None, L_params=None, decoder_params=None, log_stds_max=10.0):
+                ground_truth_L, interv_values, P_params=None, L_params=None, decoder_params=None, log_stds_max=10.0):
     dim = opt.num_nodes
     l_dim = dim * (dim - 1) // 2
     do_ev_noise = opt.do_ev_noise
@@ -586,10 +593,10 @@ def forward_fn(hard, rng_keys, interv_targets, init, opt, horseshoe_tau, proj_ma
             P=proj_matrix, L=jnp.array(ground_truth_L), decoder_layers=opt.decoder_layers, 
             learn_L=opt.learn_L, pred_last_L=opt.pred_last_L, fix_decoder=opt.fix_decoder)
 
-    return model(hard, rng_keys, interv_targets, init, P_params, L_params, decoder_params, opt.interv_value)
+    return model(hard, rng_keys, interv_targets, interv_values, init, P_params, L_params, decoder_params)
 
 def init_parallel_params(rng_key, key, opt, num_devices, no_interv_targets, 
-                        horseshoe_tau, proj_matrix, L):
+                        horseshoe_tau, proj_matrix, L, interv_values):
     dim = opt.num_nodes
     l_dim = dim * (dim - 1) // 2
     forward = hk.transform(forward_fn)
@@ -615,14 +622,13 @@ def init_parallel_params(rng_key, key, opt, num_devices, no_interv_targets,
         sparsity_mask = jnp.where(sparsity_mask, 1.0, rnd.bernoulli(key, 1 - opt.proj_sparsity))
     
     decoder_params = jnp.multiply(sparsity_mask, rnd.uniform(temp_key, shape=(dim, dim), minval=-1.0, maxval=1.0))
-    
     # @pmap
     def init_params(rng_key: PRNGKey):
         # * mus and stds (indicated by -1) of L
         L_params = jnp.concatenate((jnp.zeros(l_dim), jnp.zeros(l_dim) - 1, ))
         
         P_params = forward.init(next(key), False, rng_key, jnp.array(no_interv_targets), True, opt,
-                        horseshoe_tau, proj_matrix, L)
+                        horseshoe_tau, proj_matrix, L, interv_values)
         
         if opt.factorized:  raise NotImplementedError
         P_opt_params = opt_P.init(P_params)

@@ -114,8 +114,6 @@ def log_gt_graph(ground_truth_W, logdir, exp_config_dict, opt, writer):
     writer.add_image('graph_structure(GT-pred)/Ground truth W', gt_graph_image, 0, dataformats='HWC')
 
 
-
-
 def print_metrics(i, loss, mse_dict, mean_dict, opt):
     print()
     print(f"Step {i} | {loss}")
@@ -125,7 +123,6 @@ def print_metrics(i, loss, mse_dict, mean_dict, opt):
     
     if opt.Z_KL is True:
         print(f"Z_KL: {np.array(mse_dict['Z_KL'])}")
-
 
 
 def eval_mean(P_params, L_params, decoder_params, data, rng_key, do_shd_c=True, tau=1, step = None, 
