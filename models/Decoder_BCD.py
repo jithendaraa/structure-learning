@@ -26,7 +26,7 @@ class Decoder_BCD(hk.Module):
     def __init__(self, dim, l_dim, noise_dim, batch_size, hidden_size, max_deviation, 
                 do_ev_noise, proj_dims, log_stds_max=10.0, logit_constraint=10, tau=None, subsample=False, 
                 s_prior_std=3.0, num_bethe_iters=20, horseshoe_tau=None, learn_noise=False, noise_sigma=0.1,
-                P=None, L=None, decoder_layers='linear', learn_L=True, pred_last_L = 1):
+                P=None, L=None, decoder_layers='linear', learn_L=True, pred_last_L = 1, fix_decoder=False):
         super().__init__()
 
         self.dim = dim
@@ -47,6 +47,7 @@ class Decoder_BCD(hk.Module):
         self.P = P
         self.L = L
         self.num_elems = pred_last_L
+        self.fix_decoder = fix_decoder
 
         if self.do_ev_noise:
             self.noise_sigma = jnp.array([[noise_sigma]] * self.batch_size)
@@ -107,13 +108,14 @@ class Decoder_BCD(hk.Module):
             p_logits = jnp.tanh(p_logits / self.logit_constraint) * self.logit_constraint
         return p_logits.reshape((-1, self.dim, self.dim))
     
-    def eltwise_ancestral_sample(self, weighted_adj_mat, perm_mat, eps, rng_key, interv_target=None, interv_value=0.0):
+    def eltwise_ancestral_sample(self, weighted_adj_mat, perm_mat, eps, rng_key, interv_target=None, interv_values=None):
         """
             eps: standard deviation
             Given a single weighted adjacency matrix perform ancestral sampling
             Use the permutation matrix to get the topsorted order.
             Traverse topologically and give one ancestral sample using weighted_adj_mat and eps
         """
+
         sample = jnp.zeros((self.dim+1))
         ordering = jnp.arange(0, self.dim)
 
@@ -126,18 +128,19 @@ class Decoder_BCD(hk.Module):
             mean = sample[:-1] @ theta[:, j]
             # ! Use lax.cond if possible 
             sample = index_update(sample, index[j], mean + noise_terms[j])
-            sample = index_update(sample, index[interv_target], interv_value)
+            sample = index_update(sample, index[interv_target], interv_values[interv_target])
 
         return sample[:-1]
 
-    def ancestral_sample(self, weighted_adj_mat, perm_mat, eps, rng_key, interv_targets, interv_value=0.0):
+    def ancestral_sample(self, weighted_adj_mat, perm_mat, eps, rng_key, interv_targets, interv_values):
         """
             Gives `n_samples` = len(interv_targets) of data generated from one weighted_adj_mat and interventions from `interv_targets`. 
             Each of these samples will be an ancestral sample taking into account the ith intervention in interv_targets
         """
 
+        interv_values = jnp.concatenate( ( interv_values, jnp.zeros((len(interv_targets), 1)) ), axis=1)
         rng_keys = rnd.split(rng_key, len(interv_targets))
-        samples = vmap(self.eltwise_ancestral_sample, (None, None, None, 0, 0, None), (0))(weighted_adj_mat, perm_mat, eps, rng_keys, interv_targets, interv_value)
+        samples = vmap(self.eltwise_ancestral_sample, (None, None, None, 0, 0, 0), (0))(weighted_adj_mat, perm_mat, eps, rng_keys, interv_targets, interv_values)
         return samples
 
     def get_GT_L(self):
@@ -197,10 +200,13 @@ class Decoder_BCD(hk.Module):
 
         return full_l_batch, full_log_prob_l
     
-    def __call__(self, hard, rng_key, interv_targets, init=False, 
-                P_params=None, L_params=None, decoder_params=None, interv_value=0.0):
+    def __call__(self, hard, rng_key, interv_targets, interv_values, init=False, 
+                P_params=None, L_params=None, decoder_params=None):
         """
             [TODO]
+            hard: bool
+            rng_key: jax PRNG Key
+            interv_values: jnp.array of shape (opt.num_samples, opt.num_nodes)
         """
 
         if init:
@@ -210,14 +216,16 @@ class Decoder_BCD(hk.Module):
         batched_qz_samples, X_recons = jnp.array([]), jnp.array([])
 
         # ? 1. Draw L ~ q_ϕ(L); Σ are not learned, they are fixed
-        if self.learn_L is True: 
+        if self.learn_L is True:    
             l_batch, full_log_prob_l, _ = self.sample_L(L_params, rng_key)
         
-        elif self.learn_L == 'partial': # ! TEMPORARY TEST: remove later. Fixes L, learns only the last element.
+        # ! TEMPORARY TEST: remove later. Fixes L, learns only the last element.
+        elif self.learn_L == 'partial': 
             l_batch, full_log_prob_l = self.sample_partial_L(L_params, rng_key)
 
+        # ! TEMPORARY TEST: remove later. Fixes L, no longer learn it.
         elif self.learn_L is False: 
-            l_batch, full_log_prob_l = self.get_GT_L() # ! TEMPORARY TEST: remove later. Fixes L, no longer learn it.
+            l_batch, full_log_prob_l = self.get_GT_L() 
         
         w_noise = self.log_noise_sigma
 
@@ -241,11 +249,19 @@ class Decoder_BCD(hk.Module):
         batched_W = vmap(self.sample_W, (0, 0), (0))(batched_L, batched_P)
         
         rng_keys = rnd.split(rng_key, self.batch_size)
-        batched_qz_samples = vmap(self.ancestral_sample, (0, 0, 0, 0, None, None), (0))(batched_W, batched_P, jnp.exp(batched_log_noises), rng_keys, interv_targets, interv_value)
+        # batched_qz_samples = self.ancestral_sample(batched_W[0], batched_P[0], jnp.exp(batched_log_noises)[0], 
+        #                     rng_keys[0], interv_targets, interv_values)
 
-        # X_recons = vmap(vmap(self.decoder, (0), (0)), (0), (0))(batched_qz_samples)
-        # X_recons = vmap(self.project, (0), (0))(batched_qz_samples, self.P)
-        X_recons = vmap(self.project, (0, None), (0))(batched_qz_samples, decoder_params)
+        batched_ancestral_sample = vmap(self.ancestral_sample, (0, 0, 0, 0, None, None), (0))
+
+        batched_qz_samples = batched_ancestral_sample(batched_W, batched_P, jnp.exp(batched_log_noises), 
+                                                        rng_keys, interv_targets, interv_values)
+
+        if self.fix_decoder is True:
+            print("Fixed decoder")
+            X_recons = vmap(self.project, (0, None), (0))(batched_qz_samples, self.P)
+        else:
+            X_recons = vmap(self.project, (0, None), (0))(batched_qz_samples, decoder_params)
 
         return (batched_P, batched_P_logits, batched_L, batched_log_noises, 
                 batched_W, batched_qz_samples, full_l_batch, full_log_prob_l, X_recons)

@@ -209,20 +209,20 @@ fixed_decoder_supervised_dbcd:
 
 decoder_bcd_across_intervs:
   exp_name: 'linear_decoder_bcd_across_intervs'
-  num_nodes: 6
-  proj_dims: 6
+  num_nodes: 8
+  proj_dims: 1000
   exp_edges: 1.0
-  data_seed: 2
+  data_seed: 1
   off_wandb: True
   num_samples: 3600
   obs_data: 300
-  interv_type: 'single'
+  interv_type: 'multi'
 
   learn_L: True    # 'partial'
   obs_Z_KL: False
   across_interv: True
  
-  interv_value: 100.0
+  interv_value: 'uniform'
   use_proxy: False
   identity_proj: False
   proj_sparsity: 0.0

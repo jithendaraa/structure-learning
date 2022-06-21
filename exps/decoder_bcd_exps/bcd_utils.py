@@ -602,8 +602,6 @@ def init_parallel_params(rng_key, key, opt, num_devices, no_interv_targets,
     forward = hk.transform(forward_fn)
     temp_key = rnd.PRNGKey(0)
 
-    assert opt.proj_dims == dim
-
     P_layers = [optax.scale_by_belief(eps=1e-8), optax.scale(-opt.lr)]
     L_layers = [optax.scale_by_belief(eps=1e-8), optax.scale(-opt.lr)]
     decoder_layers = [optax.scale_by_belief(eps=1e-8), optax.scale(-opt.lr)]
@@ -612,16 +610,14 @@ def init_parallel_params(rng_key, key, opt, num_devices, no_interv_targets,
     opt_L = optax.chain(*L_layers)
     opt_decoder = optax.chain(*decoder_layers)
 
-    sparsity_mask = jnp.eye(dim)
-    
     if opt.proj_sparsity == 0.0: 
-        sparsity_mask = jnp.ones((dim, dim))
+        sparsity_mask = jnp.ones((dim, opt.proj_dims))
 
     elif opt.proj_sparsity < 1.0:
         raise NotImplementedError
         sparsity_mask = jnp.where(sparsity_mask, 1.0, rnd.bernoulli(key, 1 - opt.proj_sparsity))
     
-    decoder_params = jnp.multiply(sparsity_mask, rnd.uniform(temp_key, shape=(dim, dim), minval=-1.0, maxval=1.0))
+    decoder_params = jnp.multiply(sparsity_mask, rnd.uniform(temp_key, shape=(dim, opt.proj_dims), minval=-1.0, maxval=1.0))
     # @pmap
     def init_params(rng_key: PRNGKey):
         # * mus and stds (indicated by -1) of L

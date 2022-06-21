@@ -264,7 +264,7 @@ for i in range(n_interv_sets + 1):
 
     interv_targets_ = interv_nodes[ : opt.obs_data + int(i * interv_data_per_set) ]
     interv_values_ = interv_values[ : opt.obs_data + int(i * interv_data_per_set) ]
-
+    
     ( P_params, L_params, decoder_params, P_opt_params, 
         L_opt_params, decoder_opt_params, rng_keys, 
         forward, opt_P, opt_L, opt_decoder) = init_parallel_params(rng_key, key, opt, num_devices, interv_targets_, 
@@ -292,7 +292,7 @@ for i in range(n_interv_sets + 1):
 
     print(f"Trained on {opt.obs_data} observational data and {int(i * interv_data_per_set)} interventional data")
 
-    mean_dict = eval_mean(P_params, L_params, decoder_params, z_gt_data, rk(step), True, tau, step, 
+    mean_dict = eval_mean(P_params, L_params, decoder_params, z_gt_data, rk(step), interv_values_, True, tau, step, 
                 interv_targets_, forward, horseshoe_tau, proj_matrix, ground_truth_L, 
                 sd.W, ground_truth_sigmas, opt)
 
@@ -309,7 +309,6 @@ for i in range(n_interv_sets + 1):
         "train sample KL": mean_dict["sample_kl"],
     }
 
-    if opt.interv_Z_KL is True and opt.Z_KL == 'joint':    wandb_dict['interv_KL_term_Z'] = onp.array(mse_dict['interv_KL_term_Z'])
     x_axis = int(i * interv_data_per_set)
     print_metrics(x_axis, loss, mse_dict, mean_dict, opt)
 

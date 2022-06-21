@@ -120,8 +120,7 @@ def get_data(opt, n_intervention_sets, target, data_=None, model='dibs', interv_
 
     if opt.proj == 'linear': 
         if opt.identity_proj is True:   P = jnp.eye(opt.proj_dims)
-        else:
-            P = jnp.array(10 * np.random.rand(opt.num_nodes, opt.proj_dims)) 
+        else:       P = jnp.array(10 * np.random.rand(opt.num_nodes, opt.proj_dims)) 
         x = z @ P
         print(f'Data matrix after linear projection from {opt.num_nodes} dims to {opt.proj_dims} dims: {x.shape}')  
         

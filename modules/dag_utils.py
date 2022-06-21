@@ -187,7 +187,7 @@ class SyntheticDataset(object):
 
     @staticmethod
     def intervene_sem(
-        W, n, sem_type, sigmas=None, idx_to_fix=None, value_to_fix=None,
+        W, n, sem_type, sigmas=None, idx_to_fix=None, values_to_fix=None,
     ):
         """Simulate samples from SEM with specified type of noise.
 
@@ -197,7 +197,7 @@ class SyntheticDataset(object):
             sem_type: {linear-gauss,linear-exp,linear-gumbel}
             noise_scale: scale parameter of noise distribution in linear SEM
             idx_to_fix: intervened node or list of intervened nodes
-            value_to_fix: intervened value
+            values_to_fix: intervened values
         Returns:
             X: [n,d] sample matrix
         """
@@ -215,9 +215,9 @@ class SyntheticDataset(object):
             parents = list(G.predecessors(j))
 
             if isinstance(idx_to_fix, int) and j == idx_to_fix:
-                X[:, j] = value_to_fix
+                X[:, j] = values_to_fix[:, j]
             elif len(np.argwhere(idx_to_fix == j)) > 0:
-                X[:, j] = value_to_fix
+                X[:, j] = values_to_fix[:, j]
             else:
                 eta = X[:, parents].dot(W[parents, j])
                 if sem_type == "linear-gauss":
