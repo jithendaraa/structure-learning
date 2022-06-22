@@ -310,9 +310,9 @@ for j in range(len(edge_noises)):
         "Evaluations/SHD": mean_dict["shd"],
         "Evaluations/SHD_C": mean_dict["shd_c"],
         "Evaluations/AUROC": mean_dict["auroc"],
-        "Evaluations/AUPRC": mean_dict["auprc"],
+        "Evaluations/AUPRC_W": mean_dict["auprc_w"],
+        "Evaluations/AUPRC_G": mean_dict["auprc_g"],
         "train sample KL": mean_dict["sample_kl"],
-        'edge_noise': edge_noise,
     }
 
     if opt.use_proxy:   wandb_dict['proxy_obs_KL_term_Z'] = onp.array(mse_dict["proxy_obs_KL_term_Z"])

@@ -296,6 +296,8 @@ for i in range(n_interv_sets + 1):
     mean_dict = eval_mean(P_params, L_params, decoder_params, z_gt_data, rk(step), interv_values_, True, tau, step, 
                 interv_targets_, forward, horseshoe_tau, proj_matrix, ground_truth_L, 
                 sd.W, ground_truth_sigmas, opt)
+
+    print(f'AUPRC: {mean_dict["auprc_w"]}, {mean_dict["auprc_g"]}' )
     
     wandb_dict = {
         "ELBO": onp.array(loss),
@@ -307,7 +309,8 @@ for i in range(n_interv_sets + 1):
         "Evaluations/SHD": mean_dict["shd"],
         "Evaluations/SHD_C": mean_dict["shd_c"],
         "Evaluations/AUROC": mean_dict["auroc"],
-        "Evaluations/AUPRC": mean_dict["auprc"],
+        "Evaluations/AUPRC_W": mean_dict["auprc_w"],
+        "Evaluations/AUPRC_G": mean_dict["auprc_g"],
         "train sample KL": mean_dict["sample_kl"],
     }
 
