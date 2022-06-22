@@ -197,6 +197,7 @@ def hard_elbo(P_params, L_params, proj_params, rng_key, interv_nodes, x_data, in
             KL_term_L = full_log_prob_l - l_prior_probs
             final_term -= KL_term_L
 
+        # ! KL over GT and posterior observational joint distributions: KL( q(z_1,...z_d) according to \hat{W} || p(z_1,...z_d) according to W_GT )
         if opt.obs_Z_KL is True and opt.Z_KL == 'joint':
             batch_get_obs_joint_dist_params = vmap(get_joint_dist_params, (0, 0), (0, 0))
             batch_q_z_obs_joint_mus, batch_q_z_obs_joint_covars = batch_get_obs_joint_dist_params(jnp.exp(batch_log_noises), batch_W)
@@ -295,7 +296,7 @@ for i in range(n_interv_sets + 1):
     mean_dict = eval_mean(P_params, L_params, decoder_params, z_gt_data, rk(step), interv_values_, True, tau, step, 
                 interv_targets_, forward, horseshoe_tau, proj_matrix, ground_truth_L, 
                 sd.W, ground_truth_sigmas, opt)
-
+    
     wandb_dict = {
         "ELBO": onp.array(loss),
         "Z_MSE": onp.array(mse_dict["z_mse"]),
@@ -306,6 +307,7 @@ for i in range(n_interv_sets + 1):
         "Evaluations/SHD": mean_dict["shd"],
         "Evaluations/SHD_C": mean_dict["shd_c"],
         "Evaluations/AUROC": mean_dict["auroc"],
+        "Evaluations/AUPRC": mean_dict["auprc"],
         "train sample KL": mean_dict["sample_kl"],
     }
 
