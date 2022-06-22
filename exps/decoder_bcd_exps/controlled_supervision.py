@@ -164,7 +164,7 @@ for j in range(len(edge_noises)):
     print(decoder_sparsity_mask)
     print()
 
-    def hard_elbo(P_params, L_params, proj_params, rng_key, interv_nodes, x_data):
+    def hard_elbo(P_params, L_params, proj_params, rng_key, interv_nodes, x_data, interv_values):
         l_prior = Horseshoe(scale=jnp.ones(l_dim + noise_dim) * horseshoe_tau)  # * Horseshoe prior over lower triangular matrix L
         rng_key = rnd.split(rng_key, num_outer)[0]
 
@@ -310,6 +310,7 @@ for j in range(len(edge_noises)):
         "Evaluations/SHD": mean_dict["shd"],
         "Evaluations/SHD_C": mean_dict["shd_c"],
         "Evaluations/AUROC": mean_dict["auroc"],
+        "Evaluations/AUPRC": mean_dict["auprc"],
         "train sample KL": mean_dict["sample_kl"],
         'edge_noise': edge_noise,
     }
