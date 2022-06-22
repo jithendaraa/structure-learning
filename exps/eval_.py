@@ -133,6 +133,7 @@ def eval_mean(P_params, L_params, decoder_params, data, rng_key, interv_values, 
         Computes mean error statistics for P, L parameters and data
         data should be observational
     """
+    edge_threshold = 0.3
     hard = True
     dim = opt.num_nodes
     do_ev_noise = opt.do_ev_noise
@@ -150,7 +151,7 @@ def eval_mean(P_params, L_params, decoder_params, data, rng_key, interv_values, 
     z_prec = onp.linalg.inv(jnp.cov(data.T))
     w_noise = full_l_batch[:, -noise_dim:]
     Xs = data[:opt.obs_data]
-    auprcs = []
+    auprcs_w, auprcs_g = [], []
 
     def sample_stats(est_W, noise, threshold=0.3, get_wasserstein=False):
         if do_ev_noise is False: raise NotImplementedError("")
@@ -158,13 +159,21 @@ def eval_mean(P_params, L_params, decoder_params, data, rng_key, interv_values, 
         est_noise = jnp.ones(dim) * jnp.exp(noise)
         est_W_clipped = jnp.where(jnp.abs(est_W) > threshold, est_W, 0)
         gt_graph_clipped = jnp.where(jnp.abs(ground_truth_W) > threshold, est_W, 0)
+        
+        binary_est_W = jnp.where(est_W_clipped, 1, 0)
+        binary_gt_graph = jnp.where(gt_graph_clipped, 1, 0)
 
-        gt_graph = nx.from_numpy_matrix(np.array(gt_graph_clipped), create_using=nx.DiGraph)
-        pred_graph = nx.from_numpy_matrix(np.array(est_W_clipped), create_using=nx.DiGraph)
-        auprcs.append(cdt.metrics.precision_recall(gt_graph, pred_graph)[0])
+        gt_graph_w = nx.from_numpy_matrix(np.array(gt_graph_clipped), create_using=nx.DiGraph)
+        pred_graph_w = nx.from_numpy_matrix(np.array(est_W_clipped), create_using=nx.DiGraph)
+
+        gt_graph_g = nx.from_numpy_matrix(np.array(binary_gt_graph), create_using=nx.DiGraph)
+        pred_graph_g = nx.from_numpy_matrix(np.array(binary_est_W), create_using=nx.DiGraph)
+
+        auprcs_w.append(cdt.metrics.precision_recall(gt_graph_w, pred_graph_w)[0])
+        auprcs_g.append(cdt.metrics.precision_recall(gt_graph_g, pred_graph_g)[0])
 
         stats = count_accuracy(ground_truth_W, est_W_clipped)
-        
+
         if get_wasserstein:
             true_wasserstein_distance = precision_wasserstein_loss(ground_truth_sigmas, ground_truth_W, est_noise, est_W_clipped)
             sample_wasserstein_loss = precision_wasserstein_sample_loss(z_prec, est_noise, est_W_clipped)
@@ -193,6 +202,7 @@ def eval_mean(P_params, L_params, decoder_params, data, rng_key, interv_values, 
             stats[key] = stats[key] + [new_stats[key]]
 
     out_stats = {key: onp.mean(stats[key]) for key in stats}
-    out_stats["auroc"] = auroc(batched_W, ground_truth_W, 0.3)
-    out_stats["auprc"] = np.array(auprcs).mean()
+    out_stats["auroc"] = auroc(batched_W, ground_truth_W, edge_threshold)
+    out_stats["auprc_w"] = np.array(auprcs_w).mean()
+    out_stats["auprc_g"] = np.array(auprcs_g).mean()
     return out_stats
