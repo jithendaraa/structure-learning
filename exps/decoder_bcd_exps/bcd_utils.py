@@ -598,6 +598,9 @@ def forward_fn(hard, rng_keys, interv_targets, init, opt, horseshoe_tau, proj_ma
 def init_parallel_params(rng_key, key, opt, num_devices, no_interv_targets, 
                         horseshoe_tau, proj_matrix, L, interv_values):
     dim = opt.num_nodes
+    if opt.do_ev_noise: noise_dim = 1
+    else: noise_dim = dim
+    
     l_dim = dim * (dim - 1) // 2
     forward = hk.transform(forward_fn)
     temp_key = rnd.PRNGKey(0)
@@ -610,19 +613,27 @@ def init_parallel_params(rng_key, key, opt, num_devices, no_interv_targets,
     opt_L = optax.chain(*L_layers)
     opt_decoder = optax.chain(*decoder_layers)
 
-    if opt.proj_sparsity == 0.0: 
-        sparsity_mask = jnp.ones((dim, opt.proj_dims))
+    sparsity_mask = jnp.ones((dim, opt.proj_dims))
+
+    if opt.proj_sparsity == 0.0:    pass # * Don't need to do anything
+
+    elif opt.proj_sparsity == 1.0:  
+        raise NotImplementedError
 
     elif opt.proj_sparsity < 1.0:
         raise NotImplementedError
         sparsity_mask = jnp.where(sparsity_mask, 1.0, rnd.bernoulli(key, 1 - opt.proj_sparsity))
     
     decoder_params = jnp.multiply(sparsity_mask, rnd.uniform(temp_key, shape=(dim, opt.proj_dims), minval=-1.0, maxval=1.0))
+    
     # @pmap
     def init_params(rng_key: PRNGKey):
         # * mus and stds (indicated by -1) of L
-        L_params = jnp.concatenate((jnp.zeros(l_dim), jnp.zeros(l_dim) - 1, ))
-        
+        if opt.learn_noise is False:
+            L_params = jnp.concatenate((jnp.zeros(l_dim), jnp.zeros(l_dim) - 1, ))
+        else:
+            L_params = jnp.concatenate((jnp.zeros(l_dim), jnp.zeros(noise_dim), jnp.zeros(l_dim + noise_dim) - 1,)
+            )
         P_params = forward.init(next(key), False, rng_key, jnp.array(no_interv_targets), True, opt,
                         horseshoe_tau, proj_matrix, L, interv_values)
         

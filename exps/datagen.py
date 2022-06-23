@@ -83,7 +83,6 @@ def generate_interv_data(opt, n_interv_sets, target, model='dibs', interv_node=N
     num_interv_data = opt.num_samples - opt.obs_data
     rng_key = random.PRNGKey(0)
 
-    # ? TODO
     if opt.interv_value == 'uniform':
         interv_values = random.uniform(rng_key, shape=(opt.num_samples, opt.num_nodes), minval=-10.0, maxval=10.0)
     else:
