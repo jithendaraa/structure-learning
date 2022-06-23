@@ -6,3 +6,4 @@ logs/
 out/
 core*
 jax_setup/tmp/
+*.so
