@@ -254,7 +254,10 @@ def gradient_step(P_params, L_params, proj_params, rng_key, interv_nodes, z_gt_d
         "L_elems": jnp.mean(L_elems[:, -1]),
         "true_obs_KL_term_Z": jnp.mean(true_obs_KL_term_Z)
     }
-    
+
+    if opt.learn_noise:
+        log_dict['Noise Sigma MSE'] = jnp.mean(vmap(get_mse, (0, None), 0)(jnp.exp(batch_log_noises), opt.noise_sigma))
+
     return (loss, rng_key, elbo_grad_P, elbo_grad_L, elbo_grad_decoder, log_dict, batch_W, z_samples, X_recons)
 
 
@@ -274,7 +277,7 @@ for i in range(n_interv_sets + 1):
 
     for step in tqdm(range(opt.num_steps)):
         (loss, rng_key, elbo_grad_P, elbo_grad_L, elbo_grad_decoder, 
-        mse_dict, batch_W, z_samples, X_recons) = gradient_step(P_params, L_params, decoder_params, rng_key, interv_targets_, z_gt_data, x_data, interv_values_)
+        log_dict, batch_W, z_samples, X_recons) = gradient_step(P_params, L_params, decoder_params, rng_key, interv_targets_, z_gt_data, x_data, interv_values_)
         
         # * Update P and decoder
         P_updates, P_opt_params = opt_P.update(elbo_grad_P, P_opt_params, P_params)
@@ -301,11 +304,11 @@ for i in range(n_interv_sets + 1):
     
     wandb_dict = {
         "ELBO": onp.array(loss),
-        "Z_MSE": onp.array(mse_dict["z_mse"]),
-        "X_MSE": onp.array(mse_dict["x_mse"]),
-        "L_MSE": onp.array(mse_dict["L_mse"]),
-        "L_elems_avg": onp.array(mse_dict["L_elems"]),
-        "true_obs_KL_term_Z": onp.array(mse_dict["true_obs_KL_term_Z"]),
+        "Z_MSE": onp.array(log_dict["z_mse"]),
+        "X_MSE": onp.array(log_dict["x_mse"]),
+        "L_MSE": onp.array(log_dict["L_mse"]),
+        "L_elems_avg": onp.array(log_dict["L_elems"]),
+        "true_obs_KL_term_Z": onp.array(log_dict["true_obs_KL_term_Z"]),
         "Evaluations/SHD": mean_dict["shd"],
         "Evaluations/SHD_C": mean_dict["shd_c"],
         "Evaluations/AUROC": mean_dict["auroc"],
@@ -314,12 +317,13 @@ for i in range(n_interv_sets + 1):
         "train sample KL": mean_dict["sample_kl"],
     }
 
-    x_axis = int(i * interv_data_per_set)
-    print_metrics(x_axis, loss, mse_dict, mean_dict, opt)
+    if opt.learn_noise:
+        wandb_dict['Noise Sigma MSE'] = log_dict['Noise Sigma MSE']
 
-    pred_W_means, pred_W_stds = lower(L_params[:l_dim], dim), lower(jnp.exp(L_params[l_dim:]), dim)
+    x_axis = int(i * interv_data_per_set)
+    print_metrics(x_axis, loss, log_dict, mean_dict, opt)
+    pred_W_means = lower(L_params[:l_dim], dim)
     print("pred_W_means: ", pred_W_means)
-    print("pred_W_stds: ", pred_W_stds)
 
     if opt.off_wandb is False:  
         plt.imshow(pred_W_means)

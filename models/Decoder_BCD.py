@@ -53,7 +53,6 @@ class Decoder_BCD(hk.Module):
             self.noise_sigma = jnp.array([[noise_sigma]] * self.batch_size)
             self.log_noise_sigma = jnp.log(self.noise_sigma)
         else:   self.noise_sigma = noise_sigma
-        assert self.learn_noise == False
 
         # self.p_model = hk.Sequential([
         #                     hk.Flatten(), 
@@ -161,8 +160,10 @@ class Decoder_BCD(hk.Module):
             [TODO]: fix this
         """
         L_params = cast(jnp.ndarray, L_params)
-        means, log_stds = L_params[: self.l_dim], L_params[self.l_dim :]
-        log_stds = jnp.tanh(log_stds / self.log_stds_max) * self.log_stds_max
+
+        if self.learn_noise:    means, log_stds = L_params[: self.l_dim + self.noise_dim], L_params[self.l_dim + self.noise_dim :]
+        else:                   means, log_stds = L_params[: self.l_dim], L_params[self.l_dim :]
+        if self.log_stds_max is not None:    log_stds = jnp.tanh(log_stds / self.log_stds_max) * self.log_stds_max
 
         # ? Sample L from the Normal
         if self.do_ev_noise:
@@ -227,16 +228,18 @@ class Decoder_BCD(hk.Module):
         elif self.learn_L is False: 
             l_batch, full_log_prob_l = self.get_GT_L() 
         
-        w_noise = self.log_noise_sigma
+        if self.learn_noise:
+            full_l_batch = l_batch
+            batched_log_noises = full_l_batch[:, -self.noise_dim:]
+        else:
+            w_noise = self.log_noise_sigma
+            full_l_batch = jnp.concatenate((l_batch, w_noise), axis=1)
+            batched_log_noises = jnp.ones((self.batch_size, self.dim)) * w_noise.reshape((self.batch_size, self.noise_dim))
+        
+        batched_L = vmap(self.lower, in_axes=(0, None))(l_batch[:,  :self.l_dim], self.dim)
 
-        full_l_batch = jnp.concatenate((l_batch, w_noise), axis=1)
-
-        batched_log_noises = jnp.ones((self.batch_size, self.dim)) * w_noise.reshape((self.batch_size, self.noise_dim))
-        batched_L = vmap(self.lower, in_axes=(0, None))(l_batch, self.dim)
-
-        # ! TEMPORARY TEST
-        # batched_L = self.L[jnp.newaxis, :].repeat(self.batch_size, axis=0) # ! TEMPORARY TEST: remove later
-        batched_P = jnp.eye(self.dim, self.dim)[jnp.newaxis, :].repeat(self.batch_size, axis=0) # ! TEMPORARY TEST: remove later
+        # ! TEMPORARY TEST: fixes permutation to Identity; for exps where we are not learning P. Remove later or add support for learning P as well.
+        batched_P = jnp.eye(self.dim, self.dim)[jnp.newaxis, :].repeat(self.batch_size, axis=0) 
 
         # ? 2. Compute logits T = h_ϕ(L, Σ); h_ϕ = p_model
         # batched_P_logits = self.get_P_logits(full_l_batch)
