@@ -210,7 +210,7 @@ fixed_decoder_supervised_dbcd:
 decoder_bcd_across_intervs:
   exp_name: 'linear_decoder_bcd_across_intervs'
   num_nodes: 8
-  proj_dims: 100
+  proj_dims:  100
   exp_edges: 1.0
   data_seed: 1
   off_wandb: True
