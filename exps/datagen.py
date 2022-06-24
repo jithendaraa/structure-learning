@@ -64,7 +64,6 @@ def multi_node_interv_data(opt, n_interv_sets, no_interv_targets, target, model,
     for i in range(n_interv_sets):
         interv_k_nodes = np.random.randint(1, opt.num_nodes)
         intervened_node_idxs = np.random.choice(opt.num_nodes, interv_k_nodes, replace=False)
-        print(f'Intervened nodes: {intervened_node_idxs}')
 
         interv_value = interv_values[opt.obs_data + i * interv_data_pts_per_set : opt.obs_data + (i+1) * interv_data_pts_per_set]
         
@@ -142,4 +141,3 @@ def gen_data_from_dist(rng, q_z_mu, q_z_covar, num_samples, interv_targets, clam
     data = random.multivariate_normal(rng, q_z_mu, q_z_covar)
     if clamp is True:   data = jnp.where(interv_targets, 0.0, data)
     return data
-

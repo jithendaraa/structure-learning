@@ -26,7 +26,7 @@ class Decoder_BCD(hk.Module):
     def __init__(self, dim, l_dim, noise_dim, batch_size, hidden_size, max_deviation, 
                 do_ev_noise, proj_dims, log_stds_max=10.0, logit_constraint=10, tau=None, subsample=False, 
                 s_prior_std=3.0, num_bethe_iters=20, horseshoe_tau=None, learn_noise=False, noise_sigma=0.1,
-                P=None, L=None, decoder_layers='linear', learn_L=True, pred_last_L = 1, fix_decoder=False):
+                P=None, L=None, decoder_layers='linear', learn_L=True, learn_P=False, pred_last_L = 1, fix_decoder=False):
         super().__init__()
 
         self.dim = dim
@@ -44,6 +44,7 @@ class Decoder_BCD(hk.Module):
         self.horseshoe_tau = horseshoe_tau
         self.learn_noise = learn_noise
         self.learn_L = learn_L
+        self.learn_P = learn_P
         self.P = P
         self.L = L
         self.num_elems = pred_last_L
@@ -54,12 +55,13 @@ class Decoder_BCD(hk.Module):
             self.log_noise_sigma = jnp.log(self.noise_sigma)
         else:   self.noise_sigma = noise_sigma
 
-        # self.p_model = hk.Sequential([
-        #                     hk.Flatten(), 
-        #                     hk.Linear(hidden_size), jax.nn.gelu,
-        #                     hk.Linear(hidden_size), jax.nn.gelu,
-        #                     hk.Linear(dim * dim)
-        #                 ])
+        if self.learn_P:
+            self.p_model = hk.Sequential([
+                                hk.Flatten(), 
+                                hk.Linear(hidden_size), jax.nn.gelu,
+                                hk.Linear(hidden_size), jax.nn.gelu,
+                                hk.Linear(dim * dim)
+                            ])
 
         if decoder_layers == 'nonlinear': 
             self.decoder = hk.Sequential([
@@ -106,6 +108,7 @@ class Decoder_BCD(hk.Module):
             # Want to map -inf to -logit_constraint, inf to +logit_constraint
             p_logits = jnp.tanh(p_logits / self.logit_constraint) * self.logit_constraint
         return p_logits.reshape((-1, self.dim, self.dim))
+    
     
     def eltwise_ancestral_sample(self, weighted_adj_mat, perm_mat, eps, rng_key, interv_target=None, interv_values=None):
         """
@@ -212,6 +215,7 @@ class Decoder_BCD(hk.Module):
 
         if init:
             x = jnp.ones((self.batch_size, self.l_dim + self.noise_dim))
+            if self.learn_P:    return self.p_model(x), self.decoder(jnp.ones((10, self.dim)))
             return None, self.decoder(jnp.ones((10, self.dim)))
 
         batched_qz_samples, X_recons = jnp.array([]), jnp.array([])
@@ -238,23 +242,22 @@ class Decoder_BCD(hk.Module):
         
         batched_L = vmap(self.lower, in_axes=(0, None))(l_batch[:,  :self.l_dim], self.dim)
 
-        # ! TEMPORARY TEST: fixes permutation to Identity; for exps where we are not learning P. Remove later or add support for learning P as well.
-        batched_P = jnp.eye(self.dim, self.dim)[jnp.newaxis, :].repeat(self.batch_size, axis=0) 
+        if self.learn_P:
+            # ? 2. Compute logits T = h_ϕ(L, Σ); h_ϕ = p_model
+            batched_P_logits = self.get_P_logits(full_l_batch)
 
-        # ? 2. Compute logits T = h_ϕ(L, Σ); h_ϕ = p_model
-        # batched_P_logits = self.get_P_logits(full_l_batch)
-        batched_P_logits = None
+            # ? 3. Compute soft P̃ = Sinkhorn( (T+γ)/𝜏 ) or hard P = Hungarian(P̃) 
+            if hard:    batched_P = self.ds.sample_hard_batched_logits(batched_P_logits, self.tau, rng_key)
+            else:   batched_P = self.ds.sample_soft_batched_logits(batched_P_logits, self.tau, rng_key)
 
-        # ? 3. Compute soft P̃ = Sinkhorn( (T+γ)/𝜏 ) or hard P = Hungarian(P̃) 
-        # if hard:    batched_P = self.ds.sample_hard_batched_logits(batched_P_logits, self.tau, rng_key)
-        # else:   batched_P = self.ds.sample_soft_batched_logits(batched_P_logits, self.tau, rng_key)
+        else:
+            # ! TEMPORARY TEST: fixes permutation to Identity; for exps where we are not learning P. Remove later or add support for learning P as well.
+            batched_P = jnp.eye(self.dim, self.dim)[jnp.newaxis, :].repeat(self.batch_size, axis=0) 
+            batched_P_logits = None
 
         batched_W = vmap(self.sample_W, (0, 0), (0))(batched_L, batched_P)
         
         rng_keys = rnd.split(rng_key, self.batch_size)
-        # batched_qz_samples = self.ancestral_sample(batched_W[0], batched_P[0], jnp.exp(batched_log_noises)[0], 
-        #                     rng_keys[0], interv_targets, interv_values)
-
         batched_ancestral_sample = vmap(self.ancestral_sample, (0, 0, 0, 0, None, None), (0))
 
         batched_qz_samples = batched_ancestral_sample(batched_W, batched_P, jnp.exp(batched_log_noises), 

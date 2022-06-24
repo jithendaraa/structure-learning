@@ -214,7 +214,7 @@ decoder_bcd_across_intervs:
   exp_edges: 1.0
   data_seed: 1
   off_wandb: True
-  num_samples: 3600
+  num_samples: 3900
   obs_data: 300
   interv_type: 'multi'
 
@@ -250,42 +250,51 @@ decoder_bcd_across_intervs_learn_noise:
   fix_decoder: False
   learn_noise: True
 
-linear_decoder_bcd:
-  exp_name: 'linear_decoder_bcd'
+decoder_bcd_across_intervs_learn_P_noise:
+  exp_name: 'decoder_bcd_across_intervs_learn_P_noise'
   num_nodes: 6
-  proj_dims: 6
+  proj_dims: 10
+  exp_edges: 1.0
+  data_seed: 1
+  off_wandb: False
+  num_samples: 3900
+  obs_data: 300
+  interv_type: 'multi'
+
+  learn_L: True    # 'partial'
+  learn_noise: True
+  learn_P: True
+  obs_Z_KL: False
+  across_interv: True
+ 
+  interv_value: 'uniform'
+  use_proxy: False
+  identity_proj: False
+  proj_sparsity: 0.0
+  fix_decoder: False
+
+linear_decoder_bcd_learn_P:
+  exp_name: 'linear_decoder_bcd_learn_P'
+  num_nodes: 6
+  proj_dims: 10
   exp_edges: 1.0
   data_seed: 2
-  num_steps: 1000
-  off_wandb: True
-  num_samples: 3000
-  obs_data: 2700
-  interv_type: 'single'
-  
-  train_loss: 'mse'
-  decoder_layers: 'linear'
-  learn_noise: False
+  off_wandb: False
+  num_samples: 3900
+  obs_data: 300
+  interv_type: 'multi'
   
   learn_L: True    # 'partial'
+  learn_noise: True
+  learn_P: True
   obs_Z_KL: False
-  Z_KL: 'joint' # 'joint' or 'conditional'
-  pred_last_L: 1
-
-  learn_P: False
-  L_KL: False
-  P_KL: False
-  l2_reg: False
-  tau_scaling: False
-  cov_space: False
-  fix_decoder: False
-  kl_nodes: 1
   across_interv: False
-  reg_decoder: False
-  interv_value: 100.0
-  use_proxy: True
-  identity_proj: True
-  proj_sparsity: 1.0
-  edge_noise: 0.8
+
+  interv_value: 'uniform'
+  use_proxy: False
+  identity_proj: False
+  proj_sparsity: 0.0
+  fix_decoder: False
 
 controlled_supervision:
   exp_name: 'controlled supervision decoder bcd'

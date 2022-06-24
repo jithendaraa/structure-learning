@@ -17,26 +17,26 @@ num_steps=(5000)
 
 num_samples=(3600)
 obs_data=300
-num_nodes=20
+num_nodes=30
 proj_dims=100
 off_wandb='False'
 
 identity_proj='False'
 proj_sparsity=0.0
 learn_L='True'
-L_KL='False'
+interv_type='single'
+
+interv_value='uniform'
 P_KL='False'
+L_KL='False'
 
 # Dont change these
 obs_Z_KL='False'
-learn_P='False'
 fix_decoder='False'
 train_loss='mse'    
 decoder_layers='linear'
 across_interv='True'
 reg_decoder='False'
-interv_type='multi'
-interv_value='uniform'
 
 
 array_len=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#num_steps[@]} * ${#num_samples[@]} ))
@@ -62,10 +62,10 @@ module unload cuda/11.2 && module load cuda/11.0
 deactivate
 act_bcd
 echo `date` "Python starting"
-echo "python run_decoder_bcd_across_interv.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --train_loss ${train_loss} --decoder_layers ${decoder_layers} --learn_L ${learn_L} --learn_P ${learn_P} --L_KL ${L_KL} --P_KL ${P_KL} --across_interv ${across_interv} --reg_decoder ${reg_decoder} --interv_type ${interv_type} --interv_value ${interv_value} --obs_Z_KL ${obs_Z_KL} --identity_proj ${identity_proj} --proj_sparsity ${proj_sparsity}"
+echo "python run_decoder_bcd_across_interv.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --train_loss ${train_loss} --decoder_layers ${decoder_layers} --learn_L ${learn_L} --L_KL ${L_KL} --P_KL ${P_KL} --across_interv ${across_interv} --reg_decoder ${reg_decoder} --interv_type ${interv_type} --interv_value ${interv_value} --obs_Z_KL ${obs_Z_KL} --identity_proj ${identity_proj} --proj_sparsity ${proj_sparsity}"
 
 cd exps/decoder_bcd_exps
-python run_decoder_bcd_across_interv.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --train_loss ${train_loss} --decoder_layers ${decoder_layers} --learn_L ${learn_L} --learn_P ${learn_P} --L_KL ${L_KL} --P_KL ${P_KL} --across_interv ${across_interv} --reg_decoder ${reg_decoder} --interv_type ${interv_type} --interv_value ${interv_value} --obs_Z_KL ${obs_Z_KL} --identity_proj ${identity_proj} --proj_sparsity ${proj_sparsity}
+python run_decoder_bcd_across_interv.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --train_loss ${train_loss} --decoder_layers ${decoder_layers} --learn_L ${learn_L} --L_KL ${L_KL} --P_KL ${P_KL} --across_interv ${across_interv} --reg_decoder ${reg_decoder} --interv_type ${interv_type} --interv_value ${interv_value} --obs_Z_KL ${obs_Z_KL} --identity_proj ${identity_proj} --proj_sparsity ${proj_sparsity}
 cd ../..
 
 echo $end

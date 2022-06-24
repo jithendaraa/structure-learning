@@ -51,7 +51,6 @@ class SyntheticDataset(object):
     @staticmethod
     def simulate_random_dag(d, degree, graph_type, w_range, data_seed, return_w_2=False):
         """Simulate random DAG with some expected degree.
-
         Args:
             d: number of nodes
             degree: expected node degree, in + out
@@ -59,7 +58,6 @@ class SyntheticDataset(object):
             w_range: weight range +/- (low, high)
             return_w_2: boolean, whether to return an additional
                 weight matrix used for quadratic terms
-
         Returns:
             W: weighted DAG
             [Optional] W: weighted DAG with same occupancy but different weights
@@ -110,7 +108,6 @@ class SyntheticDataset(object):
     @staticmethod
     def simulate_gaussian_dag(d, degree, graph_type, w_std):
         """Simulate dense DAG adjacency matrix
-
         Args:
             d: number of nodes
             degree: expected node degree, in + out
@@ -118,7 +115,6 @@ class SyntheticDataset(object):
             w_range: weight range +/- (low, high)
             return_w_2: boolean, whether to return an additional
                 weight matrix used for quadratic terms
-
         Returns:
             W: weighted DAG
             [Optional] W: weighted DAG with same occupancy but different weights
@@ -143,13 +139,11 @@ class SyntheticDataset(object):
         sigmas=None,
     ) -> np.ndarray:
         """Simulate samples from SEM withsample specified type of noise.
-
         Args:
             W: weigthed DAG
             n: number of samples
             sem_type: {linear-gauss,linear-exp,linear-gumbel}
             noise_scale: scale parameter of noise distribution in linear SEM
-
         Returns:
             X: [n,d] sample matrix
         """
@@ -190,7 +184,6 @@ class SyntheticDataset(object):
         W, n, sem_type, sigmas=None, idx_to_fix=None, values_to_fix=None,
     ):
         """Simulate samples from SEM with specified type of noise.
-
         Args:
             W: weigthed DAG
             n: number of samples

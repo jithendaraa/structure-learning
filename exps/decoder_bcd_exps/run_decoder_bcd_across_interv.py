@@ -86,7 +86,8 @@ calc_shd_c = False
 sem_type = opt.sem_type
 eval_eid = opt.eval_eid
 num_bethe_iters = 20
-
+num_interv_data = opt.num_samples - opt.obs_data
+assert num_interv_data % n_interv_sets == 0
 
 if do_ev_noise:
     noise_dim = 1
@@ -124,7 +125,7 @@ node_mus = jnp.ones((dim)) * opt.noise_mu
 node_vars = jnp.ones((dim)) * (opt.noise_sigma**2)
 interv_types = onp.eye(dim, dtype=onp.bool)
 
-# ! Get GT observational joint distributions
+# ? Get GT observational joint distributions
 p_z_obs_joint_mu, p_z_obs_joint_covar = get_joint_dist_params(opt.noise_sigma, jnp.array(sd.W))
 
 # ? Set parameter for Horseshoe prior on L
@@ -145,6 +146,7 @@ ds = GumbelSinkhorn(dim, noise_type="gumbel", tol=opt.max_deviation)
 gt_L_elems = get_lower_elems(ground_truth_L, dim)
 
 num_interv_data = int(opt.num_samples - opt.obs_data)
+n_interv_sets = 10
 interv_data_per_set = int(num_interv_data / n_interv_sets)
 print()
 
