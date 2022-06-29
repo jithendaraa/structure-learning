@@ -5,11 +5,13 @@ from modules.BGe import BGe
 import matplotlib.pyplot as plt
 from os.path import join
 import numpy as np
+import jax
 from jax import numpy as jnp
 import torch, pdb
 from random import sample
 from jax import random
 from typing import Optional, Tuple, Union, cast
+import haiku as hk
 
 
 def single_node_interv_data(opt, n_interv_sets, no_interv_targets, target, model='dibs', interv_values=0.0, interv_node=None):
@@ -120,17 +122,23 @@ def get_data(opt, n_intervention_sets, target, data_=None, model='dibs', interv_
         if opt.identity_proj is True:   P = jnp.eye(opt.proj_dims)
         else:       P = jnp.array(10 * np.random.rand(opt.num_nodes, opt.proj_dims)) 
         x = z @ P
-        print(f'Data matrix after linear projection from {opt.num_nodes} dims to {opt.proj_dims} dims: {x.shape}')  
-        
-        z_mean = jnp.mean(obs_data, axis=0)
-        z_cov = jnp.cov(obs_data.T)
-        print(f"Z Mean: {z_mean}")
-        print(f"Det. Z Covariance: {jnp.linalg.det(z_cov)}")
+        print(f'Data matrix after linear projection from {opt.num_nodes} dims to {opt.proj_dims} dims: {x.shape}')          
 
-        x_mean = jnp.mean(x, axis=0)
-        x_cov = jnp.cov(x.T)
-        print(f"X Mean: {x_mean}")
-        print(f"Det. X Covariance: {jnp.linalg.det(x_cov)}")
+    elif opt.proj == '2_layer_mlp':        
+        # TODO: See what kind of nonlinearity to add
+        mlp = hk.Sequential([hk.Linear(opt.proj_dims), jax.nn.relu, hk.Linear(opt.proj_dims), jax.nn.relu])
+        x = mlp(z)
+        print(f'Data matrix after nonlinear projection from {opt.num_nodes} dims to {opt.proj_dims} dims: {x.shape}')
+
+    z_mean = jnp.mean(obs_data, axis=0)
+    z_cov = jnp.cov(obs_data.T)
+    print(f"Z Mean: {z_mean}")
+    print(f"Det. Z Covariance: {jnp.linalg.det(z_cov)}")
+
+    x_mean = jnp.mean(x, axis=0)
+    x_cov = jnp.cov(x.T)
+    print(f"X Mean: {x_mean}")
+    print(f"Det. X Covariance: {jnp.linalg.det(x_cov)}")
 
     return obs_data, interv_data, z, no_interv_targets, x, z_mean, z_cov, P, interv_values
 
