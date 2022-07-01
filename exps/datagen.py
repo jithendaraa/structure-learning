@@ -125,8 +125,7 @@ def get_data(opt, n_intervention_sets, target, data_=None, model='dibs', interv_
         print(f'Data matrix after linear projection from {opt.num_nodes} dims to {opt.proj_dims} dims: {x.shape}')          
 
     elif opt.proj == '2_layer_mlp':        
-        # TODO: See what kind of nonlinearity to add
-        mlp = hk.Sequential([hk.Linear(opt.proj_dims), jax.nn.relu, hk.Linear(opt.proj_dims), jax.nn.relu])
+        mlp = hk.transform(hk.Sequential([hk.Linear(opt.proj_dims), jax.nn.relu, hk.Linear(opt.proj_dims)]))
         x = mlp(z)
         print(f'Data matrix after nonlinear projection from {opt.num_nodes} dims to {opt.proj_dims} dims: {x.shape}')
 

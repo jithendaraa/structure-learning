@@ -217,6 +217,7 @@ decoder_bcd_across_intervs:
   num_samples: 3600
   obs_data: 300
   interv_type: 'multi'
+  proj: '2_layer_mlp'
 
   learn_L: True    # 'partial'
   obs_Z_KL: False

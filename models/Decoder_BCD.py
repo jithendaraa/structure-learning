@@ -26,7 +26,7 @@ class Decoder_BCD(hk.Module):
     def __init__(self, dim, l_dim, noise_dim, batch_size, hidden_size, max_deviation, 
                 do_ev_noise, proj_dims, log_stds_max=10.0, logit_constraint=10, tau=None, subsample=False, 
                 s_prior_std=3.0, num_bethe_iters=20, horseshoe_tau=None, learn_noise=False, noise_sigma=0.1,
-                P=None, L=None, decoder_layers='linear', learn_L=True, learn_P=False, pred_last_L = 1, fix_decoder=False):
+                P=None, L=None, decoder_layers='linear', learn_L=True, learn_P=False, pred_last_L = 1, fix_decoder=False, proj='linear'):
         super().__init__()
 
         self.dim = dim
@@ -49,6 +49,7 @@ class Decoder_BCD(hk.Module):
         self.L = L
         self.num_elems = pred_last_L
         self.fix_decoder = fix_decoder
+        self.proj = proj
 
         if self.do_ev_noise:
             self.noise_sigma = jnp.array([[noise_sigma]] * self.batch_size)
@@ -263,7 +264,10 @@ class Decoder_BCD(hk.Module):
         batched_qz_samples = batched_ancestral_sample(batched_W, batched_P, jnp.exp(batched_log_noises), 
                                                         rng_keys, interv_targets, interv_values)
 
-        if self.fix_decoder is True:
+        if self.proj == '2_layer_mlp':
+            X_recons = vmap(self.decoder, (0), (0))(batched_qz_samples)
+            
+        elif self.fix_decoder is True:
             print("Fixed decoder")
             X_recons = vmap(self.project, (0, None), (0))(batched_qz_samples, self.P)
         else:
