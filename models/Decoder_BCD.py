@@ -26,7 +26,7 @@ class Decoder_BCD(hk.Module):
     def __init__(self, dim, l_dim, noise_dim, batch_size, hidden_size, max_deviation, 
                 do_ev_noise, proj_dims, log_stds_max=10.0, logit_constraint=10, tau=None, subsample=False, 
                 s_prior_std=3.0, num_bethe_iters=20, horseshoe_tau=None, learn_noise=False, noise_sigma=0.1,
-                P=None, L=None, decoder_layers='linear', learn_L=True, learn_P=False, pred_last_L = 1, fix_decoder=False):
+                L=None, learn_L=True, learn_P=False, pred_last_L = 1, fix_decoder=False, proj='linear'):
         super().__init__()
 
         self.dim = dim
@@ -45,7 +45,6 @@ class Decoder_BCD(hk.Module):
         self.learn_noise = learn_noise
         self.learn_L = learn_L
         self.learn_P = learn_P
-        self.P = P
         self.L = L
         self.num_elems = pred_last_L
         self.fix_decoder = fix_decoder
@@ -62,8 +61,13 @@ class Decoder_BCD(hk.Module):
                                 hk.Linear(hidden_size), jax.nn.gelu,
                                 hk.Linear(dim * dim)
                             ])
-
-        if decoder_layers == 'nonlinear': 
+            
+        if proj == 'linear':
+            self.decoder = hk.Sequential([
+                hk.Flatten(), hk.Linear(proj_dims, with_bias=False)
+            ])
+        
+        else: 
             self.decoder = hk.Sequential([
                 hk.Flatten(), 
                 hk.Linear(16, with_bias=False), jax.nn.gelu,
@@ -71,11 +75,6 @@ class Decoder_BCD(hk.Module):
                 hk.Linear(64, with_bias=False), jax.nn.gelu,
                 hk.Linear(64, with_bias=False), jax.nn.gelu,
                 hk.Linear(proj_dims, with_bias=False)
-            ])
-            
-        elif decoder_layers == 'linear':
-            self.decoder = hk.Sequential([
-                hk.Flatten(), hk.Linear(proj_dims, with_bias=False)
             ])
         
         self.ds = GumbelSinkhorn(dim, noise_type="gumbel", tol=max_deviation)
@@ -108,7 +107,6 @@ class Decoder_BCD(hk.Module):
             # Want to map -inf to -logit_constraint, inf to +logit_constraint
             p_logits = jnp.tanh(p_logits / self.logit_constraint) * self.logit_constraint
         return p_logits.reshape((-1, self.dim, self.dim))
-    
     
     def eltwise_ancestral_sample(self, weighted_adj_mat, perm_mat, eps, rng_key, interv_target=None, interv_values=None):
         """
@@ -204,8 +202,7 @@ class Decoder_BCD(hk.Module):
 
         return full_l_batch, full_log_prob_l
     
-    def __call__(self, hard, rng_key, interv_targets, interv_values, init=False, 
-                P_params=None, L_params=None, decoder_params=None):
+    def __call__(self, hard, rng_key, interv_targets, interv_values, init=False, P_params=None, L_params=None):
         """
             [TODO]
             hard: bool
@@ -224,18 +221,19 @@ class Decoder_BCD(hk.Module):
         if self.learn_L is True:    
             l_batch, full_log_prob_l, _ = self.sample_L(L_params, rng_key)
         
-        # ! TEMPORARY TEST: remove later. Fixes L, learns only the last element.
-        elif self.learn_L == 'partial': 
-            l_batch, full_log_prob_l = self.sample_partial_L(L_params, rng_key)
+        # ? Fixes L to GT, no longer learn it.
+        elif self.learn_L is False:     l_batch, full_log_prob_l = self.get_GT_L() 
 
-        # ! TEMPORARY TEST: remove later. Fixes L, no longer learn it.
-        elif self.learn_L is False: 
-            l_batch, full_log_prob_l = self.get_GT_L() 
+        # ? Fixes L, learns only pred_last_L elements.
+        elif self.learn_L == 'partial': l_batch, full_log_prob_l = self.sample_partial_L(L_params, rng_key)
         
+
         if self.learn_noise:
+            # * Perform inference over Σ as well
             full_l_batch = l_batch
             batched_log_noises = full_l_batch[:, -self.noise_dim:]
         else:
+            # * Don't infer Σ
             w_noise = self.log_noise_sigma
             full_l_batch = jnp.concatenate((l_batch, w_noise), axis=1)
             batched_log_noises = jnp.ones((self.batch_size, self.dim)) * w_noise.reshape((self.batch_size, self.noise_dim))
@@ -251,23 +249,20 @@ class Decoder_BCD(hk.Module):
             else:   batched_P = self.ds.sample_soft_batched_logits(batched_P_logits, self.tau, rng_key)
 
         else:
-            # ! TEMPORARY TEST: fixes permutation to Identity; for exps where we are not learning P. Remove later or add support for learning P as well.
+            # ! fixes permutation to Identity; for exps where we are not learning P.
             batched_P = jnp.eye(self.dim, self.dim)[jnp.newaxis, :].repeat(self.batch_size, axis=0) 
             batched_P_logits = None
 
         batched_W = vmap(self.sample_W, (0, 0), (0))(batched_L, batched_P)
-        
         rng_keys = rnd.split(rng_key, self.batch_size)
         batched_ancestral_sample = vmap(self.ancestral_sample, (0, 0, 0, 0, None, None), (0))
-
         batched_qz_samples = batched_ancestral_sample(batched_W, batched_P, jnp.exp(batched_log_noises), 
                                                         rng_keys, interv_targets, interv_values)
 
         if self.fix_decoder is True:
-            print("Fixed decoder")
-            X_recons = vmap(self.project, (0, None), (0))(batched_qz_samples, self.P)
+            pass
         else:
-            X_recons = vmap(self.project, (0, None), (0))(batched_qz_samples, decoder_params)
+            X_recons = vmap(self.decoder, (0), (0))(batched_qz_samples)
 
         return (batched_P, batched_P_logits, batched_L, batched_log_noises, 
                 batched_W, batched_qz_samples, full_l_batch, full_log_prob_l, X_recons)

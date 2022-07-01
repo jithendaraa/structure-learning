@@ -87,14 +87,12 @@ defaults:
   n_particles: 20
   # ? TODO has to be changed to 'reparam' later
   grad_estimator: 'reparam'  # ['score', 'reparam']   
-  exp_edges: 0.5
 
   # ? Decoder DIBS
   beta: 1.0
   dibs_lr: 5e-3
   soft_constraint: False
   projection: 'random'
-  proj: 'linear'
   z_prior: 'sample'   # TODO: 'actual' needs fixing from std to covar so use 'sample for now' | ['actual', 'sample'] 
   algo: 'def'
   interv_type: 'single'
@@ -121,13 +119,15 @@ defaults:
   num_outer: 1
   eval_eid: False
   
-  # ? Decoder BCD
+  
+  # ? Decoder BCD: Don't change these default values! Always modify in separate config keys like below
   learn_P: False
+  learn_L: True
+  learn_noise: False
   L_KL: False
   P_KL: False
   Z_KL: 'joint' # 'joint' or 'conditional'
   tau_scaling: False
-  learn_noise: False
   train_loss: 'mse'
   decoder_layers: 'linear'
   l2_reg: False  
@@ -136,181 +136,144 @@ defaults:
   reg_decoder: False
   pred_last_L: 1
   fix_edges: False
-  proj_sparsity: 0.0
-  use_proxy: False
   z_mse: False
   num_steps: 5000
+  proj: 'linear'
+  obs_Z_KL: False
+  use_proxy: False
+  across_interv: False
+  identity_proj: False
+  proj_sparsity: 0.0
+  fix_decoder: False
+  exp_edges: 1.0
+
 
 obs_supervised_dbcd:
   exp_name: 'supervised decoder bcd (observational)'
   num_nodes: 6
   proj_dims: 6
-  exp_edges: 1.0
   data_seed: 2
   off_wandb: True
   num_samples: 2400
   obs_data: 2400
   interv_type: 'single'
-  
   learn_L: True    # 'partial'
   obs_Z_KL: True
-  across_interv: False
- 
   interv_value: 100.0
-  use_proxy: False
-  identity_proj: False
-  proj_sparsity: 0.0
-  fix_decoder: False
 
 z_supervised_dbcd_obs:
   exp_name: 'Z MSE supervised decoder bcd (observational)'
   num_nodes: 6
   proj_dims: 6
-  exp_edges: 1.0
   data_seed: 2
   num_steps: 5000
   off_wandb: False
   num_samples: 2400
   obs_data: 2400
   interv_type: 'single'
-  
   learn_L: True    # 'partial'
-  obs_Z_KL: False
-  across_interv: False
- 
   interv_value: 100.0
-  use_proxy: False
-  identity_proj: True
-  proj_sparsity: 0.0
-  fix_decoder: False
   z_mse: True
 
 fixed_decoder_supervised_dbcd:
   exp_name: 'fixed decoder supervised decoder bcd (observational)'
   num_nodes: 6
   proj_dims: 6
-  exp_edges: 1.0
   data_seed: 2
   num_steps: 5000
   off_wandb: False
   num_samples: 6000
   obs_data: 6000
   interv_type: 'single'
-  
   learn_L: True    # 'partial'
   obs_Z_KL: True
-  across_interv: False
- 
   interv_value: 100.0
-  use_proxy: False
-  identity_proj: True
-  proj_sparsity: 1.0
-  fix_decoder: True
 
 decoder_bcd_across_intervs:
   exp_name: 'linear_decoder_bcd_across_intervs'
-  num_nodes: 8
-  proj_dims:  100
-  exp_edges: 1.0
-  data_seed: 1
-  off_wandb: True
-  num_samples: 3600
-  obs_data: 300
-  interv_type: 'multi'
-
-  learn_L: True    # 'partial'
-  obs_Z_KL: False
-  across_interv: True
- 
-  interv_value: 'uniform'
-  use_proxy: False
-  identity_proj: False
-  proj_sparsity: 0.0
-  fix_decoder: False
-  n_interv_sets: 20
-
-decoder_bcd_across_intervs_learn_noise:
-  exp_name: 'linear_decoder_bcd_across_intervs_learn_noise'
   num_nodes: 6
-  proj_dims: 10
-  exp_edges: 1.0
+  proj_dims:  10
   data_seed: 1
   off_wandb: False
   num_samples: 3600
   obs_data: 300
   interv_type: 'multi'
-
   learn_L: True    # 'partial'
-  obs_Z_KL: False
   across_interv: True
- 
   interv_value: 'uniform'
-  use_proxy: False
-  identity_proj: False
-  proj_sparsity: 0.0
-  fix_decoder: False
+  n_interv_sets: 10
+
+decoder_bcd_across_intervs_learn_noise:
+  exp_name: 'linear_decoder_bcd_across_intervs_learn_noise'
+  num_nodes: 6
+  proj_dims: 10
+  data_seed: 1
+  off_wandb: False
+  num_samples: 3600
+  obs_data: 300
+  interv_type: 'multi'
+  learn_L: True    # 'partial'
+  across_interv: True
+  interv_value: 'uniform'
   learn_noise: True
 
 decoder_bcd_across_intervs_learn_P_noise:
   exp_name: 'decoder_bcd_across_intervs_learn_P_noise'
   num_nodes: 6
   proj_dims: 10
-  exp_edges: 1.0
   data_seed: 1
   off_wandb: False
   num_samples: 3900
   obs_data: 300
   interv_type: 'multi'
-
   learn_L: True    # 'partial'
   learn_noise: True
   learn_P: True
   obs_Z_KL: False
   across_interv: True
   n_interv_sets: 10
- 
   interv_value: 'uniform'
-  use_proxy: False
-  identity_proj: False
-  proj_sparsity: 0.0
-  fix_decoder: False
+
+nonlinear_proj_dbcd_intervs:
+  exp_name: 'nonlinear_proj_dbcd_intervs'
+  num_nodes: 6
+  proj_dims:  10
+  proj: '2_layer_mlp'
+  data_seed: 1
+  off_wandb: True
+  num_samples: 3600
+  obs_data: 300
+  interv_type: 'multi'
+  learn_L: True    # 'partial'
+  across_interv: True
+  interv_value: 'uniform'
+  n_interv_sets: 20
+
 
 linear_decoder_bcd_learn_P:
   exp_name: 'linear_decoder_bcd_learn_P'
   num_nodes: 6
   proj_dims: 10
-  exp_edges: 1.0
   data_seed: 2
   off_wandb: False
   num_samples: 3900
   obs_data: 300
   interv_type: 'multi'
-  
   learn_L: True    # 'partial'
   learn_noise: True
   learn_P: True
-  obs_Z_KL: False
-  across_interv: False
-
   interv_value: 'uniform'
-  use_proxy: False
-  identity_proj: False
-  proj_sparsity: 0.0
-  fix_decoder: False
 
 controlled_supervision:
   exp_name: 'controlled supervision decoder bcd'
   num_nodes: 6
   proj_dims: 6
-  exp_edges: 1.0
   data_seed: 2
   num_steps: 1000
   off_wandb: True
   num_samples: 2400
   obs_data: 2100
   interv_type: 'single'
-  
-  train_loss: 'mse'
   decoder_layers: 'linear'
   learn_noise: False
   
@@ -318,22 +281,12 @@ controlled_supervision:
   obs_Z_KL: False
   use_proxy: True
   edge_noise: 0.1
-  Z_KL: 'joint' # 'joint' or 'conditional'
   pred_last_L: 1
 
-  learn_P: False
-  L_KL: False
-  P_KL: False
   l2_reg: False
   tau_scaling: False
-  cov_space: False
-  fix_decoder: False
   kl_nodes: 1
-  across_interv: False
-  reg_decoder: False
   interv_value: 100.0
-  proj_sparsity: 0.0
-  identity_proj: False
 
 sparse_dbcd:
   exp_name: 'sparse projection decoder bcd'
@@ -346,20 +299,10 @@ sparse_dbcd:
   num_samples: 3000
   obs_data: 3000
   interv_type: 'single'
-  
-  train_loss: 'mse'
   decoder_layers: 'linear'
-  learn_noise: False
-  
   learn_L: True    # 'partial'
-  obs_Z_KL: False
-  use_proxy: False
-  Z_KL: 'joint' # 'joint' or 'conditional'
   pred_last_L: 1
 
-  learn_P: False
-  L_KL: False
-  P_KL: False
   l2_reg: False
   tau_scaling: False
   cov_space: False

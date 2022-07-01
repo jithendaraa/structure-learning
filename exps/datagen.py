@@ -1,3 +1,5 @@
+import sys
+sys.path.append('../modules')
 from re import L
 import networkx as nx 
 from modules.data.erdos_renyi import ER
@@ -6,11 +8,12 @@ import matplotlib.pyplot as plt
 from os.path import join
 import numpy as np
 from jax import numpy as jnp
-import torch, pdb
+import pdb, jax
 from random import sample
-from jax import random
+from jax import random, vmap
 from typing import Optional, Tuple, Union, cast
-
+import haiku as hk      
+from modules.NonLinearProjection import init_projection_params 
 
 def single_node_interv_data(opt, n_interv_sets, no_interv_targets, target, model='dibs', interv_values=0.0, interv_node=None):
     """
@@ -120,17 +123,25 @@ def get_data(opt, n_intervention_sets, target, data_=None, model='dibs', interv_
         if opt.identity_proj is True:   P = jnp.eye(opt.proj_dims)
         else:       P = jnp.array(10 * np.random.rand(opt.num_nodes, opt.proj_dims)) 
         x = z @ P
-        print(f'Data matrix after linear projection from {opt.num_nodes} dims to {opt.proj_dims} dims: {x.shape}')  
-        
-        z_mean = jnp.mean(obs_data, axis=0)
-        z_cov = jnp.cov(obs_data.T)
-        print(f"Z Mean: {z_mean}")
-        print(f"Det. Z Covariance: {jnp.linalg.det(z_cov)}")
+        print(f'Data matrix after linear projection from {opt.num_nodes} dims to {opt.proj_dims} dims: {x.shape}')          
 
-        x_mean = jnp.mean(x, axis=0)
-        x_cov = jnp.cov(x.T)
-        print(f"X Mean: {x_mean}")
-        print(f"Det. X Covariance: {jnp.linalg.det(x_cov)}")
+    elif opt.proj == '2_layer_mlp':  
+        key = hk.PRNGSequence(42)
+        rng_key = random.PRNGKey(opt.data_seed)
+        forward, projection_model_params = init_projection_params(key, opt.num_samples, opt.num_nodes, opt.proj_dims)
+        x = forward.apply(projection_model_params, rng_key, opt.proj_dims, z)
+        P = None
+        print(f'Data matrix after nonlinear projection from {opt.num_nodes} dims to {opt.proj_dims} dims: {x.shape}')
+
+    z_mean = jnp.mean(obs_data, axis=0)
+    z_cov = jnp.cov(obs_data.T)
+    print(f"Z Mean: {z_mean}")
+    print(f"Det. Z Covariance: {jnp.linalg.det(z_cov)}")
+
+    x_mean = jnp.mean(x, axis=0)
+    x_cov = jnp.cov(x.T)
+    print(f"X Mean: {x_mean}")
+    print(f"Det. X Covariance: {jnp.linalg.det(x_cov)}")
 
     return obs_data, interv_data, z, no_interv_targets, x, z_mean, z_cov, P, interv_values
 

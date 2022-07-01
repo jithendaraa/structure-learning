@@ -579,8 +579,8 @@ def get_prior_interv_dists(node_mus, node_vars, W, P, opt):
     return pz_mu_intervs, pz_covar_intervs
 
 
-def forward_fn(hard, rng_keys, interv_targets, init, opt, horseshoe_tau, proj_matrix,
-                ground_truth_L, interv_values, P_params=None, L_params=None, decoder_params=None, log_stds_max=10.0):
+def forward_fn(hard, rng_keys, interv_targets, init, opt, horseshoe_tau,
+                ground_truth_L, interv_values, P_params=None, L_params=None, log_stds_max=10.0):
     dim = opt.num_nodes
     l_dim = dim * (dim - 1) // 2
     do_ev_noise = opt.do_ev_noise
@@ -590,29 +590,24 @@ def forward_fn(hard, rng_keys, interv_targets, init, opt, horseshoe_tau, proj_ma
     model = Decoder_BCD(dim, l_dim, noise_dim, opt.batch_size, opt.hidden_size, opt.max_deviation, do_ev_noise, 
             opt.proj_dims, log_stds_max, opt.logit_constraint, opt.fixed_tau, opt.subsample, opt.s_prior_std, 
             horseshoe_tau=horseshoe_tau, learn_noise=opt.learn_noise, noise_sigma=opt.noise_sigma, 
-            P=proj_matrix, L=jnp.array(ground_truth_L), decoder_layers=opt.decoder_layers, 
-            learn_L=opt.learn_L, learn_P=opt.learn_P, pred_last_L=opt.pred_last_L, fix_decoder=opt.fix_decoder)
+            L=jnp.array(ground_truth_L), learn_L=opt.learn_L, learn_P=opt.learn_P, pred_last_L=opt.pred_last_L, 
+            fix_decoder=opt.fix_decoder, proj=opt.proj)
 
-    return model(hard, rng_keys, interv_targets, interv_values, init, P_params, L_params, decoder_params)
+    return model(hard, rng_keys, interv_targets, interv_values, init, P_params, L_params)
 
 def init_parallel_params(rng_key, key, opt, num_devices, no_interv_targets, 
-                        horseshoe_tau, proj_matrix, L, interv_values):
+                        horseshoe_tau, L, interv_values):
     dim = opt.num_nodes
     if opt.do_ev_noise: noise_dim = 1
     else: noise_dim = dim
-    
     l_dim = dim * (dim - 1) // 2
     forward = hk.transform(forward_fn)
-    temp_key = rnd.PRNGKey(0)
-
     P_layers = [optax.scale_by_belief(eps=1e-8), optax.scale(-opt.lr)]
     L_layers = [optax.scale_by_belief(eps=1e-8), optax.scale(-opt.lr)]
-    decoder_layers = [optax.scale_by_belief(eps=1e-8), optax.scale(-opt.lr)]
 
     opt_P = optax.chain(*P_layers)
     opt_L = optax.chain(*L_layers)
-    opt_decoder = optax.chain(*decoder_layers)
-
+    
     sparsity_mask = jnp.ones((dim, opt.proj_dims))
 
     if opt.proj_sparsity == 0.0:    pass # * Don't need to do anything
@@ -624,8 +619,6 @@ def init_parallel_params(rng_key, key, opt, num_devices, no_interv_targets,
         raise NotImplementedError
         sparsity_mask = jnp.where(sparsity_mask, 1.0, rnd.bernoulli(key, 1 - opt.proj_sparsity))
     
-    decoder_params = jnp.multiply(sparsity_mask, rnd.uniform(temp_key, shape=(dim, opt.proj_dims), minval=-1.0, maxval=1.0))
-    
     # @pmap
     def init_params(rng_key: PRNGKey):
         # * mus and stds (indicated by -1) of L
@@ -635,14 +628,13 @@ def init_parallel_params(rng_key, key, opt, num_devices, no_interv_targets,
             L_params = jnp.concatenate((jnp.zeros(l_dim), jnp.zeros(noise_dim), jnp.zeros(l_dim + noise_dim) - 1,)
             )
         P_params = forward.init(next(key), False, rng_key, jnp.array(no_interv_targets), True, opt,
-                        horseshoe_tau, proj_matrix, L, interv_values)
+                        horseshoe_tau, L, interv_values)
         
         if opt.factorized:  raise NotImplementedError
         P_opt_params = opt_P.init(P_params)
         L_opt_params = opt_L.init(L_params)
         return P_params, L_params, P_opt_params, L_opt_params
 
-    decoder_opt_params = opt_decoder.init(decoder_params)
     rng_keys = jnp.tile(rng_key[None, :], (num_devices, 1))
     P_params, L_params, P_opt_params, L_opt_params = init_params(rng_keys)
     
@@ -650,9 +642,8 @@ def init_parallel_params(rng_key, key, opt, num_devices, no_interv_targets,
     print(f"L model has {ff2(num_params(L_params))} parameters")
     print(f"P model has {ff2(num_params(P_params))} parameters")
 
-    return (P_params, L_params, decoder_params, 
-            P_opt_params, L_opt_params, decoder_opt_params, 
-            rng_keys, forward, opt_P, opt_L, opt_decoder)
+    return (P_params, L_params, P_opt_params, L_opt_params, 
+            rng_keys, forward, opt_P, opt_L)
 
 def get_lower_elems(L, dim, k=-1):
     return L[jnp.tril_indices(dim, k=k)]
