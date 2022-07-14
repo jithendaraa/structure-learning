@@ -133,17 +133,7 @@ def get_data(opt, n_intervention_sets, target, data_=None, model='dibs', interv_
         P = None
         print(f'Data matrix after nonlinear projection from {opt.num_nodes} dims to {opt.proj_dims} dims: {x.shape}')
 
-    z_mean = jnp.mean(obs_data, axis=0)
-    z_cov = jnp.cov(obs_data.T)
-    print(f"Z Mean: {z_mean}")
-    print(f"Det. Z Covariance: {jnp.linalg.det(z_cov)}")
-
-    x_mean = jnp.mean(x, axis=0)
-    x_cov = jnp.cov(x.T)
-    print(f"X Mean: {x_mean}")
-    print(f"Det. X Covariance: {jnp.linalg.det(x_cov)}")
-
-    return obs_data, interv_data, z, no_interv_targets, x, z_mean, z_cov, P, interv_values
+    return z, no_interv_targets, x, P, interv_values
 
 
 def gen_data_from_dist(rng, q_z_mu, q_z_covar, num_samples, interv_targets, clamp=True):

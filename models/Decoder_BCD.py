@@ -4,12 +4,11 @@ sys.path.append('..')
 import numpy as onp
 import haiku as hk
 
-import optax, jax
+import jax
 import jax.numpy as jnp
 import jax.random as rnd
-from jax import pmap, vmap, jit, ops, random, value_and_grad, lax, grad
-from jax.ops import index, index_mul, index_update
-from jax.tree_util import tree_map, tree_multimap
+from jax import vmap, jit, ops, random
+from jax.ops import index, index_update
 from typing import Tuple, Optional, cast, Union
 import networkx as nx
 
@@ -227,7 +226,6 @@ class Decoder_BCD(hk.Module):
         # ? Fixes L, learns only pred_last_L elements.
         elif self.learn_L == 'partial': l_batch, full_log_prob_l = self.sample_partial_L(L_params, rng_key)
         
-
         if self.learn_noise:
             # * Perform inference over Σ as well
             full_l_batch = l_batch

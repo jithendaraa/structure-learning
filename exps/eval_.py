@@ -16,6 +16,9 @@ from modules.divergences import *
 from dag_utils import count_accuracy
 from bcd_utils import auroc
 from jax import jit
+from sklearn.metrics import roc_curve, auc
+
+
 
 def evaluate(target, dibs, gs, thetas, steps, dag_file, writer, opt, data, 
             interv_targets, tb_plots=False, wandb_log_dict={}, logdir=''):
