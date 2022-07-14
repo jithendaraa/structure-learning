@@ -46,7 +46,7 @@ defaults:
   phase: 'train'
 
   # ? VCN params
-  num_nodes: 2
+  num_nodes: 5
   seed: 10
   data_seed: 2
   num_samples: 200
@@ -146,20 +146,22 @@ defaults:
   proj_sparsity: 0.0
   fix_decoder: False
   exp_edges: 1.0
+  n_interv_sets: 20
+  interv_value: 'uniform'
 
 
 obs_supervised_dbcd:
   exp_name: 'supervised decoder bcd (observational)'
   num_nodes: 6
-  proj_dims: 6
+  proj_dims: 10
   data_seed: 2
   off_wandb: True
-  num_samples: 2400
-  obs_data: 2400
+  num_samples: 600
+  obs_data: 600
   interv_type: 'single'
   learn_L: True    # 'partial'
   obs_Z_KL: True
-  interv_value: 100.0
+  interv_value: 'uniform'
 
 z_supervised_dbcd_obs:
   exp_name: 'Z MSE supervised decoder bcd (observational)'
@@ -194,13 +196,13 @@ decoder_bcd_across_intervs:
   num_nodes: 6
   proj_dims:  10
   data_seed: 1
-  off_wandb: False
+  off_wandb: True
   num_samples: 3600
   obs_data: 300
   interv_type: 'multi'
   learn_L: True    # 'partial'
   across_interv: True
-  interv_value: 'uniform'
+  interv_value: 100.0
   n_interv_sets: 10
 
 decoder_bcd_across_intervs_learn_noise:
@@ -240,17 +242,54 @@ nonlinear_proj_dbcd_intervs:
   proj_dims:  10
   proj: '2_layer_mlp'
   data_seed: 1
-  off_wandb: True
+  off_wandb: False
   num_samples: 3600
   obs_data: 300
   interv_type: 'multi'
   learn_L: True    # 'partial'
   across_interv: True
   interv_value: 'uniform'
-  n_interv_sets: 20
+  n_interv_sets: 10
+
+linear_dbcd:
+  exp_name: 'linear_decoder_bcd'
+  num_nodes: 6
+  proj_dims: 10
+  data_seed: 2
+  off_wandb: True
+  num_samples: 1000
+  obs_data: 1000
+  interv_type: 'multi'
+  learn_L: True    # 'partial'
+  interv_value: 'uniform'
+
+linear_dbcd_learn_partial_L:
+  exp_name: 'linear_dbcd_learn_partial_L'
+  num_nodes: 6
+  proj_dims: 10
+  learn_L: 'partial'
+  num_samples: 1800
+  obs_data: 1800
+  pred_last_L: 1
+  data_seed: 2
+  off_wandb: True
+  interv_value: 'uniform'
+
+linear_dbcd_learn_partial_L_across_intervs:
+  exp_name: 'linear_dbcd_learn_partial_L_across_intervs'
+  num_nodes: 6
+  proj_dims: 10
+  learn_L: 'partial'
+  num_samples: 1800
+  obs_data: 900
+  pred_last_L: 1
+  data_seed: 2
+  off_wandb: True
+  interv_value: 100.0
+  interv_type: 'single'
 
 
-linear_decoder_bcd_learn_P:
+linear_dbcd_learn_P:
   exp_name: 'linear_decoder_bcd_learn_P'
   num_nodes: 6
   proj_dims: 10
@@ -263,6 +302,91 @@ linear_decoder_bcd_learn_P:
   learn_noise: True
   learn_P: True
   interv_value: 'uniform'
+  lr: 8e-4
+
+nonlinear_proj_dbcd:
+  exp_name: 'nonlinear_proj_dbcd'
+  num_nodes: 6
+  proj_dims: 10
+  data_seed: 2
+  off_wandb: True
+  num_samples: 3900
+  obs_data: 300
+  interv_type: 'multi'
+  learn_L: True    # 'partial'
+  interv_value: 'uniform'
+  proj: '2_layer_mlp'
+
+nonlinear_proj_dbcd_learn_noise:
+  exp_name: 'nonlinear_proj_dbcd_learn_noise'
+  num_nodes: 6
+  proj_dims: 10
+  data_seed: 2
+  off_wandb: False
+  num_samples: 3900
+  obs_data: 300
+  interv_type: 'multi'
+  learn_L: True    # 'partial'
+  learn_noise: True
+  interv_value: 'uniform'
+  proj: '2_layer_mlp'
+
+
+nonlinear_proj_dbcd_learn_P_noise:
+  exp_name: 'nonlinear_proj_dbcd_learn_P_noise'
+  num_nodes: 6
+  proj_dims: 10
+  data_seed: 3
+  off_wandb: True
+  num_samples: 3900
+  obs_data: 300
+  interv_type: 'multi'
+  interv_value: 'uniform'
+
+  learn_L: True    # 'partial'
+  learn_P: True
+  P_KL: True
+  learn_noise: True
+  proj: '2_layer_mlp'
+  n_interv_sets: 200
+
+
+supervised_linear_proj_vae_bcd:
+  exp_name: 'VAE-BCD linear proj (supervised)'
+  num_nodes: 6
+  proj_dims: 10
+  exp_edges: 1.0
+  data_seed: 3
+  off_wandb: False
+  num_samples: 1200
+  obs_data: 1200
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  obs_Z_KL: True
+  n_interv_sets: 20
+  num_steps: 2000
+
+
+linear_proj_vae_bcd:
+  exp_name: 'VAE-BCD linear proj'
+  num_nodes: 6
+  proj_dims: 10
+  exp_edges: 1.0
+  data_seed: 3
+  off_wandb: False
+  num_samples: 3300
+  obs_data: 300
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  obs_Z_KL: False
+  n_interv_sets: 20
+
+
+
+
+
+
+
 
 controlled_supervision:
   exp_name: 'controlled supervision decoder bcd'
@@ -313,6 +437,22 @@ sparse_dbcd:
   interv_value: 100.0
   proj_sparsity: 1.0
   identity_proj: True
+
+# Graph VAE
+graphvae:
+  ckpt_id: 'train_graph_vae' 
+  model: 'GraphVAE'
+  batch_size: 32
+  lr: 1e-3
+  steps: 2000
+  dataset: 'cifar10'
+  loss_log_freq: 10
+  media_log_freq: 10
+  ckpt_save_freq: 1000
+  num_nodes: 5
+  M: 80
+  dims_per_node: 16 # N': dims per node
+
 
 linear_bcd:
   exp_name: 'linear_bcd'
@@ -576,20 +716,7 @@ mila:
 #   num_nodes: 3
 #   slot_space: '1d' # can be 1d or 2d
 
-# # ? 5. Graph VAE
-# train_graph_vae:
-#   ckpt_id: 'train_graph_vae' 
-#   model: 'GraphVAE'
-#   batch_size: 64
-#   lr: 1e-3
-#   steps: 2000
-#   dataset: 'mnist'
-#   loss_log_freq: 10
-#   media_log_freq: 10
-#   ckpt_save_freq: 1000
-#   N: 5
-#   M: 80
-#   dims_per_node: 16 # N': dims per node
+
   
 
 # # ? 6a VAE_VCN: linear projection to higher dims (numerical)

@@ -46,10 +46,15 @@ class VAE_BCD(hk.Module):
         
         self.encoder = hk.Sequential([
             hk.Flatten(), 
-            hk.Linear(self.num_L_params+self.num_Σ_params), jax.nn.relu,
-            hk.Linear(self.num_L_params+self.num_Σ_params), jax.nn.relu,
-            hk.Linear(self.num_L_params+self.num_Σ_params), jax.nn.relu,
-            hk.Linear(self.num_L_params+self.num_Σ_params)
+            hk.Linear(self.num_L_params+self.num_Σ_params), jax.nn.gelu,
+            hk.Linear(self.num_L_params+self.num_Σ_params), jax.nn.gelu,
+            hk.Linear(self.num_L_params+self.num_Σ_params), jax.nn.gelu,
+            hk.Linear(self.num_L_params+self.num_Σ_params), jax.nn.gelu,
+            hk.Linear(self.num_L_params+self.num_Σ_params), jax.nn.gelu,
+            hk.Linear(self.num_L_params+self.num_Σ_params), jax.nn.gelu,
+            hk.Linear(self.num_L_params+self.num_Σ_params), jax.nn.gelu,
+            hk.Linear(self.num_L_params+self.num_Σ_params), jax.nn.gelu,
+            hk.Linear(self.num_L_params+self.num_Σ_params),
         ])
 
         self.doubly_stochastic = GumbelSinkhorn(d, noise_type="gumbel", tol=max_deviation)
