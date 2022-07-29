@@ -24,31 +24,33 @@ def ff2(x):
     else: return f"{x:.2f}"
 
 
-def forward_fn(opt, hard, rng_key, x_targets, interv_targets, interv_values, init=False):
+def forward_fn(opt, hard, rng_key, x_targets, interv_targets, interv_values, P=None, init=False):
     model = VAE_BCD(
         opt.num_nodes,
         opt.proj_dims,
         opt.learn_noise,
         opt.learn_P,
+        opt.hidden_size,
         jnp.log(opt.noise_sigma),
         opt.batch_size,
         opt.max_deviation,
         projection=opt.proj, 
         ev_noise=opt.do_ev_noise,
-        learn_L=opt.learn_L
+        learn_L=opt.learn_L,
+        P=P
     )
 
     return model(hard, rng_key, x_targets, interv_targets, interv_values, init)
 
 
-def init_vae_bcd_params(opt, hk_key, hard, rng_key, interv_targets, interv_values, num_devices):
+def init_vae_bcd_params(opt, hk_key, hard, rng_key, interv_targets, interv_values, num_devices, P=None):
     forward = hk.transform(forward_fn)
     model_opt_layers = [optax.scale_by_belief(eps=1e-8), optax.scale(-opt.lr)]
     opt_model = optax.chain(*model_opt_layers)
     sample_x_targets = jnp.ones((opt.num_samples, opt.proj_dims))
 
     def init_params(rng_key):
-        model_params = forward.init(next(hk_key), opt, hard, rng_key, sample_x_targets, interv_targets, interv_values, init=True)
+        model_params = forward.init(next(hk_key), opt, hard, rng_key, sample_x_targets, interv_targets, interv_values, P=P, init=True)
         model_opt_params = opt_model.init(model_params)
         return model_params, model_opt_params
 

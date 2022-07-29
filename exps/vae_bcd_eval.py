@@ -96,7 +96,7 @@ def evaluate(target, dibs, gs, thetas, steps, dag_file, writer, opt, data,
     return auroc_e, auroc_m, eshd_e, eshd_m, mec_gt_recovery
 
 
-def log_gt_graph(ground_truth_W, logdir, exp_config_dict, opt, writer):
+def log_gt_graph(ground_truth_W, logdir, exp_config_dict, opt, writer=None):
     plt.imshow(ground_truth_W)
     plt.savefig(join(logdir, 'gt_w.png'))
 
@@ -115,7 +115,8 @@ def log_gt_graph(ground_truth_W, logdir, exp_config_dict, opt, writer):
 
     # ? Logging to tensorboard
     gt_graph_image = onp.asarray(imageio.imread(join(logdir, 'gt_w.png')))
-    writer.add_image('graph_structure(GT-pred)/Ground truth W', gt_graph_image, 0, dataformats='HWC')
+    if writer:
+        writer.add_image('graph_structure(GT-pred)/Ground truth W', gt_graph_image, 0, dataformats='HWC')
 
 
 def print_metrics(i, loss, mse_dict, mean_dict, opt):
@@ -132,7 +133,7 @@ def print_metrics(i, loss, mse_dict, mean_dict, opt):
 
 def eval_mean(model_params, x_input, data, rng_key, interv_values, do_shd_c=True, 
             step = None, interv_nodes=None, forward=None, gt_L=None, 
-            ground_truth_W=None, ground_truth_sigmas=None, opt=None):
+            ground_truth_W=None, ground_truth_sigmas=None, opt=None, P=None):
     
     """
         Computes mean error statistics for P, L parameters and data
@@ -147,7 +148,7 @@ def eval_mean(model_params, x_input, data, rng_key, interv_values, do_shd_c=True
     else: noise_dim = dim
 
     @jit
-    def forward_pass(model_params, rng_key, hard, x_input, interv_nodes, interv_values):
+    def forward_pass(model_params, rng_key, hard, x_input, interv_nodes, interv_values, P):
         (   batched_P, 
             batched_P_logits, 
             batched_L, 
@@ -157,11 +158,11 @@ def eval_mean(model_params, x_input, data, rng_key, interv_values, do_shd_c=True
             full_l_batch, 
             full_log_prob_l, 
             X_recons 
-        ) = forward.apply(model_params, rng_key, opt, hard, rng_key, x_input, interv_nodes, interv_values)
+        ) = forward.apply(model_params, rng_key, opt, hard, rng_key, x_input, interv_nodes, interv_values, P=P)
 
         return batched_W, full_l_batch
 
-    batched_W, full_l_batch = forward_pass(model_params, rng_key, True, x_input, interv_nodes, interv_values)
+    batched_W, full_l_batch = forward_pass(model_params, rng_key, True, x_input, interv_nodes, interv_values, P)
     data = data[:opt.obs_data]
     z_prec = onp.linalg.inv(jnp.cov(data.T))
     w_noise = full_l_batch[:, -noise_dim:]
@@ -221,3 +222,16 @@ def eval_mean(model_params, x_input, data, rng_key, interv_values, do_shd_c=True
     out_stats["auprc_w"] = np.array(auprcs_w).mean()
     out_stats["auprc_g"] = np.array(auprcs_g).mean()
     return out_stats
+
+def get_cross_correlation(pred_latent, true_latent):
+    dim= pred_latent.shape[1]
+    cross_corr= np.zeros((dim, dim))
+    for i in range(dim):
+        for j in range(dim):
+            cross_corr[i,j]= (np.cov( pred_latent[:,i], true_latent[:,j] )[0,1]) / ( np.std(pred_latent[:,i])*np.std(true_latent[:,j]) )
+    
+    cost= -1*np.abs(cross_corr)
+    row_ind, col_ind= linear_sum_assignment(cost)
+    
+    score= 100*np.sum( -1*cost[row_ind, col_ind].sum() )/(dim)
+    return score
