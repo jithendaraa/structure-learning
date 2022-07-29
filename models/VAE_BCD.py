@@ -13,9 +13,9 @@ from tensorflow_probability.substrates.jax.distributions import Normal
 
 
 class VAE_BCD(hk.Module):
-    def __init__(self, d, proj_dims, learn_noise, learn_P, hidden_size, log_noise_sigma, batch_size, 
-                max_deviation, projection='linear', ev_noise=True, log_stds_max=3.0, 
-                learn_L=True, P=None):
+    def __init__(self, d, proj_dims, learn_noise, learn_P, hidden_size, log_noise_sigma, 
+                batch_size, logit_constraint, max_deviation, tau=None, projection='linear', 
+                ev_noise=True, log_stds_max=3.0, learn_L=True, P=None):
         """
             d: int, number of nodes in the latent SCM
             proj_dims: int, dimension D of x
@@ -32,10 +32,12 @@ class VAE_BCD(hk.Module):
         self.log_stds_max = log_stds_max
         self.learn_noise = learn_noise
         self.learn_P = learn_P
+        self.tau = tau
 
         self.log_noise_sigma = log_noise_sigma
         self.batch_size = batch_size
         self.do_ev_noise = ev_noise
+        self.logit_constraint = logit_constraint
 
         self.l_dim = d * (d-1) // 2
         if ev_noise: self.noise_dim = 1
@@ -121,7 +123,7 @@ class VAE_BCD(hk.Module):
         if self.logit_constraint is not None:
             # Want to map -inf to -logit_constraint, inf to +logit_constraint
             p_logits = jnp.tanh(p_logits / self.logit_constraint) * self.logit_constraint
-        return p_logits.reshape((-1, self.dim, self.dim))
+        return p_logits.reshape((-1, self.num_nodes, self.num_nodes))
 
     def sample_P(self, rng_key, full_l_batch, hard):
         """
