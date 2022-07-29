@@ -10,26 +10,22 @@
 #SBATCH --mail-type=REQUEUE
 #SBATCH --mail-type=ALL
 
-seeds=(3 8 10 13 15 18)
+seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
 exp_edges=(1.0)
 lrs=(0.002)
 num_steps=(5000)
 
-num_samples=(3600)
+num_samples=(3300)
 obs_data=300
 num_nodes=6
 proj_dims=10
-off_wandb='False'
-
-interv_type='single'
-interv_value=100.0
-P_KL='False'
 L_KL='False'
+L_KL_coeff=20.0
 
-# Dont change these
-obs_Z_KL='False'
-across_interv='True'
-
+interv_type='multi'
+interv_value='uniform'
+off_wandb='False'
+n_interv_sets=30
 
 array_len=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#num_steps[@]} * ${#num_samples[@]} ))
 defg=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#num_steps[@]} * ${#num_samples[@]} ))
@@ -54,10 +50,10 @@ module unload cuda/11.2 && module load cuda/11.0
 deactivate
 act_bcd
 echo `date` "Python starting"
-echo "python run_decoder_bcd_across_interv.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --L_KL ${L_KL} --P_KL ${P_KL} --across_interv ${across_interv} --interv_type ${interv_type} --interv_value ${interv_value} --obs_Z_KL ${obs_Z_KL}"
+echo "python run_decoder_bcd.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --interv_type ${interv_type} --interv_value ${interv_value} --n_interv_sets ${n_interv_sets} --L_KL ${L_KL} --L_KL_coeff ${L_KL_coeff}"
 
-cd exps/decoder_bcd_exps
-python run_decoder_bcd_across_interv.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --L_KL ${L_KL} --P_KL ${P_KL} --across_interv ${across_interv} --interv_type ${interv_type} --interv_value ${interv_value} --obs_Z_KL ${obs_Z_KL}
+cd exps/vae_bcd_exps
+python run_vae_bcd.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --interv_type ${interv_type} --interv_value ${interv_value} --n_interv_sets ${n_interv_sets} --L_KL ${L_KL} --L_KL_coeff ${L_KL_coeff}
 cd ../..
 
 echo $end

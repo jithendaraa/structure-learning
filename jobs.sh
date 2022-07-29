@@ -86,4 +86,10 @@ elif [ ${exp_id} == '14s' ]
 then
     bash script_runners/decoder_bcd_supervision.sh ${dataset} ${train} 'Decoder_BCD' ${time} ${config}
 
+# ! VAE BCD
+elif [ ${exp_id} == '15s' ]   
+then
+    bash script_runners/vae_bcd_job_run.sh ${dataset} ${train} 'Decoder_BCD' ${time} ${config}
+
 fi
+
