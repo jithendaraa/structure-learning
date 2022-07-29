@@ -73,8 +73,7 @@ class LinearGaussianColor(object):
         else:
             raise ValueError("Unknown graph type")
         # random permutation
-        # P = np.random.permutation(np.eye(d, d))  # permutes first axis only
-        P = np.eye(d, d)  # permutes first axis only # ! permutation is always identity, remove this later on
+        P = np.random.permutation(np.eye(d, d))  # permutes first axis only
         B_perm = P.T.dot(B).dot(P)
 
         U = np.random.uniform(low=w_range[0], high=w_range[1], size=[d, d])
@@ -172,33 +171,6 @@ class LinearGaussianColor(object):
                 eta = X[:, parents].dot(W[parents, j])
                 X[:, j] = eta + np.random.normal(scale=sigmas[j], size=n)
 
-        return np.clip(X, low, high)
-
-    def capped_interv_samples(self, idx_to_fix=None, values_to_fix=None, 
-                                low=-10., high=10.):
-        G = nx.DiGraph(self.W)
-        d = self.W.shape[0]
-        X = np.zeros([1, d], dtype=np.float64)
-        sigmas = np.ones((d,)) * self.noise_scale
-
-        ordered_vertices = list(nx.topological_sort(G))
-        assert len(ordered_vertices) == d
-        assert self.dataset_type == "linear"
-        assert self.sem_type == "linear-gauss"
-
-        for j in ordered_vertices:
-            parents = list(G.predecessors(j))
-
-            if isinstance(idx_to_fix, int) and j == idx_to_fix:
-                X[:, j] = values_to_fix[:, j]
-            elif len(np.argwhere(idx_to_fix == j)) > 0:
-                X[:, j] = values_to_fix[:, j]
-            else:
-                eta = X[:, parents].dot(self.W[parents, j])
-                if self.sem_type == "linear-gauss":
-                    X[:, j] = eta + np.random.normal(scale=sigmas[j], size=1)
-                else:
-                    raise ValueError("Unknown sem type")
         return np.clip(X, low, high)
 
 class NonLinearCategoricalColor():
