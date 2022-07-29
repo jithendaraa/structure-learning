@@ -13,15 +13,15 @@ from tensorflow_probability.substrates.jax.distributions import Normal
 
 
 class VAE_BCD(hk.Module):
-    def __init__(self, d, proj_dims, learn_noise, learn_P, log_noise_sigma, batch_size, 
+    def __init__(self, d, proj_dims, learn_noise, learn_P, hidden_size, log_noise_sigma, batch_size, 
                 max_deviation, projection='linear', ev_noise=True, log_stds_max=3.0, 
-                learn_L=True):
+                learn_L=True, P=None):
         """
             d: int, number of nodes in the latent SCM
             proj_dims: int, dimension D of x
             projection: str, linear or nonlinear projection of z to x
             ev_noise: bool, if True, we are in the equal noise(ϵ) variance of a linear Gaussian SCM
-
+            P: The true projection matrix
         """
         super().__init__()
         assert ev_noise == True
@@ -41,8 +41,10 @@ class VAE_BCD(hk.Module):
         if ev_noise: self.noise_dim = 1
         else: self.noise_dim = d
         
+        self.doubly_stochastic = GumbelSinkhorn(d, noise_type="gumbel", tol=max_deviation)
         self.num_L_params = 2 * self.l_dim
         self.num_Σ_params = 2 * self.noise_dim * int(self.learn_noise)
+        self.P = P
         
         self.encoder = hk.Sequential([
             hk.Flatten(), 
@@ -57,7 +59,13 @@ class VAE_BCD(hk.Module):
             hk.Linear(self.num_L_params+self.num_Σ_params),
         ])
 
-        self.doubly_stochastic = GumbelSinkhorn(d, noise_type="gumbel", tol=max_deviation)
+        if self.learn_P:
+            self.p_model = hk.Sequential([
+                                hk.Flatten(), 
+                                hk.Linear(hidden_size), jax.nn.gelu,
+                                hk.Linear(hidden_size), jax.nn.gelu,
+                                hk.Linear(d * d)
+                            ])
 
         if projection == 'linear':
             self.decoder = hk.Sequential([
@@ -65,9 +73,16 @@ class VAE_BCD(hk.Module):
                 hk.Linear(proj_dims, with_bias=False)
             ])
 
-        elif projection == 'nonlinear':
-            raise NotImplementedError
-    
+        elif projection == '2_layer_mlp':
+            self.decoder = hk.Sequential([
+                hk.Flatten(), 
+                hk.Linear(16, with_bias=False), jax.nn.gelu,
+                hk.Linear(64, with_bias=False), jax.nn.gelu,
+                hk.Linear(64, with_bias=False), jax.nn.gelu,
+                hk.Linear(64, with_bias=False), jax.nn.gelu,
+                hk.Linear(proj_dims, with_bias=False)
+            ])
+        
     def lower(self, theta):
         """
             Given n(n-1)/2 parameters theta, form a
@@ -98,11 +113,21 @@ class VAE_BCD(hk.Module):
         full_log_prob_l = cast(jnp.ndarray, full_log_prob_l)
         return full_l_batch, full_log_prob_l
 
+    def get_P_logits(self, L_samples):
+        """
+            Computes the P_logits = T = h_ϕ(L, Σ); h_ϕ = self.p_model
+        """
+        p_logits = self.p_model(L_samples)
+        if self.logit_constraint is not None:
+            # Want to map -inf to -logit_constraint, inf to +logit_constraint
+            p_logits = jnp.tanh(p_logits / self.logit_constraint) * self.logit_constraint
+        return p_logits.reshape((-1, self.dim, self.dim))
+
     def sample_P(self, rng_key, full_l_batch, hard):
         """
         """
         if self.learn_P is False:
-            batched_P = jnp.eye(self.num_nodes, self.num_nodes)[jnp.newaxis, :].repeat(len(full_l_batch), axis=0) 
+            batched_P = self.P[jnp.newaxis, :].repeat(len(full_l_batch), axis=0) 
             batched_P_logits = None
         else:
             # ? Compute logits T = h_ϕ(L, Σ); h_ϕ = p_model

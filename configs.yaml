@@ -72,9 +72,7 @@ defaults:
   noise_ED: False   # if known_ED and noise_ED is true, encoder and decoder becomes (W+noise) and (W+noise).T
 
   # ? Graph VAE
-  M: 80 # M - total dims per node
-  N: 5 # num nodes
-  dims_per_node: 16 
+  total_dims: 80
 
   # ? VAE-VCN
   opti: 'alt' # ['simult', 'alt', 'fast-slow'] for optimizing latent variable params and graph structure params
@@ -123,7 +121,7 @@ defaults:
   # ? Decoder BCD: Don't change these default values! Always modify in separate config keys like below
   learn_P: False
   learn_L: True
-  learn_noise: False
+  learn_noise: True
   L_KL: False
   P_KL: False
   Z_KL: 'joint' # 'joint' or 'conditional'
@@ -148,7 +146,6 @@ defaults:
   exp_edges: 1.0
   n_interv_sets: 20
   interv_value: 'uniform'
-
 
 obs_supervised_dbcd:
   exp_name: 'supervised decoder bcd (observational)'
@@ -257,11 +254,12 @@ linear_dbcd:
   proj_dims: 10
   data_seed: 2
   off_wandb: True
-  num_samples: 1000
-  obs_data: 1000
+  num_samples: 3300
+  obs_data: 300
   interv_type: 'multi'
   learn_L: True    # 'partial'
   interv_value: 'uniform'
+  proj: 'linear'
 
 linear_dbcd_learn_partial_L:
   exp_name: 'linear_dbcd_learn_partial_L'
@@ -294,15 +292,15 @@ linear_dbcd_learn_P:
   num_nodes: 6
   proj_dims: 10
   data_seed: 2
-  off_wandb: False
-  num_samples: 3900
-  obs_data: 300
-  interv_type: 'multi'
+  off_wandb: True
+  num_samples: 1000
+  obs_data: 1000
   learn_L: True    # 'partial'
   learn_noise: True
   learn_P: True
+  interv_type: 'multi'
   interv_value: 'uniform'
-  lr: 8e-4
+  proj: 'linear'
 
 nonlinear_proj_dbcd:
   exp_name: 'nonlinear_proj_dbcd'
@@ -368,19 +366,93 @@ supervised_linear_proj_vae_bcd:
 
 
 linear_proj_vae_bcd:
-  exp_name: 'VAE-BCD linear proj'
+  exp_name: 'VAE-BCD linear proj (learn L)'
+  proj: 'linear'
   num_nodes: 6
   proj_dims: 10
   exp_edges: 1.0
   data_seed: 3
-  off_wandb: False
+  off_wandb: True
   num_samples: 3300
   obs_data: 300
   interv_type: 'multi'
   interv_value: 'uniform'
   obs_Z_KL: False
   n_interv_sets: 20
+  L_KL: True
+  L_KL_coeff: 10.0
+  learn_noise: True
+  learn_L: True
 
+linear_proj_vae_bcd_learn_SCM:
+  exp_name: 'VAE-BCD linear proj (learn SCM)'
+  proj: 'linear'
+  num_nodes: 6
+  proj_dims: 10
+  exp_edges: 1.0
+  data_seed: 3
+  off_wandb: True
+  num_samples: 3300
+  obs_data: 300
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  obs_Z_KL: False
+  n_interv_sets: 20
+  L_KL: True
+  L_KL_coeff: 10.0
+  learn_P: True
+
+nonlinear_proj_vae_bcd:
+  exp_name: 'VAE-BCD nonlinear proj (learn L)'
+  proj: '2_layer_mlp'
+  num_nodes: 6
+  proj_dims: 10
+  exp_edges: 1.0
+  data_seed: 3
+  off_wandb: True
+  num_samples: 3300
+  obs_data: 300
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  obs_Z_KL: False
+  n_interv_sets: 20
+  L_KL: False
+  L_KL_coeff: 10.0
+  learn_noise: True
+  learn_L: True
+
+
+nonlinear_proj_vae_bcd_learn_P:
+  exp_name: 'VAE-BCD nonlinear proj'
+  proj: '2_layer_mlp'
+  num_nodes: 6
+  proj_dims: 10
+  exp_edges: 1.0
+  data_seed: 3
+  off_wandb: True
+  num_samples: 3300
+  obs_data: 300
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  obs_Z_KL: False
+  n_interv_sets: 20
+  L_KL: False
+  L_KL_coeff: 10.0
+  learn_P: True
+  learn_noise: True
+  learn_L: True
+
+
+conv_decoder_bcd:
+  num_nodes: 6
+  exp_edges: 1.0
+  data_seed: 3
+  num_samples: 50
+  obs_data: 10
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  n_interv_sets: 10
+  noise_sigma: 1.5
 
 
 
@@ -450,9 +522,9 @@ graphvae:
   media_log_freq: 10
   ckpt_save_freq: 1000
   num_nodes: 5
-  M: 80
+  total_dims: 80
   dims_per_node: 16 # N': dims per node
-
+  off_wandb: True
 
 linear_bcd:
   exp_name: 'linear_bcd'
