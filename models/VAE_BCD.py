@@ -191,6 +191,7 @@ class VAE_BCD(hk.Module):
         """
         if init is True:
             z = jnp.ones((len(x_targets), self.num_nodes))
+            if self.learn_P: self.p_model(jnp.ones((self.l_dim + self.noise_dim)))
             return self.encoder(x_targets), self.decoder(z)
         
         # Get q(L, Σ | X)

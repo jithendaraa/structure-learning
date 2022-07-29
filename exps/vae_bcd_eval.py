@@ -148,7 +148,7 @@ def eval_mean(model_params, x_input, data, rng_key, interv_values, do_shd_c=True
     else: noise_dim = dim
 
     @jit
-    def forward_pass(model_params, rng_key, hard, x_input, interv_nodes, interv_values, P):
+    def forward_pass(model_params, rng_key, x_input, interv_nodes, interv_values):
         (   batched_P, 
             batched_P_logits, 
             batched_L, 
@@ -162,7 +162,7 @@ def eval_mean(model_params, x_input, data, rng_key, interv_values, do_shd_c=True
 
         return batched_W, full_l_batch
 
-    batched_W, full_l_batch = forward_pass(model_params, rng_key, True, x_input, interv_nodes, interv_values, P)
+    batched_W, full_l_batch = forward_pass(model_params, rng_key, x_input, interv_nodes, interv_values)
     data = data[:opt.obs_data]
     z_prec = onp.linalg.inv(jnp.cov(data.T))
     w_noise = full_l_batch[:, -noise_dim:]

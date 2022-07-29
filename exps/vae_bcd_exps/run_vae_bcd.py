@@ -45,10 +45,6 @@ num_devices = 1
 tau = opt.fixed_tau
 shd = -1.0
 
-
-logdir = utils.set_tb_logdir(opt)
-writer = SummaryWriter(join("..", logdir))
-
 horseshoe_tau = (1 / onp.sqrt(opt.num_samples)) * (2 * degree / ((dim - 1) - 2 * degree))
 if horseshoe_tau < 0:   horseshoe_tau = 1 / (2 * dim)
 print(f"Horseshoe tau is {horseshoe_tau}")
@@ -79,10 +75,12 @@ ground_truth_sigmas = opt.noise_sigma * jnp.ones(opt.num_nodes)
 print(ground_truth_W)
 print()
 
-log_gt_graph(ground_truth_W, logdir, vars(opt), opt, writer)
-
 ds = GumbelSinkhorn(dim, noise_type="gumbel", tol=opt.max_deviation)
 gt_L_elems = get_lower_elems(ground_truth_L, dim)
+
+logdir = utils.set_tb_logdir(opt)
+log_gt_graph(ground_truth_W, logdir, vars(opt), opt)
+
 
 max_cols = jnp.max(no_interv_targets.sum(1))
 data_idx_array = jnp.array([jnp.arange(opt.num_nodes + 1)] * opt.num_samples)
@@ -95,9 +93,9 @@ p_z_obs_joint_mu, p_z_obs_joint_covar = get_joint_dist_params(opt.noise_sigma, j
 
 
 # Initialize model and params
-forward, model_params, model_opt_params, opt_model, rng_keys = init_vae_bcd_params(opt, hk_key, False, rng_key, interv_nodes, interv_values, num_devices)
+forward, model_params, model_opt_params, opt_model, rng_keys = init_vae_bcd_params(opt, hk_key, False, rng_key, interv_nodes, interv_values, num_devices, P=sd.P)
 
-
+@jit
 def hard_elbo(model_params, rng_key, x_input, interv_nodes, interv_values):
     l_prior = Horseshoe(scale=jnp.ones(l_dim + noise_dim) * horseshoe_tau)  # * Horseshoe prior over lower triangular matrix L
     rng_key = random.split(rng_key, num_outer)[0]
@@ -113,7 +111,7 @@ def hard_elbo(model_params, rng_key, x_input, interv_nodes, interv_values):
         full_l_batch, 
         full_log_prob_l, 
         X_recons 
-    ) = forward.apply(model_params, rng_key, opt, True, rng_key, x_input, interv_nodes, interv_values)
+    ) = forward.apply(model_params, rng_key, opt, True, rng_key, x_input, interv_nodes, interv_values, P=sd.P)
 
     likelihoods = -jit(vmap(get_mse, (None, 0), 0))(x, X_recons) 
 
@@ -128,7 +126,7 @@ def hard_elbo(model_params, rng_key, x_input, interv_nodes, interv_values):
     if opt.L_KL is True:    # ! KL over edge weights L
         l_prior_probs = jnp.sum(l_prior.log_prob(full_l_batch + 1e-7)[:, :l_dim], axis=1)
         KL_term_L = full_log_prob_l - l_prior_probs
-        final_term -= KL_term_L
+        final_term -= opt.L_KL_coeff * KL_term_L
 
     if (opt.obs_Z_KL is True):
         batch_get_obs_joint_dist_params = vmap(get_joint_dist_params, (0, 0), (0, 0))
@@ -154,7 +152,7 @@ def gradient_step(model_params, rng_key, x_input, interv_nodes, interv_values):
         full_l_batch, 
         full_log_prob_l, 
         X_recons 
-    ) = forward.apply(model_params, rng_key_, opt, True, rng_key, x_input, interv_nodes, interv_values)
+    ) = forward.apply(model_params, rng_key_, opt, True, rng_key, x_input, interv_nodes, interv_values, P=sd.P)
 
 
     batch_get_obs_joint_dist_params = vmap(get_joint_dist_params, (0, 0), (0, 0))
@@ -166,13 +164,18 @@ def gradient_step(model_params, rng_key, x_input, interv_nodes, interv_values):
                                         batch_q_z_obs_joint_mus, 
                                         opt) 
 
+    l_prior = Horseshoe(scale=jnp.ones(l_dim + noise_dim) * horseshoe_tau)  # * Horseshoe prior over lower triangular matrix L
+    l_prior_probs = jnp.sum(l_prior.log_prob(full_l_batch + 1e-7)[:, :l_dim], axis=1)
+    KL_term_L = full_log_prob_l - l_prior_probs
+
     L_elems = vmap(get_lower_elems, (0, None), 0)(batch_L, dim)
 
     log_dict = {
         "L_mse": get_mse(gt_L_elems, L_elems),
         "z_mse": get_mse(z_gt, batch_qz_samples),
         "x_mse": jnp.mean(vmap(get_mse, (None, 0), 0)(x_input, X_recons)),
-        "true_obs_KL_term_Z": jnp.mean(true_obs_KL_term_Z)
+        "true_obs_KL_term_Z": jnp.mean(true_obs_KL_term_Z),
+        "KL(L)": jnp.mean(KL_term_L)
     }
 
     pred_W_means = jnp.mean(batch_W, axis=0)
@@ -208,7 +211,8 @@ with tqdm(range(opt.num_steps)) as pbar:
                                     ground_truth_L, 
                                     sd.W, 
                                     ground_truth_sigmas, 
-                                    opt
+                                    opt, 
+                                    P=sd.P
                                 )
 
             wandb_dict = {
@@ -216,6 +220,7 @@ with tqdm(range(opt.num_steps)) as pbar:
                 "Z_MSE": onp.array(log_dict["z_mse"]),
                 "X_MSE": onp.array(log_dict["x_mse"]),
                 "L_MSE": onp.array(log_dict["L_mse"]),
+                "KL(L)": onp.array(log_dict["KL(L)"]),
                 "true_obs_KL_term_Z": onp.array(log_dict["true_obs_KL_term_Z"]),
                 "Evaluations/SHD": mean_dict["shd"],
                 "Evaluations/SHD_C": mean_dict["shd_c"],
