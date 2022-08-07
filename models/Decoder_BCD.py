@@ -7,7 +7,7 @@ import haiku as hk
 import jax
 import jax.numpy as jnp
 import jax.random as rnd
-from jax import vmap, jit, ops, random
+from jax import vmap, ops, random
 from jax.ops import index, index_update
 from typing import Tuple, Optional, cast, Union
 import networkx as nx
@@ -25,7 +25,8 @@ class Decoder_BCD(hk.Module):
     def __init__(self, dim, l_dim, noise_dim, batch_size, hidden_size, max_deviation, 
                 do_ev_noise, proj_dims, log_stds_max=10.0, logit_constraint=10, tau=None, subsample=False, 
                 s_prior_std=3.0, num_bethe_iters=20, horseshoe_tau=None, learn_noise=False, noise_sigma=0.1,
-                L=None, learn_L=True, learn_P=False, pred_last_L = 1, fix_decoder=False, proj='linear'):
+                L=None, learn_L=True, learn_P=False, pred_last_L = 1, fix_decoder=False, proj='linear',
+                P=None):
         super().__init__()
 
         self.dim = dim
@@ -45,6 +46,7 @@ class Decoder_BCD(hk.Module):
         self.learn_L = learn_L
         self.learn_P = learn_P
         self.L = L
+        self.P = P
         self.num_elems = pred_last_L
         self.fix_decoder = fix_decoder
 
@@ -248,7 +250,7 @@ class Decoder_BCD(hk.Module):
 
         else:
             # ! fixes permutation to Identity; for exps where we are not learning P.
-            batched_P = jnp.eye(self.dim, self.dim)[jnp.newaxis, :].repeat(self.batch_size, axis=0) 
+            batched_P = self.P[jnp.newaxis, :].repeat(self.batch_size, axis=0) 
             batched_P_logits = None
 
         batched_W = vmap(self.sample_W, (0, 0), (0))(batched_L, batched_P)
