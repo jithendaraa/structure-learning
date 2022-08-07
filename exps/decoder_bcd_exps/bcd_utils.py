@@ -10,7 +10,7 @@ import haiku as hk
 import jax, pdb, time, cdt, optax
 import jax.random as rnd
 import numpy as np
-from jax import vmap, jit, vjp, ops, grad, lax, config, value_and_grad
+from jax import vmap, jit, vjp, ops, grad
 from sklearn.metrics import roc_curve, auc
 
 # cdt.SETTINGS.rpath = "/path/to/Rscript/binary""
@@ -580,7 +580,8 @@ def get_prior_interv_dists(node_mus, node_vars, W, P, opt):
 
 
 def forward_fn(hard, rng_keys, interv_targets, init, opt, horseshoe_tau,
-                ground_truth_L, interv_values, P_params=None, L_params=None, log_stds_max=10.0):
+                ground_truth_L, interv_values, P_params=None, L_params=None, 
+                log_stds_max=10.0, P=None):
     dim = opt.num_nodes
     l_dim = dim * (dim - 1) // 2
     do_ev_noise = opt.do_ev_noise
@@ -591,12 +592,12 @@ def forward_fn(hard, rng_keys, interv_targets, init, opt, horseshoe_tau,
             opt.proj_dims, log_stds_max, opt.logit_constraint, opt.fixed_tau, opt.subsample, opt.s_prior_std, 
             horseshoe_tau=horseshoe_tau, learn_noise=opt.learn_noise, noise_sigma=opt.noise_sigma, 
             L=jnp.array(ground_truth_L), learn_L=opt.learn_L, learn_P=opt.learn_P, pred_last_L=opt.pred_last_L, 
-            fix_decoder=opt.fix_decoder, proj=opt.proj)
+            fix_decoder=opt.fix_decoder, proj=opt.proj, P=P)
 
     return model(hard, rng_keys, interv_targets, interv_values, init, P_params, L_params)
 
 def init_parallel_params(rng_key, key, opt, num_devices, no_interv_targets, 
-                        horseshoe_tau, L, interv_values):
+                        horseshoe_tau, L, interv_values, P=None):
     dim = opt.num_nodes
     if opt.do_ev_noise: noise_dim = 1
     else: noise_dim = dim
@@ -628,7 +629,7 @@ def init_parallel_params(rng_key, key, opt, num_devices, no_interv_targets,
             L_params = jnp.concatenate((jnp.zeros(l_dim), jnp.zeros(noise_dim), jnp.zeros(l_dim + noise_dim) - 1,)
             )
         P_params = forward.init(next(key), False, rng_key, jnp.array(no_interv_targets), True, opt,
-                        horseshoe_tau, L, interv_values)
+                        horseshoe_tau, L, interv_values, P=P)
         
         if opt.factorized:  raise NotImplementedError
         P_opt_params = opt_P.init(P_params)
@@ -639,8 +640,8 @@ def init_parallel_params(rng_key, key, opt, num_devices, no_interv_targets,
     P_params, L_params, P_opt_params, L_opt_params = init_params(rng_keys)
     
     rng_keys = rnd.split(rng_key, num_devices)
-    print(f"L model has {ff2(num_params(L_params))} parameters")
-    print(f"P model has {ff2(num_params(P_params))} parameters")
+    print(f"L has {ff2(num_params(L_params))} parameters")
+    print(f"Model has {ff2(num_params(P_params))} parameters")
 
     return (P_params, L_params, P_opt_params, L_opt_params, 
             rng_keys, forward, opt_P, opt_L)
