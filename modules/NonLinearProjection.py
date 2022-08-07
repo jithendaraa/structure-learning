@@ -10,6 +10,7 @@ class NonLinearProjection(hk.Module):
         # TODO: See what kind of nonlinearity to add
         self.nonlinear_projector = hk.Sequential([
                                         hk.Linear(proj_dims), jax.nn.relu,
+                                        hk.Linear(proj_dims), jax.nn.relu,
                                         hk.Linear(proj_dims)
                                     ])
 
