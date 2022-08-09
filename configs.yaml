@@ -254,9 +254,9 @@ nonlinear_proj_dbcd_intervs:
 linear_dbcd_obs:
   exp_name: 'Decoder BCD observational learn L (linear projection)'
   exp_edges: 1.0
-  num_nodes: 6
+  num_nodes: 20
   proj_dims: 100
-  data_seed: 2
+  data_seed: 18
   off_wandb: True
   num_samples: 3000
   obs_data: 3000
@@ -293,6 +293,53 @@ linear_dbcd_multi_interv:
   obs_data: 500
   learn_L: True    # 'partial'
   n_interv_sets: 20
+
+# ! batched learn L linear Decoder BCD
+batched_linear_dbcd_obs:
+  exp_name: 'Batched Decoder BCD observational learn L (linear projection)'
+  exp_edges: 1.0
+  num_nodes: 20
+  proj_dims: 100
+  data_seed: 18
+  off_wandb: True
+  num_samples: 3000
+  obs_data: 3000
+  learn_L: True    # 'partial'
+  proj: 'linear'
+  num_steps: 5000
+  batches: 500
+
+batched_linear_dbcd_single_interv:
+  exp_name: 'Batched Decoder BCD single interventional learn L (linear projection)'
+  interv_type: 'single'
+  interv_value: 'uniform'
+  proj: 'linear'
+  num_nodes: 6
+  exp_edges: 1.0
+  proj_dims: 100
+  data_seed: 2
+  off_wandb: True
+  num_samples: 3500
+  obs_data: 500
+  learn_L: True    # 'partial'
+  n_interv_sets: 20
+  batches: 500
+
+batched_linear_dbcd_multi_interv:
+  exp_name: 'Batched Decoder BCD multi interventional learn L (linear projection)'
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  proj: 'linear'
+  num_nodes: 50
+  exp_edges: 1.0
+  proj_dims: 100
+  data_seed: 2
+  off_wandb: True
+  num_samples: 3500
+  obs_data: 500
+  learn_L: True    # 'partial'
+  n_interv_sets: 20
+  batches: 500
 
 
 # ! learn SCM linear Decoder BCD
@@ -386,22 +433,58 @@ nonlinear_proj_dbcd_multi_interv:
   learn_L: True    # 'partial'
 
 
-nonlinear_proj_dbcd_learn_SCM:
+nonlinear_proj_dbcd_learn_SCM_obs:
   exp_name: 'nonlinear_proj_dbcd_learn_P_noise'
   proj: '2_layer_mlp'
+  interv_type: 'multi'
+  interv_value: 'uniform'
   num_nodes: 6
   proj_dims: 10
   data_seed: 3
   off_wandb: True
-  num_samples: 3900
-  obs_data: 300
-  interv_type: 'multi'
-  interv_value: 'uniform'
+  num_samples: 3500
+  obs_data: 3500
   P_KL: True
   n_interv_sets: 20
   learn_L: True    # 'partial'
   learn_noise: True
   learn_P: True
+
+nonlinear_proj_dbcd_learn_SCM_single_interv:
+  exp_name: 'nonlinear_proj_dbcd_learn_P_noise'
+  proj: '2_layer_mlp'
+  interv_type: 'single'
+  interv_value: 'uniform'
+  num_nodes: 6
+  proj_dims: 10
+  data_seed: 3
+  off_wandb: True
+  num_samples: 3500
+  obs_data: 500
+  P_KL: True
+  n_interv_sets: 20
+  learn_L: True    # 'partial'
+  learn_noise: True
+  learn_P: True
+
+nonlinear_proj_dbcd_learn_SCM_multi_interv:
+  exp_name: 'nonlinear_proj_dbcd_learn_P_noise'
+  proj: '2_layer_mlp'
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  num_nodes: 6
+  proj_dims: 10
+  data_seed: 3
+  off_wandb: True
+  num_samples: 3500
+  obs_data: 500
+  P_KL: True
+  n_interv_sets: 20
+  learn_L: True    # 'partial'
+  learn_noise: True
+  learn_P: True
+
+
 
 
 supervised_linear_proj_vae_bcd:
