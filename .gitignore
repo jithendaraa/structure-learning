@@ -7,3 +7,5 @@ out/
 core*
 jax_setup/tmp/
 *.so
+modules/c_modules/
+exps/conv_decoder_bcd_exps/*.png
