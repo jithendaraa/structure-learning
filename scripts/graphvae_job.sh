@@ -12,16 +12,15 @@
 
 seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
 exp_edges=(1.0)
-lrs=(0.002)
-num_steps=(5000)
+lrs=(0.001)
+num_steps=(300)
 
 num_samples=(3300)
 obs_data=300
-num_nodes=6
-proj_dims=10
-L_KL='True'
-L_KL_coeff=10.0
-n_interv_sets=30
+num_nodes=5
+n_interv_sets=20
+batches=10
+generate='False'
 
 interv_type='multi'
 interv_value='uniform'
@@ -47,13 +46,13 @@ echo "Script"
 # unzip $SLURM_TMPDIR/CLEVR_v1.0.zip
 module load anaconda/3
 module unload cuda/11.2 && module load cuda/11.0
-deactivate
-act_bcd
+module load cuda/11.0/cudnn/8.0
+conda activate lbcd
 echo `date` "Python starting"
-echo "python run_decoder_bcd.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --interv_type ${interv_type} --interv_value ${interv_value} --n_interv_sets ${n_interv_sets} --L_KL ${L_KL} --L_KL_coeff ${L_KL_coeff}"
+echo "python run_graphvae.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --obs_data ${obs_data} --off_wandb ${off_wandb} --interv_type ${interv_type} --interv_value ${interv_value} --n_interv_sets ${n_interv_sets} --batches ${batches} --generate ${generate}"
 
-cd exps/vae_bcd_exps
-python run_vae_bcd.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --interv_type ${interv_type} --interv_value ${interv_value} --n_interv_sets ${n_interv_sets} --L_KL ${L_KL} --L_KL_coeff ${L_KL_coeff}
+cd exps/graphvae_exps
+python run_graphvae.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --obs_data ${obs_data} --off_wandb ${off_wandb} --interv_type ${interv_type} --interv_value ${interv_value} --n_interv_sets ${n_interv_sets} --batches ${batches} --generate ${generate}
 cd ../..
 
 echo $end
