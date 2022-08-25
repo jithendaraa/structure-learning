@@ -10,6 +10,7 @@ from tqdm import tqdm
 import utils
 import ruamel.yaml as yaml
 
+from modules.ColorGen import LinearGaussianColor
 from conv_decoder_bcd_utils import *
 import envs, wandb
 import jax
@@ -51,13 +52,15 @@ hard = True
 num_bethe_iters = 20
 assert opt.train_loss == 'mse'
 bs = opt.batches
-num_batches = n // bs + (not (n % bs == 0))
+assert n % bs == 0
+num_batches = n // bs
 assert opt.dataset == 'chemdata'
 proj_dims = (1, 50, 50)
 log_stds_max=10.
 logdir = utils.set_tb_logdir(opt)
 
 z, interv_nodes, interv_values, images, gt_W, gt_P, gt_L = generate_data(opt, low, high)
+images = images[:, :, 0]
 log_gt_graph(gt_W, logdir, vars(opt), opt)
 
 # ? Set parameter for Horseshoe prior on L
@@ -83,7 +86,9 @@ def f(rng_key, interv_targets, interv_values, L_params):
                                 opt.max_deviation,
                                 logit_constraint=opt.logit_constraint,
                                 log_stds_max=log_stds_max,
-                                noise_sigma=opt.noise_sigma
+                                learn_L=opt.learn_L,
+                                L=gt_L,
+                                noise_sigma=opt.noise_sigma,
                             )
     return model(rng_key, interv_targets, interv_values, L_params)
 
@@ -118,8 +123,8 @@ def get_loss(model_params, L_params, state, x_data, interv_nodes_, interv_values
                             state,
                             rng_key,
                             rng_key,
-                            interv_nodes_[:bs],
-                            interv_values_[:bs],
+                            interv_nodes_,
+                            interv_values_,
                             L_params)
     (   batch_P, 
         batch_P_logits, 
@@ -132,7 +137,7 @@ def get_loss(model_params, L_params, state, x_data, interv_nodes_, interv_values
         X_recons 
                         ) = res
 
-    mse_loss = jit(vmap(get_mse, (None, 0), 0))(x_data/255.0, X_recons/255.0)
+    mse_loss = jit(vmap(get_mse, (None, 0), 0))(x_data, X_recons)
     likelihoods = mse_loss
     final_term = likelihoods
 
@@ -234,24 +239,6 @@ def train_batch(state, model_opt_params, model_params, L_opt_params, L_params, x
     return res[1], model_opt_params, model_params, L_opt_params, L_params, log_dict, batch_W, z_samples, X_recons, pred_W_means
 
 
-num_test_samples = 10
-(   test_interv_data, 
-    test_interv_nodes, 
-    test_interv_values, 
-    test_images,
-    padded_test_images      ) = generate_test_samples(d, onp.array(gt_W), 
-                                                opt.sem_type, 
-                                                [opt.noise_sigma], 
-                                                low, high, 
-                                                10)
-
-
-plt.figure()
-plt.imshow(padded_test_images/255.)
-plt.savefig(f'test_gt_image_seed{opt.data_seed}.png')
-plt.close('all')
-
-# Training loop
 with tqdm(range(opt.num_steps)) as pbar:  
     for i in pbar:
         pred_z = None
@@ -286,7 +273,7 @@ with tqdm(range(opt.num_steps)) as pbar:
                                                     interv_values[start_idx:end_idx])
                 
                 if jnp.any(jnp.isnan(ravel_pytree(L_params)[0])):   raise Exception("Got NaNs in L params")
-
+    
                 if b == 0:
                     pred_z = z_samples
                     pred_x = X_recons
@@ -307,10 +294,13 @@ with tqdm(range(opt.num_steps)) as pbar:
                     L_mse=f"{log_dict['L_mse']:.3f}"
                 )
 
+                if (opt.learn_L is False) and (opt.learn_P is False) and (opt.learn_noise is False):
+                    assert (pred_W_means == gt_W).all()
+
         for key in epoch_dict:
             epoch_dict[key] = epoch_dict[key] / num_batches 
 
-        if i % 20 == 0:
+        if i % 1 == 0:
             random_idxs = onp.random.choice(n, bs, replace=False)
             mean_dict = eval_mean(  model_params, 
                                     L_params,
@@ -354,7 +344,7 @@ with tqdm(range(opt.num_steps)) as pbar:
                 plt.close('all')
 
                 plt.figure()
-                plt.imshow(jnp.mean(pred_x[:, start_idx, :, :, 0], axis=0)/255.)
+                plt.imshow(jnp.mean(pred_x[:, 0, :, :, 0], axis=0)/255.)
                 plt.savefig(join(logdir, 'pred_image.png'))
                 wandb_dict["graph_structure(GT-pred)/Reconstructed image"] = wandb.Image(join(logdir, 'pred_image.png'))
                 plt.close('all')
@@ -383,27 +373,3 @@ with tqdm(range(opt.num_steps)) as pbar:
             L_mse=f"{epoch_dict['L_mse']:.3f}",
             SHD=shd
         )
-
-loss, (res, _, _) = get_loss(model_params, L_params, state, test_images, test_interv_nodes, test_interv_values)
-pred_image = jnp.mean(res[-1], axis=0)
-
-_, h, w, c = pred_image.shape
-padded_pred_images = onp.zeros((5, w, c))
-
-for i in range(num_test_samples):
-    padded_pred_images = onp.concatenate((padded_pred_images, pred_image[i]), axis=0)
-    padded_pred_images = onp.concatenate((padded_pred_images, onp.zeros((5, w, c))), axis=0)
-
-padded_pred_images = padded_pred_images[:, :, 0]
-
-plt.figure()
-plt.imshow(padded_pred_images/255.)
-plt.savefig(f'test_pred_image_seed{opt.data_seed}.png')
-plt.close('all')
-
-print(test_interv_nodes)
-print(test_interv_values)
-print(test_interv_data)
-
-
-
