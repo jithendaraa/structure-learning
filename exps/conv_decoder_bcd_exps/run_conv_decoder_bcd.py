@@ -36,6 +36,7 @@ onp.random.seed(0)
 rng_key = rnd.PRNGKey(opt.data_seed)
 key = hk.PRNGSequence(42)
 
+opt.num_samples = int(opt.pts_per_interv * opt.n_interv_sets) + opt.obs_data
 n = opt.num_samples
 d = opt.num_nodes
 degree = opt.exp_edges
@@ -61,7 +62,14 @@ z, interv_nodes, interv_values, images, gt_W, gt_P, gt_L = generate_data(opt, lo
 log_gt_graph(gt_W, logdir, vars(opt), opt)
 
 # ? Set parameter for Horseshoe prior on L
-horseshoe_tau = (1 / onp.sqrt(n)) * (2 * degree / ((d - 1) - 2 * degree))
+if ((d - 1) - 2 * degree) == 0:
+    p_n_over_n = 2 * degree / (d - 1)
+    if p_n_over_n > 1:
+        p_n_over_n = 1
+    horseshoe_tau = p_n_over_n * jnp.sqrt(jnp.log(1.0 / p_n_over_n))
+else:
+    horseshoe_tau = (1 / onp.sqrt(n)) * (2 * degree / ((d - 1) - 2 * degree) )
+
 if horseshoe_tau < 0:   horseshoe_tau = 1 / (2 * d)
 
 ds = GumbelSinkhorn(d, noise_type="gumbel", tol=opt.max_deviation)
@@ -248,7 +256,7 @@ num_test_samples = 10
 
 plt.figure()
 plt.imshow(padded_test_images/255.)
-plt.savefig(f'test_gt_image_seed{opt.data_seed}.png')
+plt.savefig(f'/home/mila/j/jithendaraa.subramanian/scratch/test_gt_image_learnP{opt.learn_P}_seed{opt.data_seed}_d{d}_ee_{int(opt.exp_edges)}.png')
 plt.close('all')
 
 # Training loop
@@ -332,19 +340,38 @@ with tqdm(range(opt.num_steps)) as pbar:
             mcc_score = onp.mean(onp.array(mcc_scores))
 
             wandb_dict = {
+                # Different loss related metrics and evaluating SCM params (L_MSE)
                 "ELBO": epoch_dict['ELBO'],
                 "Z_MSE": epoch_dict["z_mse"],
                 "X_MSE": epoch_dict["x_mse"],
                 "L_MSE": epoch_dict["L_mse"],
                 "KL(L)": epoch_dict["KL(L)"],
                 "true_obs_KL_term_Z": epoch_dict["true_obs_KL_term_Z"],
+
+                # Distance from interventional distributions
+                "train sample KL": mean_dict["sample_kl"],
+                "true sample KL": mean_dict["true_kl"],
+                "Sample Wasserstein": mean_dict["sample_wasserstein"],
+                "True Wasserstein": mean_dict["true_wasserstein"],
+
+                # Evaluating structure and causal variables (MCC)
                 "Evaluations/SHD": mean_dict["shd"],
                 "Evaluations/SHD_C": mean_dict["shd_c"],
                 "Evaluations/AUROC": mean_dict["auroc"],
                 "Evaluations/AUPRC_W": mean_dict["auprc_w"],
                 "Evaluations/AUPRC_G": mean_dict["auprc_g"],
-                "train sample KL": mean_dict["sample_kl"],
-                'Evaluations/MCC': mcc_score
+                'Evaluations/MCC': mcc_score,
+                
+                # Confusion matrix related metrics for structure
+                'Evaluations/TPR': mean_dict["tpr"],
+                'Evaluations/FPR': mean_dict["fpr"],
+                'Evaluations/TP': mean_dict["tp"],
+                'Evaluations/FP': mean_dict["fp"],
+                'Evaluations/TN': mean_dict["tn"],
+                'Evaluations/FN': mean_dict["fn"],
+                'Evaluations/Recall': mean_dict["recall"],
+                'Evaluations/Precision': mean_dict["precision"],
+                'Evaluations/F1 Score': mean_dict["fscore"],
             }
 
             if opt.off_wandb is False:  
@@ -398,7 +425,7 @@ padded_pred_images = padded_pred_images[:, :, 0]
 
 plt.figure()
 plt.imshow(padded_pred_images/255.)
-plt.savefig(f'test_pred_image_seed{opt.data_seed}.png')
+plt.savefig(f'/home/mila/j/jithendaraa.subramanian/scratch/test_pred_image_learnP{opt.learn_P}_seed{opt.data_seed}_d{d}_ee_{int(opt.exp_edges)}.png')
 plt.close('all')
 
 print(test_interv_nodes)

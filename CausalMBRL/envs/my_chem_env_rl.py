@@ -145,7 +145,6 @@ class LinGaussColorCubesRL(gym.Env):
 
 
     def step(self, action, channel_colors=None):
-
         nodes_to_intervene = action['nodes']
         interv_values = action['values'].reshape(1, -1)
         done = False
@@ -162,14 +161,12 @@ class LinGaussColorCubesRL(gym.Env):
                                                                 self.low, self.high).squeeze(0)
 
             
-            
         normalized_channel_colors = 255. * ((channel_colors / (2 * self.high)) + 0.5)  
         rgb_colors = []
         for color in normalized_channel_colors:
             rgb_colors.append((color, 0., 0., 1))
 
         self.set_object_details(rgb_colors)
-        print(normalized_channel_colors, nodes_to_intervene)
         state_obs = self.render()
         state_obs = state_obs[:3, :, :]
         interv_details = (nodes_to_intervene, interv_values) 

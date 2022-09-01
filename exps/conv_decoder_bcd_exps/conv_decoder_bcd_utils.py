@@ -21,7 +21,7 @@ import haiku as hk
 from sklearn.metrics import roc_curve, auc
 from modules.ColorGen import LinearGaussianColor
 
-def generate_data(opt, low=-8., high=8.):
+def generate_data(opt, low=-8., high=8., interv_low=-5., interv_high=5.):
     n = opt.num_samples
     d = opt.num_nodes
 
@@ -43,26 +43,26 @@ def generate_data(opt, low=-8., high=8.):
         gt_L = chem_data.P.T @ chem_data.W.T @ chem_data.P
 
         # ? generate linear gaussian colors
-        z, interv_targets, interv_values = generate_colors(opt, chem_data, low, high)
+        z, interv_targets, interv_values = generate_colors(opt, chem_data, low, high, interv_low, interv_high)
         normalized_z = 255. * ((z / (2 * high)) + 0.5)
 
         # ? Use above colors to generate images
         images = generate_chem_image_dataset(opt.num_samples, opt.num_nodes, interv_values, interv_targets, z)
-        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/interv_values-seed{opt.data_seed}.npy', onp.array(interv_values))
-        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/interv_targets-seed{opt.data_seed}.npy', onp.array(interv_targets))
-        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/z-seed{opt.data_seed}.npy', onp.array(z))
-        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/images-seed{opt.data_seed}.npy', onp.array(images))
-        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/W-seed{opt.data_seed}.npy', onp.array(gt_W))
-        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/P-seed{opt.data_seed}.npy', onp.array(gt_P))
+        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/interv_values-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy', onp.array(interv_values))
+        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/interv_targets-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy', onp.array(interv_targets))
+        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/z-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy', onp.array(z))
+        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/images-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy', onp.array(images))
+        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/W-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy', onp.array(gt_W))
+        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/P-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy', onp.array(gt_P))
 
 
     else:
-        interv_targets = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/interv_targets-seed{opt.data_seed}.npy'))
-        interv_values = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/interv_values-seed{opt.data_seed}.npy'))
-        z = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/z-seed{opt.data_seed}.npy'))
-        images = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/images-seed{opt.data_seed}.npy'))
-        gt_W = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/W-seed{opt.data_seed}.npy'))
-        gt_P = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/P-seed{opt.data_seed}.npy'))
+        interv_targets = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/interv_targets-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy'))
+        interv_values = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/interv_values-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy'))
+        z = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/z-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy'))
+        images = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/images-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy'))
+        gt_W = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/W-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy'))
+        gt_P = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/P-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy'))
         gt_L = jnp.array(gt_P.T @ gt_W.T @ gt_P)
 
     print(gt_W)
@@ -76,14 +76,35 @@ def generate_data(opt, low=-8., high=8.):
 
     return z, interv_nodes, interv_values, images, gt_W, gt_P, gt_L
 
-def generate_test_samples(d, W, sem_type, noise_sigma, low, high, num_test_samples):
+
+def generate_chem_image_dataset(n, d, interv_values, interv_targets, z):
+    images = None
+    env = gym.make(f'LinGaussColorCubesRL-{d}-{d}-Static-10-v0')
+
+    for i in tqdm(range(n)):
+        action = OrderedDict()
+        action['nodes'] = onp.where(interv_targets[i])
+        action['values'] = interv_values[i]
+        ob, _, _, _ = env.step(action, z[i])
+        
+        if i == 0:
+            images = ob[1][jnp.newaxis, :]
+        else:
+            images = onp.concatenate((images, ob[1][jnp.newaxis, :]), axis=0)
+
+    return images
+
+
+def generate_test_samples(d, W, sem_type, noise_sigma, low, high, num_test_samples, interv_low=-5., interv_high=5.):
     
     test_interv_data, test_interv_targets, test_interv_values = generate_samples(d,
                                                                             W, 
                                                                             sem_type,
                                                                             noise_sigma,
                                                                             low, high, 
-                                                                            num_test_samples
+                                                                            num_test_samples,
+                                                                            interv_low, 
+                                                                            interv_high
                                                                             )
 
     test_images = generate_chem_image_dataset(num_test_samples, 
@@ -105,23 +126,6 @@ def generate_test_samples(d, W, sem_type, noise_sigma, low, high, num_test_sampl
         for i in range(num_test_samples)]).astype(int)
 
     return test_interv_data, test_interv_nodes, test_interv_values, test_images[:, :, :, 0:1], padded_test_images[:, :, 0]
-
-def generate_chem_image_dataset(n, d, interv_values, interv_targets, z):
-    images = None
-    env = gym.make(f'LinGaussColorCubesRL-{d}-{d}-Static-10-v0')
-
-    for i in tqdm(range(n)):
-        action = OrderedDict()
-        action['nodes'] = onp.where(interv_targets[i])
-        action['values'] = interv_values[i]
-        ob, _, _, _ = env.step(action, z[i])
-        
-        if i == 0:
-            images = ob[1][jnp.newaxis, :]
-        else:
-            images = onp.concatenate((images, ob[1][jnp.newaxis, :]), axis=0)
-
-    return images
 
 def ff2(x):
     if type(x) is str: return x
