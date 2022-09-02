@@ -11,7 +11,7 @@ def generate_colors(opt, chem_data, low, high, interv_low, interv_high):
     obs_data = chem_data.obs_X
 
     interv_data = []
-    interv_values = np.random.uniform(low=interv_low, high=interv_low, size=(n, d))
+    interv_values = np.random.uniform(low=interv_low, high=interv_high, size=(n, d))
     interv_targets = np.full((n, d), False)
 
     for i in range(n_interv_sets):
