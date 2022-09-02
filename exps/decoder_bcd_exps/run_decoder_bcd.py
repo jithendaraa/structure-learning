@@ -61,6 +61,7 @@ L_dist = Normal
 
 # ? Variables
 dim = opt.num_nodes
+opt.num_samples = int(opt.pts_per_interv * opt.n_interv_sets) + opt.obs_data
 n_data = opt.num_samples
 degree = opt.exp_edges
 do_ev_noise = opt.do_ev_noise
@@ -73,7 +74,7 @@ eval_eid = opt.eval_eid
 num_bethe_iters = 20
 num_interv_data = opt.num_samples - opt.obs_data
 assert num_interv_data % n_interv_sets == 0
-
+assert opt.train_loss == "mse"
 if do_ev_noise:
     noise_dim = 1
 else:
@@ -160,27 +161,19 @@ def hard_elbo(P_params, L_params, rng_key, interv_nodes, x_data, interv_values):
         ) = forward.apply(P_params, rng_key, hard, rng_key, interv_nodes, False, opt, horseshoe_tau, 
                         ground_truth_L, interv_values, P_params, L_params, P=sd.P)
 
-        if opt.train_loss == "mse":     # ! MSE Loss
-            likelihoods = -jit(vmap(get_mse, (None, 0), 0))(x_data, X_recons)
-        
-        elif opt.train_loss == "LL":    # ! -NLL loss
-            vectorized_log_prob_X = vmap(log_prob_X, in_axes=(None, 0, 0, 0, None, None, None, None, None))
-            likelihoods = vectorized_log_prob_X(x, batch_log_noises, batch_P, batch_L, 
-                                                proj_matrix, opt.fix_decoder, opt.cov_space, opt.s_prior_std)
-
+        likelihoods = jit(vmap(get_mse, (None, 0), 0))(x_data, X_recons)
         final_term = likelihoods
 
         if opt.P_KL is True:    # ! KL over permutation P
             logprob_P = vmap(ds.logprob, in_axes=(0, 0, None))(batch_P, batch_P_logits, num_bethe_iters)
             log_P_prior = -jnp.sum(jnp.log(onp.arange(dim) + 1))
             KL_term_P = logprob_P - log_P_prior
-            final_term -= KL_term_P
+            final_term += KL_term_P
 
         if opt.L_KL is True:    # ! KL over edge weights L
             l_prior_probs = jnp.sum(l_prior.log_prob(full_l_batch + 1e-7)[:, :l_dim], axis=1)
             KL_term_L = full_log_prob_l - l_prior_probs
-            final_term -= KL_term_L
-
+            final_term += KL_term_L
 
         if (opt.obs_Z_KL is True or opt.use_proxy is True):
             batch_get_obs_joint_dist_params = vmap(get_joint_dist_params, (0, 0), (0, 0))
@@ -192,10 +185,9 @@ def hard_elbo(P_params, L_params, rng_key, interv_nodes, x_data, interv_values):
             else:
                 obs_KL_term_Z = vmapped_kl(p_z_obs_joint_covar, p_z_obs_joint_mu, batch_q_z_obs_joint_covars, batch_q_z_obs_joint_mus, opt) 
             
-            final_term -= obs_KL_term_Z
+            final_term += obs_KL_term_Z
 
-
-        return -jnp.mean(final_term)
+        return jnp.mean(final_term)
 
     _, elbos = lax.scan(lambda _, rng_key: (None, outer_loop(rng_key)), None, rng_keys)
     return jnp.mean(elbos)
@@ -249,7 +241,6 @@ def gradient_step(P_params, L_params, rng_key, interv_nodes, z_gt_data, x_data, 
         "L_mse": jnp.mean(vmap(get_mse, (None, 0), 0)(gt_L_elems, L_elems)),
         "z_mse": jnp.mean(vmap(get_mse, (None, 0), 0)(z_gt_data, z_samples)),
         "x_mse": jnp.mean(vmap(get_mse, (None, 0), 0)(x_data, X_recons)),
-        "L_elems": jnp.mean(L_elems[:, -1]),
         "true_obs_KL_term_Z": jnp.mean(true_obs_KL_term_Z),
         "KL(L)": jnp.mean(KL_term_L)
     }
@@ -277,7 +268,7 @@ with tqdm(range(opt.num_steps)) as pbar:
         log_dict, batch_W, z_samples, X_recons, pred_W_means) = gradient_step(P_params, L_params, rng_key, interv_nodes, z_gt, x, interv_values)
 
         if (i+1) % 200 == 0 or i == 0:        
-            mean_dict = eval_mean(P_params, L_params, z_gt, rk(i), interv_values, True, tau, i, 
+            mean_dict = eval_mean(P_params, L_params, z_gt, rk(i), interv_values,  
                         interv_nodes, forward, horseshoe_tau, ground_truth_L, 
                         sd.W, ground_truth_sigmas, opt, P=sd.P)
             
@@ -292,7 +283,6 @@ with tqdm(range(opt.num_steps)) as pbar:
                 "X_MSE": onp.array(log_dict["x_mse"]),
                 "L_MSE": onp.array(log_dict["L_mse"]),
                 "KL(L)": onp.array(log_dict["KL(L)"]),
-                "L_elems_avg": onp.array(log_dict["L_elems"]),
                 "true_obs_KL_term_Z": onp.array(log_dict["true_obs_KL_term_Z"]),
                 "train sample KL": mean_dict["sample_kl"],
                 "Evaluations/SHD": mean_dict["shd"],
@@ -300,7 +290,18 @@ with tqdm(range(opt.num_steps)) as pbar:
                 "Evaluations/AUROC": mean_dict["auroc"],
                 "Evaluations/AUPRC_W": mean_dict["auprc_w"],
                 "Evaluations/AUPRC_G": mean_dict["auprc_g"],
-                'Evaluations/MCC': mcc_score
+                'Evaluations/MCC': mcc_score,
+
+                # Confusion matrix related metrics for structure
+                'Evaluations/TPR': mean_dict["tpr"],
+                'Evaluations/FPR': mean_dict["fpr"],
+                'Evaluations/TP': mean_dict["tp"],
+                'Evaluations/FP': mean_dict["fp"],
+                'Evaluations/TN': mean_dict["tn"],
+                'Evaluations/FN': mean_dict["fn"],
+                'Evaluations/Recall': mean_dict["recall"],
+                'Evaluations/Precision': mean_dict["precision"],
+                'Evaluations/F1 Score': mean_dict["fscore"],
             }
 
             if opt.use_proxy:

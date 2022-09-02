@@ -202,6 +202,8 @@ def threshold_metrics(*, dist, g, undirected_cpdag_oriented_correctly=False):
     precision_, recall_, _ = sklearn_metrics.precision_recall_curve(g_flat, p_edge_flat)
     prc_auc_ = sklearn_metrics.auc(recall_, precision_)
     ave_prec_ = sklearn_metrics.average_precision_score(g_flat, p_edge_flat)
+
+    import pdb; pdb.set_trace()
     
     return {
         'fpr': fpr_.tolist(),

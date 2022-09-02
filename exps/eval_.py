@@ -17,6 +17,7 @@ from dag_utils import count_accuracy
 from bcd_utils import auroc
 from jax import jit
 from sklearn.metrics import roc_curve, auc
+from scipy.optimize import linear_sum_assignment
 
 
 
@@ -95,7 +96,7 @@ def evaluate(target, dibs, gs, thetas, steps, dag_file, writer, opt, data,
     return auroc_e, auroc_m, eshd_e, eshd_m, mec_gt_recovery
 
 
-def log_gt_graph(ground_truth_W, logdir, exp_config_dict, opt, writer):
+def log_gt_graph(ground_truth_W, logdir, exp_config_dict, opt, writer=None):
     plt.imshow(ground_truth_W)
     plt.savefig(join(logdir, 'gt_w.png'))
 
@@ -114,23 +115,26 @@ def log_gt_graph(ground_truth_W, logdir, exp_config_dict, opt, writer):
 
     # ? Logging to tensorboard
     gt_graph_image = onp.asarray(imageio.imread(join(logdir, 'gt_w.png')))
-    writer.add_image('graph_structure(GT-pred)/Ground truth W', gt_graph_image, 0, dataformats='HWC')
+    
+    if writer:
+        writer.add_image('graph_structure(GT-pred)/Ground truth W', gt_graph_image, 0, dataformats='HWC')
 
 
-def print_metrics(i, loss, mse_dict, mean_dict, opt):
+def print_metrics(i, loss, mse_dict, mean_dict, opt, mcc_score):
     print()
     print(f"Step {i} | {loss}")
     print(f"Z_MSE: {mse_dict['z_mse']} | X_MSE: {mse_dict['x_mse']}")
     print(f"L MSE: {mse_dict['L_mse']}")
     print(f"SHD: {mean_dict['shd']} | CPDAG SHD: {mean_dict['shd_c']} | AUROC: {mean_dict['auroc']}")
-    
+    print(f"MCC: {mcc_score}")
+
     if opt.Z_KL is True:
         print(f"Z_KL: {np.array(mse_dict['Z_KL'])}")
 
 
-def eval_mean(P_params, L_params, data, rng_key, interv_values, do_shd_c=True, tau=1, step = None, 
+def eval_mean(P_params, L_params, data, rng_key, interv_values,
             interv_nodes=None, forward=None, horseshoe_tau=None, gt_L=None, 
-            ground_truth_W=None, ground_truth_sigmas=None, opt=None):
+            ground_truth_W=None, ground_truth_sigmas=None, opt=None, P=None):
     
     """
         Computes mean error statistics for P, L parameters and data
@@ -146,10 +150,16 @@ def eval_mean(P_params, L_params, data, rng_key, interv_values, do_shd_c=True, t
 
     data = data[:opt.obs_data]
 
-    (batched_P, batched_P_logits, batched_L, batched_log_noises, 
-    batched_W, batched_qz_samples, full_l_batch, 
-    full_log_prob_l, X_recons) = forward.apply(P_params, rng_key, hard, rng_key, interv_nodes, False, 
-                                    opt, horseshoe_tau, gt_L, interv_values, P_params, L_params)
+    (_, 
+    _, 
+    _, 
+    _, 
+    batched_W, 
+    _, 
+    full_l_batch, 
+    _, 
+    _) = forward.apply(P_params, rng_key, hard, rng_key, interv_nodes, False, opt, 
+                        horseshoe_tau, gt_L, interv_values, P_params, L_params, P=P)
 
     z_prec = onp.linalg.inv(jnp.cov(data.T))
     w_noise = full_l_batch[:, -noise_dim:]
@@ -203,9 +213,27 @@ def eval_mean(P_params, L_params, data, rng_key, interv_values, do_shd_c=True, t
         new_stats = sample_stats(W, w_noise[i])
         for key in new_stats:
             stats[key] = stats[key] + [new_stats[key]]
-
+    
     out_stats = {key: onp.mean(stats[key]) for key in stats}
     out_stats["auroc"] = auroc(batched_W, ground_truth_W, edge_threshold)
     out_stats["auprc_w"] = np.array(auprcs_w).mean()
     out_stats["auprc_g"] = np.array(auprcs_g).mean()
+
+    gt_binary = np.where(np.abs(ground_truth_W) >= edge_threshold, 1.0, 0.0 )
+    pred_binary = np.where(np.abs(batched_W) >= edge_threshold, 1.0, 0.0 )
+
     return out_stats
+
+
+def get_cross_correlation(pred_latent, true_latent):
+    dim= pred_latent.shape[1]
+    cross_corr= onp.zeros((dim, dim))
+    for i in range(dim):
+        for j in range(dim):
+            cross_corr[i,j]= (onp.cov( pred_latent[:,i], true_latent[:,j] )[0,1]) / ( onp.std(pred_latent[:,i])*onp.std(true_latent[:,j]) )
+    
+    cost= -1*onp.abs(cross_corr)
+    row_ind, col_ind= linear_sum_assignment(cost)
+    
+    score= 100*onp.sum( -1*cost[row_ind, col_ind].sum() )/(dim)
+    return score

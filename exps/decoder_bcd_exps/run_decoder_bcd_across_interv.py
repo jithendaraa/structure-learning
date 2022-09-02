@@ -119,8 +119,7 @@ ground_truth_sigmas = opt.noise_sigma * jnp.ones(opt.num_nodes)
 print(ground_truth_W)
 print()
 
-(obs_data, interv_data, z_gt, no_interv_targets, x, 
-sample_mean, sample_covariance, proj_matrix, interv_values) = datagen.get_data(opt, n_interv_sets, sd, model="bcd", interv_value=opt.interv_value)
+(z_gt, no_interv_targets, x, proj_matrix, interv_values) = datagen.get_data(opt, n_interv_sets, sd, model="bcd", interv_value=opt.interv_value)
 
 node_mus = jnp.ones((dim)) * opt.noise_mu
 node_vars = jnp.ones((dim)) * (opt.noise_sigma**2)
@@ -300,6 +299,10 @@ for i in range(n_interv_sets + 1):
                 sd.W, ground_truth_sigmas, opt)
 
     print(f'AUPRC: {mean_dict["auprc_w"]}, {mean_dict["auprc_g"]}' )
+    mcc_scores = []
+    for j in range(len(z_samples)):
+        mcc_scores.append(get_cross_correlation(onp.array(z_samples[j]), onp.array(z_gt)))
+    mcc_score = onp.mean(onp.array(mcc_scores))
     
     wandb_dict = {
         "ELBO": onp.array(loss),
@@ -314,6 +317,7 @@ for i in range(n_interv_sets + 1):
         "Evaluations/AUPRC_W": mean_dict["auprc_w"],
         "Evaluations/AUPRC_G": mean_dict["auprc_g"],
         "train sample KL": mean_dict["sample_kl"],
+        'Evaluations/MCC': mcc_score
     }
 
     if opt.learn_noise:

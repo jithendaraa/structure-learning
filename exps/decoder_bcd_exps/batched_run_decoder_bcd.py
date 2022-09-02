@@ -195,11 +195,11 @@ def hard_elbo(P_params, L_params, rng_key, interv_nodes, x_data, interv_values):
             
             final_term -= obs_KL_term_Z
 
-
         return -jnp.mean(final_term)
 
     _, elbos = lax.scan(lambda _, rng_key: (None, outer_loop(rng_key)), None, rng_keys)
     return jnp.mean(elbos)
+
 
 @jit
 def gradient_step(P_params, L_params, rng_key, interv_nodes, z_gt_data, x_data, interv_values):
@@ -268,19 +268,21 @@ def gradient_step(P_params, L_params, rng_key, interv_nodes, z_gt_data, x_data, 
     pred_W_means = jnp.mean(batch_W, axis=0)
     return (rng_key, elbo_grad_P_decoder, elbo_grad_L, log_dict, batch_W, z_samples, X_recons, pred_W_means)
 
+
 ( model_params, L_params, model_opt_params, L_opt_params, 
 rng_keys, forward, opt_model, opt_L) = init_parallel_params(rng_key, key, opt, num_devices, interv_nodes, 
                                             horseshoe_tau, ground_truth_L, interv_values, P=sd.P)
 
 bs = opt.batches
-assert n_data % bs == 0
 num_batches = n_data // bs
+if n_data % bs != 0:
+    num_batches += 1
 
 def train_batch(b, model_params, L_params, rng_key, 
                 model_opt_params, L_opt_params):
 
     start_idx = b * bs
-    end_idx = (b+1) * bs
+    end_idx = min(n_data, (b+1) * bs)
 
     (rng_key, 
         elbo_grad_model, 
@@ -317,42 +319,32 @@ with tqdm(range(opt.num_steps)) as pbar:
         pred_W = None
         epoch_dict = {}
 
-        with tqdm(range(num_batches)) as pbar2:
-            for b in pbar2:
+        for b in range(num_batches):
 
-                (   rng_key, 
-                    model_params, 
-                    L_params, 
-                    model_opt_params, 
-                    L_opt_params,     
-                    log_dict, 
-                    batch_W, 
-                    z_samples, 
-                    X_recons, 
-                    pred_W_means ) = train_batch(b, model_params, L_params, rng_key, 
-                                                model_opt_params, L_opt_params)
+            (   rng_key, 
+                model_params, 
+                L_params, 
+                model_opt_params, 
+                L_opt_params,     
+                log_dict, 
+                batch_W, 
+                z_samples, 
+                X_recons, 
+                pred_W_means ) = train_batch(b, model_params, L_params, rng_key, 
+                                            model_opt_params, L_opt_params)
 
+            if b == 0:
+                pred_z = z_samples
+                pred_x = X_recons
+                epoch_dict = log_dict
+                pred_W = pred_W_means[jnp.newaxis, :]
+            else:
+                pred_z = jnp.concatenate((pred_z, z_samples), axis=1)
+                pred_x = jnp.concatenate((pred_x, X_recons), axis=1)
+                pred_W = jnp.concatenate((pred_W, pred_W_means[jnp.newaxis, :]), axis=0)
 
-                if b == 0:
-                    pred_z = z_samples
-                    pred_x = X_recons
-                    epoch_dict = log_dict
-                    pred_W = pred_W_means[jnp.newaxis, :]
-                else:
-                    pred_z = jnp.concatenate((pred_z, z_samples), axis=1)
-                    pred_x = jnp.concatenate((pred_x, X_recons), axis=1)
-                    pred_W = jnp.concatenate((pred_W, pred_W_means[jnp.newaxis, :]), axis=0)
-
-                    for key, val in log_dict.items():
-                        epoch_dict[key] += val
-
-                pbar2.set_postfix(
-                    Batch=f"{b}/{num_batches}",
-                    Loss=f"{log_dict['loss']:.2f}",
-                    X_mse=f"{log_dict['x_mse']:.2f}",
-                    KL=f"{log_dict['true_obs_KL_term_Z']:.4f}", 
-                    L_mse=f"{log_dict['L_mse']:.3f}",
-                )
+                for key, val in log_dict.items():
+                    epoch_dict[key] += val
 
         for key in epoch_dict:
             epoch_dict[key] = epoch_dict[key] / num_batches
@@ -380,7 +372,7 @@ with tqdm(range(opt.num_steps)) as pbar:
             
             mcc_scores = []
             for j in range(len(pred_z)):
-                mcc_scores.append(get_cross_correlation(onp.array(z_samples[j]), onp.array(z_gt)))
+                mcc_scores.append(get_cross_correlation(onp.array(pred_z[j]), onp.array(z_gt)))
             mcc_score = onp.mean(onp.array(mcc_scores))
 
             wandb_dict = {
@@ -420,10 +412,10 @@ with tqdm(range(opt.num_steps)) as pbar:
         pbar.set_postfix(
             Epoch=i,
             loss=f"{epoch_dict['ELBO']:.4f}",
-            KL=f"{log_dict['true_obs_KL_term_Z']:.4f}", 
-            L_mse=f"{log_dict['L_mse']:.3f}",
+            KL=f"{epoch_dict['true_obs_KL_term_Z']:.4f}", 
+            L_mse=f"{epoch_dict['L_mse']:.3f}",
             AUROC=f"{mean_dict['auroc']:.2f}",
-            SHD=shd,
+            SHD=shd
         )
 
         
