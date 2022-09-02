@@ -1,1 +1,1 @@
-python jaxlibprep.py -V 0.1.69 -C cuda110 -P cp37 --set-runpath $CUDA_HOME/lib64 -t linux
+python jaxlibprep.py -V 0.1.69 -C cuda11 -P cp37 --set-runpath $CUDA_HOME/lib64 -t linux
