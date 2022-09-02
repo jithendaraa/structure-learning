@@ -11,17 +11,18 @@
 #SBATCH --mail-type=ALL
 
 seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
-lrs=(0.002)
-num_steps=(30000)
+lrs=(0.0008)
+num_steps=(20000)
 
-num_samples=(3500)
-obs_data=500
-num_nodes=20
+num_nodes=5
 proj_dims=100
 exp_edges=(1.0)
+pts_per_interv=50
+n_interv_sets=20
 
+obs_data=300
 off_wandb='False'
-n_interv_sets=30
+num_samples=(300)
 
 array_len=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#num_steps[@]} * ${#num_samples[@]} ))
 defg=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#num_steps[@]} * ${#num_samples[@]} ))
@@ -43,10 +44,10 @@ module load anaconda/3
 module unload cuda/11.2 && module load cuda/11.0
 conda activate lbcd
 echo `date` "Python starting"
-echo "python run_decoder_bcd.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --n_interv_sets ${n_interv_sets}"
+echo "python run_decoder_bcd.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --n_interv_sets ${n_interv_sets} --pts_per_interv ${pts_per_interv}"
 
 cd exps/decoder_bcd_exps
-python run_decoder_bcd.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --n_interv_sets ${n_interv_sets}
+python run_decoder_bcd.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --n_interv_sets ${n_interv_sets} --pts_per_interv ${pts_per_interv}
 cd ../..
 
 echo $end
