@@ -4,10 +4,9 @@ import pdb
 
 class LinearGaussianColor(object):
 
-
     def __init__(self, n, obs_data, d, graph_type, degree, sem_type, noise_scale=1.0, 
         dataset_type="linear", quadratic_scale=None, data_seed=0, 
-        low=-10., high=10.):
+        low=-10., high=10., identity_P=False):
         
         self.n = n
         self.num_obs_data = obs_data
@@ -25,11 +24,14 @@ class LinearGaussianColor(object):
         self.data_seed = data_seed
         self.low = low
         self.high = high
+        self.identity_P = identity_P
         self._setup()
 
     def _setup(self):
         self.W, self.W_2, self.P = LinearGaussianColor.simulate_random_dag(
-            self.d, self.degree, self.graph_type, self.w_range, self.data_seed, (self.dataset_type != "linear"))
+            self.d, self.degree, self.graph_type, self.w_range, self.data_seed, 
+            (self.dataset_type != "linear"), identity_P=self.identity_P
+        )
 
         if self.dataset_type != "linear":
             assert self.W_2 is not None
@@ -40,7 +42,7 @@ class LinearGaussianColor(object):
                                                 low=self.low, high=self.high)
 
     @staticmethod
-    def simulate_random_dag(d, degree, graph_type, w_range, data_seed, return_w_2=False):
+    def simulate_random_dag(d, degree, graph_type, w_range, data_seed, return_w_2=False, identity_P=False):
         """Simulate random DAG with some expected degree.
         Args:
             d: number of nodes
@@ -74,6 +76,7 @@ class LinearGaussianColor(object):
             raise ValueError("Unknown graph type")
         # random permutation
         P = np.random.permutation(np.eye(d, d))  # permutes first axis only
+        if identity_P is True: P = np.eye(d, d)
         B_perm = P.T.dot(B).dot(P)
 
         U = np.random.uniform(low=w_range[0], high=w_range[1], size=[d, d])

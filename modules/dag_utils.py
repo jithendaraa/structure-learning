@@ -6,6 +6,8 @@ import jax.random as rnd
 import numpy as np
 from typing import Any
 from cdt.data import load_dataset
+from sklearn import metrics as sklearn_metrics
+
 
 # from dag_data import is_dag
 import csv, pdb
@@ -83,7 +85,7 @@ class SyntheticDataset(object):
             raise ValueError("Unknown graph type")
         # random permutation
         # P = np.random.permutation(np.eye(d, d))  # permutes first axis only
-        P = np.eye(d, d)  # permutes first axis only # ! permutation is always identity, remove this later on
+        P = np.random.permutation(np.eye(d, d))  # permutes first axis only # ! permutation is always identity, remove this later on
         B_perm = P.T.dot(B).dot(P)
 
         U = np.random.uniform(low=w_range[0], high=w_range[1], size=[d, d])
@@ -246,6 +248,9 @@ def count_accuracy(W_true, W_est, W_und=None) -> Dict["str", float]:
     B_und = None if W_und is None else W_und
     d = B.shape[0]
 
+    g_flat = np.array(B_true.flatten().astype(int))
+    pred_flat = np.array(B.flatten().astype(int))
+
     # linear index of nonzeros
     pred = np.flatnonzero(B)
     cond = np.flatnonzero(B_true)
@@ -270,21 +275,44 @@ def count_accuracy(W_true, W_est, W_und=None) -> Dict["str", float]:
     pred_size = len(pred)
     if B_und is not None:
         pred_size += len(pred_und)  # type: ignore
+
     cond_neg_size = 0.5 * d * (d - 1) - len(cond)
     fdr = float(len(reverse) + len(false_pos)) / max(pred_size, 1)
     tpr = float(len(true_pos)) / max(len(cond), 1)
     fpr = float(len(reverse) + len(false_pos)) / max(cond_neg_size, 1)
+    
     # structural hamming distance
     B_lower = np.tril(B + B.T)
     if B_und is not None:
         B_lower += np.tril(B_und + B_und.T)
+    
     pred_lower = np.flatnonzero(B_lower)
     cond_lower = np.flatnonzero(np.tril(B_true + B_true.T))
     extra_lower = np.setdiff1d(pred_lower, cond_lower, assume_unique=True)
     missing_lower = np.setdiff1d(cond_lower, pred_lower, assume_unique=True)
     shd = len(extra_lower) + len(missing_lower) + len(reverse)
 
-    return {"fdr": fdr, "tpr": tpr, "fpr": fpr, "shd": shd, "pred_size": pred_size}
+    tn, fp, fn, tp = sklearn_metrics.confusion_matrix(g_flat, pred_flat).ravel()
+    precision = tp / (tp + fp)
+    recall = tp / (tp + fn)
+    try:
+        f1_score = 2 * precision * recall / (precision + recall)
+        if np.isnan(f1_score): f1_score = 0
+    except:
+        f1_score = 0
+
+    return {"fdr": fdr, 
+            "tpr": tpr, 
+            "fpr": fpr, 
+            "shd": shd, 
+            "tp": tp,
+            "tn": tn,
+            "fp": fp, 
+            "fn": fn,
+            "pred_size": pred_size,
+            "precision": precision,
+            "recall": recall,
+            "fscore": f1_score}
 
 
 def dagify(W):
