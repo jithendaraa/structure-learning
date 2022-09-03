@@ -25,38 +25,21 @@ class BN(hk.Module):
         return hk.BatchNorm(True, True, 0.9)(x, True)
 
 class Discriminator(hk.Module):
-    def __init__(self, image_dims):
+    def __init__(self, image_dims, features=16):
         super().__init__()
 
         self.image_dims = image_dims
 
         self.disc = hk.Sequential([
-            hk.Conv2D(16, 3), BN(), jax.nn.leaky_relu,
-            hk.Conv2D(32, 3), BN(), jax.nn.leaky_relu,
-            hk.Flatten(),
-            hk.Linear(256), jax.nn.leaky_relu,
-            hk.Linear(128), jax.nn.leaky_relu,
-            hk.Linear(64), jax.nn.leaky_relu,
-            hk.Linear(1), jax.nn.sigmoid   
+            hk.Conv2D(features, 4, stride=2), jax.nn.leaky_relu, # 32 * 32
+            hk.Conv2D(features * 2, 4, stride=2), jax.nn.leaky_relu, # 16 * 16
+            hk.Conv2D(features * 4, 4, stride=2), jax.nn.leaky_relu, # 8 * 8
+            hk.Conv2D(features * 8, 4, stride=2), jax.nn.leaky_relu, # 4 * 4
+            hk.Conv2D(1, 4, stride=2, padding=(0,0)), jax.nn.sigmoid, 
         ])
 
     def __call__(self, x):
-        return self.disc(x)
-
-
-class NodewiseMLP(hk.Module):
-    def __init__(self, hidden_dims):
-        super().__init__()
-
-        self.mlp = hk.Sequential([
-            hk.Linear(hidden_dims), jax.nn.gelu,
-            hk.Linear(hidden_dims), jax.nn.gelu,
-            hk.Linear(hidden_dims), jax.nn.gelu,
-            hk.Linear(hidden_dims),
-        ])
-    
-    def __call__(self, x):
-        return self.mlp(x)
+        return self.disc(x).reshape(-1)
 
 
 class Conv_Decoder_BCD(hk.Module):
@@ -79,12 +62,12 @@ class Conv_Decoder_BCD(hk.Module):
         self.tau = tau
         self.P = P
         self.L = L
-        self.nodewise_hidden_dim = 16
         self.ds = GumbelSinkhorn(dim, noise_type="gumbel", tol=max_deviation)
         
         if self.do_ev_noise:
             self.noise_sigma = jnp.array([[noise_sigma]] * self.batch_size)
             self.log_noise_sigma = jnp.log(self.noise_sigma)
+        
         else:   self.noise_sigma = noise_sigma
 
         if self.learn_P:
@@ -102,30 +85,16 @@ class Conv_Decoder_BCD(hk.Module):
             hk.Linear(64), jax.nn.gelu,
             hk.Linear(256), jax.nn.gelu,
             hk.Linear(512), jax.nn.gelu,
+            hk.Linear(512), jax.nn.gelu,
+            hk.Linear(512), jax.nn.gelu,
             hk.Linear(1024), jax.nn.gelu,
             hk.Linear(2048), jax.nn.gelu,
-            hk.Linear(2500), jax.nn.sigmoid
+            hk.Linear(int(proj_dims[-1] * proj_dims[-2])), jax.nn.sigmoid
         ])
-
 
     def sample_W(self, L, P):
         W = (P @ L @ P.T).T
         return W
-
-    # def spatial_broadcast(self, z_samples, h_, w_):
-    #     """
-    #         `z_samples` has shape: [self.batch_size, opt.batches, self.dim]
-    #     """
-    #     res = jnp.zeros((self.batch_size, z_samples.shape[1], 1, self.nodewise_hidden_dim))
-
-    #     # for i in range(self.dim):
-    #     #     out = getattr(self, f"mlp_{i}")(z_samples[:, :, i:i+1])[:, :, None, :]
-    #     #     res = jnp.concatenate( (res, out), axis=-2 )
-    #     res = self.node_mlp(z_samples)
-        
-    #     flat_z = res.reshape(-1, res.shape[-1])[:, None, None, :]
-    #     broadcasted_image = jnp.tile(flat_z, (1, h_, w_, 1))
-    #     return broadcasted_image
 
     def lower(self, theta: Tensor, dim: int) -> Tensor:
         """
@@ -210,6 +179,7 @@ class Conv_Decoder_BCD(hk.Module):
         return samples
 
     def __call__(self, rng_key, interv_targets, interv_values, L_params, hard=True):
+        
         h_, w_ = self.proj_dims[-2] // 2, self.proj_dims[-1] // 2  
 
         num_input_samples = len(interv_targets)
@@ -245,24 +215,8 @@ class Conv_Decoder_BCD(hk.Module):
         batched_ancestral_sample = vmap(self.ancestral_sample, (0, 0, 0, 0, None, None), (0))
         batched_qz_samples = batched_ancestral_sample(batched_W, batched_P, jnp.exp(batched_log_noises), 
                                                         rng_keys, interv_targets, interv_values)
-
-        # spatial_qz = self.spatial_broadcast(batched_qz_samples, h_, w_) # (self.batch_size * self.batches, h_, w_, self.nodewise_hidden_dim)
-        
-        # spatial_qz = spatial_qz.reshape(self.batch_size, 
-        #                                 num_input_samples, 
-        #                                 h_, w_, 
-        #                                 self.nodewise_hidden_dim) 
-
-        # spatial_qz = spatial_qz.reshape(-1, h_, w_, self.nodewise_hidden_dim)
-        
-        # X_recons = self.decoder(spatial_qz).reshape(self.batch_size, 
-        #                                             num_input_samples, 
-        #                                             self.proj_dims[-2], 
-        #                                             self.proj_dims[-1], 
-        #                                             self.proj_dims[-3]) 
         
         X_recons = self.linear_decoder(batched_qz_samples)
-        
         X_recons = X_recons.reshape(self.batch_size, 
                                     num_input_samples, 
                                     self.proj_dims[-2], 
