@@ -40,38 +40,38 @@ onp.random.seed(0)
 rng_key = rnd.PRNGKey(opt.data_seed)
 key = hk.PRNGSequence(42)
 
+opt.num_samples = int(opt.pts_per_interv * opt.n_interv_sets) + opt.obs_data
 n = opt.num_samples
 d = opt.num_nodes
 degree = opt.exp_edges
 l_dim = d * (d - 1) // 2
 ground_truth_sigmas = opt.noise_sigma * jnp.ones(opt.num_nodes)
-
 if opt.do_ev_noise: noise_dim = 1
 else:   noise_dim = d
 
-low = -8.
-high = 8.
+low, high = -8., 8.
+interv_low, interv_high = -5., 5.
 hard = True
 num_bethe_iters = 20
 assert opt.train_loss == 'mse'
 bs = opt.batches
 assert n % bs == 0
 num_batches = n // bs
-if opt.dataset == 'chemdata': image_dim = 2500
 assert opt.dataset == 'chemdata'
-proj_dims = (1, 50, 50)
 log_stds_max=10.
 logdir = utils.set_tb_logdir(opt)
 
-z, interv_nodes, interv_values, images, gt_W, gt_P, gt_L = generate_data(opt, low, high)
+z, interv_nodes, interv_values, images, gt_W, gt_P, gt_L = generate_data(opt, low, high, interv_low, interv_high)
 images = images[:, :, :, 0:1]
+
+_, h, w, _ = images.shape
+proj_dims = (1, h, w)
 log_gt_graph(gt_W, logdir, vars(opt), opt)
 
 # ? Set parameter for Horseshoe prior on L
 horseshoe_tau = (1 / onp.sqrt(n)) * (2 * degree / ((d - 1) - 2 * degree))
 if horseshoe_tau < 0:   horseshoe_tau = 1 / (2 * d)
 
-ds = GumbelSinkhorn(d, noise_type="gumbel", tol=opt.max_deviation)
 gt_L_elems = get_lower_elems(gt_L, d)
 p_z_obs_joint_mu, p_z_obs_joint_covar = get_joint_dist_params(opt.noise_sigma, jnp.array(gt_W))
 
@@ -90,24 +90,27 @@ def gen(rng_key, interv_targets, interv_values, L_params):
                                 opt.max_deviation,
                                 logit_constraint=opt.logit_constraint,
                                 log_stds_max=log_stds_max,
+                                noise_sigma=opt.noise_sigma,
+                                learn_L=opt.learn_L
                             )
+                        
     return model(rng_key, interv_targets, interv_values, L_params)
 
 def disc(image):
     model = Discriminator(proj_dims)
     return model(image)
 
-gen = hk.transform_with_state(gen)
-disc = hk.transform_with_state(disc)
+gen = hk.transform(gen)
+disc = hk.transform(disc)
 
 def init_params_and_optimizers():
     if opt.learn_noise is False:
         L_params = jnp.concatenate((jnp.zeros(l_dim), jnp.zeros(l_dim) - 1, ))
     else:
-        L_params = jnp.concatenate((jnp.zeros(l_dim), jnp.zeros(noise_dim), jnp.zeros(l_dim + noise_dim) - 1,))
-
-    gen_params, gen_state = jit(gen.init)(rng_key, rng_key, interv_nodes[:bs], interv_values[:bs], L_params)
-    disc_params, disc_state = disc.init(rng_key, images[:bs])
+        L_params = jnp.concatenate((jnp.zeros(l_dim), jnp.zeros(noise_dim), jnp.zeros(l_dim + noise_dim) - 1))
+    
+    gen_params = gen.init(rng_key, rng_key, interv_nodes[:bs], interv_values[:bs], L_params)
+    disc_params = disc.init(rng_key, images[:bs])
     
     gen_layers = [optax.scale_by_belief(eps=1e-8), optax.scale(-opt.lr)]
     opt_gen = optax.chain(*gen_layers)
@@ -122,13 +125,11 @@ def init_params_and_optimizers():
     L_opt_params = opt_L.init(L_params)
     disc_opt_params = opt_disc.init(disc_params)
 
-    return (gen_state, disc_state, gen_params, disc_params, L_params, 
+    return (gen_params, disc_params, L_params, 
             gen_opt_params, disc_opt_params, L_opt_params,
             opt_gen, opt_disc, opt_L)
 
-( gen_state, 
-    disc_state, 
-    gen_params, 
+( gen_params, 
     disc_params, 
     L_params, 
     gen_opt_params, 
@@ -136,8 +137,7 @@ def init_params_and_optimizers():
     L_opt_params, 
     opt_gen, 
     opt_disc,
-    opt_L,      ) = init_params_and_optimizers()
-
+    opt_L      ) = init_params_and_optimizers()
 
 @jit
 def get_log_dict(res, x_mse, z_data):
@@ -153,14 +153,10 @@ def get_log_dict(res, x_mse, z_data):
         X_recons        ) = res
 
     L_elems = vmap(get_lower_elems, (0, None), 0)(batch_L, d)
-
     batch_get_obs_joint_dist_params = vmap(get_joint_dist_params, (0, 0), (0, 0))
     batch_q_z_obs_joint_mus, batch_q_z_obs_joint_covars = batch_get_obs_joint_dist_params(jnp.exp(batch_log_noises), batch_W)
-    true_obs_KL_term_Z = vmap(get_single_kl, (None, None, 0, 0, None), (0))(p_z_obs_joint_covar, 
-                                                                            p_z_obs_joint_mu, 
-                                                                            batch_q_z_obs_joint_covars, 
-                                                                            batch_q_z_obs_joint_mus, 
-                                                                            opt) 
+    true_obs_KL_term_Z = vmap(get_single_kl, (None, None, 0, 0, None), (0))(p_z_obs_joint_covar, p_z_obs_joint_mu, 
+                                                                            batch_q_z_obs_joint_covars, batch_q_z_obs_joint_mus, opt) 
 
     l_prior = Horseshoe(scale=jnp.ones(l_dim + noise_dim) * horseshoe_tau)
     l_prior_probs = jnp.sum(l_prior.log_prob(full_l_batch + 1e-7)[:, :l_dim], axis=1)
@@ -171,7 +167,6 @@ def get_log_dict(res, x_mse, z_data):
         "x_mse": x_mse,
         "L_mse": jnp.mean(vmap(get_mse, (None, 0), 0)(gt_L_elems, L_elems)),
         "z_mse": jnp.mean(vmap(get_mse, (None, 0), 0)(z_data, z_samples)),
-        "L_elems": jnp.mean(L_elems[:, -1]),
         "true_obs_KL_term_Z": jnp.mean(true_obs_KL_term_Z),
         "KL(L)": jnp.mean(KL_term_L)
     }
@@ -184,19 +179,35 @@ def bce_loss(x, y):
     return - (y * jnp.log(x + eps) + (1 - y) * jnp.log(1 - x + eps))
 
 @jit
-def get_disc_loss(rng_key, gen_params, gen_state, disc_params, disc_state, gt_images, interv_nodes_, interv_values_, L_params):
-    gen_res, gen_state = gen.apply(gen_params, gen_state, rng_key, rng_key, interv_nodes_, interv_values_, L_params)
+def get_gen_loss(gen_params, L_params, disc_params, gt_images, interv_nodes_, interv_values_, rng_key):
+    # Train Generator: max log D(G(z))
+    gen_res = gen.apply(gen_params, rng_key, rng_key, interv_nodes_, interv_values_, L_params)
     fake_recons = gen_res[-1]
-
-    disc_real, disc_state = disc.apply(disc_params, disc_state, rng_key, gt_images)
-    disc_fake, disc_state = disc.apply(disc_params, disc_state, rng_key, fake_recons.reshape(-1, proj_dims[-2], proj_dims[-1], proj_dims[-3]))
+    _, _, s1, s2, s3 = fake_recons.shape
+    x_mse = jnp.mean(vmap(get_mse, (None, 0), 0)(gt_images, fake_recons))
+    disc_fake = disc.apply(disc_params, rng_key, fake_recons.reshape(-1, s1, s2, s3))
     disc_fake = disc_fake.reshape(opt.batch_size, bs)
+    gen_loss = jnp.mean(bce_loss(disc_fake, jnp.ones_like(disc_fake)))
+    return gen_loss, (gen_res, x_mse)
 
-    loss_disc_real = bce_loss(disc_real, jnp.ones_like(disc_real))
-    loss_disc_fake = jnp.mean(bce_loss(disc_fake, jnp.zeros_like(disc_fake)), axis=0)
+@jit
+def get_disc_loss(rng_key, gen_params, disc_params, gt_images, interv_nodes_, interv_values_, L_params):
+    # Train Discriminator: max log(D(real)) + log(1 - D(G(z)))
+    gen_res = gen.apply(gen_params, rng_key, rng_key, interv_nodes_, interv_values_, L_params)
+    fake_recons = gen_res[-1]
+    _, _, s1, s2, s3 = fake_recons.shape
+
+    disc_real = disc.apply(disc_params, rng_key, gt_images)
+    loss_disc_real = bce_loss(disc_real, jnp.ones_like(disc_real)) # - log(D(real))
+    
+    disc_fake = disc.apply(disc_params, rng_key, fake_recons.reshape(-1, s1, s2, s3)).reshape(opt.batch_size, bs) 
+    loss_disc_fake = jnp.mean(  
+                                vmap(bce_loss, (0, 0), 0)(disc_fake, jnp.zeros_like(disc_fake)), 
+                                axis=0
+                            ) # - log(1 - D(G(z)))
 
     discriminator_loss = jnp.mean(loss_disc_real + loss_disc_fake) / 2
-    return discriminator_loss, disc_state
+    return discriminator_loss
 
 @jit
 def update_discriminator(disc_grads, disc_opt_params, disc_params):
@@ -207,62 +218,69 @@ def update_discriminator(disc_grads, disc_opt_params, disc_params):
 @jit
 def update_generator(grads, gen_opt_params, gen_params, L_opt_params, L_params):
     gen_grads, L_grads = tree_map(lambda x_: x_, grads)
+    
     gen_updates, gen_opt_params = opt_gen.update(gen_grads, gen_opt_params, gen_params)
     gen_params = optax.apply_updates(gen_params, gen_updates)
+    
     L_updates, L_opt_params = opt_L.update(L_grads, L_opt_params, L_params)
     L_params = optax.apply_updates(L_params, L_updates)
     return gen_opt_params, gen_params, L_opt_params, L_params
 
 
-@jit
-def get_gen_loss(rng_key, gen_params, gen_state, disc_params, disc_state, gt_images, interv_nodes_, interv_values_, L_params):
-    gen_res, gen_state = gen.apply(gen_params, gen_state, rng_key, rng_key, interv_nodes_, interv_values_, L_params)
-    fake_recons = gen_res[-1]
-    x_mse = jnp.mean(vmap(get_mse, (None, 0), 0)(gt_images, fake_recons))
+x_data, z_data = images[:bs], z[:bs]
 
-    disc_fake, disc_state = disc.apply(disc_params, disc_state, rng_key, fake_recons.reshape(-1, proj_dims[-2], proj_dims[-1], proj_dims[-3]))
-    disc_fake = disc_fake.reshape(opt.batch_size, bs)
-    gen_loss = jnp.mean(bce_loss(disc_fake, jnp.ones_like(disc_fake)))
-    return gen_loss, (gen_res, gen_state, x_mse)
+disc_loss, disc_grads = value_and_grad(get_disc_loss, argnums=(2))(rng_key, 
+                                                                    gen_params, 
+                                                                    disc_params,
+                                                                    x_data, 
+                                                                    interv_nodes[:bs], 
+                                                                    interv_values[:bs], 
+                                                                    L_params)
 
+disc_opt_params, disc_params = update_discriminator(disc_grads, disc_opt_params, disc_params)
 
-def train_batch(gen_state, disc_state, gen_opt_params, gen_params, L_opt_params, L_params, disc_opt_params, disc_params,
-                 x_data, z_data, interv_nodes_, interv_values_):
+(gen_loss, gen_res), gen_grads = value_and_grad(get_gen_loss, argnums=(0, 1), has_aux=True)(gen_params,
+                                                                                                L_params,
+                                                                                                disc_params, 
+                                                                                                x_data,
+                                                                                                interv_nodes[:bs], 
+                                                                                                interv_values[:bs], 
+                                                                                                rng_key)
+
+def train_batch(gen_opt_params, gen_params, L_opt_params, L_params, 
+                  disc_opt_params, disc_params, x_data, z_data, interv_nodes_, interv_values_):
     
-    (disc_loss, disc_state), disc_grads = value_and_grad(get_disc_loss, argnums=(3), has_aux=True)(rng_key, 
-                                                                                            gen_params, 
-                                                                                            gen_state, 
-                                                                                            disc_params, 
-                                                                                            disc_state, 
-                                                                                            x_data, 
-                                                                                            interv_nodes_, 
-                                                                                            interv_values_, 
-                                                                                            L_params)
+    disc_loss, disc_grads = value_and_grad(get_disc_loss, argnums=(2))(rng_key, 
+                                                                        gen_params, 
+                                                                        disc_params,
+                                                                        x_data, 
+                                                                        interv_nodes_, 
+                                                                        interv_values_, 
+                                                                        L_params)
     
     disc_opt_params, disc_params = update_discriminator(disc_grads, disc_opt_params, disc_params)
 
-    (gen_loss, gen_res), gen_grads = value_and_grad(get_gen_loss, argnums=(1, 8), has_aux=True)(rng_key, 
-                                                                                                gen_params, 
-                                                                                                gen_state, 
+    (gen_loss, gen_res), gen_grads = value_and_grad(get_gen_loss, argnums=(0, 1), has_aux=True)(gen_params,
+                                                                                                L_params,
                                                                                                 disc_params, 
-                                                                                                disc_state, 
                                                                                                 x_data,
                                                                                                 interv_nodes_, 
                                                                                                 interv_values_, 
-                                                                                                L_params)
-    gen_state = gen_res[1]
-    gen_opt_params, gen_params, L_opt_params, L_params = update_generator(gen_grads, gen_opt_params, gen_params, L_opt_params, L_params)
+                                                                                                rng_key)
 
-    log_dict, batch_W, z_samples, X_recons, pred_W_means = get_log_dict(gen_res[0], gen_res[2], z_data)
+    gen_opt_params, gen_params, L_opt_params, L_params = update_generator(gen_grads, gen_opt_params, gen_params, L_opt_params, L_params)
+    
+    gen_res, x_mse = gen_res
+    log_dict, batch_W, z_samples, X_recons, pred_W_means = get_log_dict(gen_res, x_mse, z_data)
     
     log_dict['Generator loss'] = gen_loss
     log_dict['Discriminator loss'] = disc_loss
 
-    return (gen_state, disc_state, gen_opt_params, gen_params, L_opt_params, L_params, 
-            disc_opt_params, disc_params, log_dict, batch_W, z_samples, X_recons, pred_W_means)
+    return (gen_opt_params, gen_params, L_opt_params, L_params, disc_opt_params, 
+            disc_params, log_dict, batch_W, z_samples, X_recons, pred_W_means)
 
 
-with tqdm(range(opt.num_steps)) as pbar:  
+with tqdm(range(20)) as pbar:  
     for i in pbar:
         pred_z = None
         pred_x = None
@@ -271,14 +289,11 @@ with tqdm(range(opt.num_steps)) as pbar:
 
         with tqdm(range(num_batches)) as pbar2:
             for b in pbar2:
-
                 start_idx = b * bs
                 end_idx = min(n, (b+1) * bs)
                 x_data, z_data = images[start_idx:end_idx], z[start_idx:end_idx]
 
-                (gen_state, 
-                    disc_state, 
-                    gen_opt_params, 
+                (   gen_opt_params, 
                     gen_params, 
                     L_opt_params, 
                     L_params, 
@@ -288,9 +303,7 @@ with tqdm(range(opt.num_steps)) as pbar:
                     batch_W, 
                     z_samples, 
                     X_recons, 
-                    pred_W_means) = train_batch(gen_state, 
-                                                disc_state, 
-                                                gen_opt_params, 
+                    pred_W_means) = train_batch(gen_opt_params, 
                                                 gen_params, 
                                                 L_opt_params, 
                                                 L_params, 
@@ -302,7 +315,7 @@ with tqdm(range(opt.num_steps)) as pbar:
                                                 interv_values[start_idx:end_idx])
 
                 if jnp.any(jnp.isnan(ravel_pytree(L_params)[0])):   raise Exception("Got NaNs in L params")
-
+        
                 if b == 0:
                     pred_z = z_samples
                     pred_x = X_recons
@@ -330,7 +343,6 @@ with tqdm(range(opt.num_steps)) as pbar:
             random_idxs = onp.random.choice(n, bs, replace=False)
             mean_dict = gan_eval_mean(  gen_params, 
                                         L_params,
-                                        gen_state,
                                         gen, 
                                         z, 
                                         rk(i), 
@@ -360,7 +372,18 @@ with tqdm(range(opt.num_steps)) as pbar:
                 "train sample KL": mean_dict["sample_kl"],
                 'Evaluations/MCC': mcc_score,
                 'Generator loss': epoch_dict['Generator loss'],
-                'Discriminator loss': epoch_dict['Discriminator loss']
+                'Discriminator loss': epoch_dict['Discriminator loss'],
+            
+                # Confusion matrix related metrics for structure
+                'Evaluations/TPR': mean_dict["tpr"],
+                'Evaluations/FPR': mean_dict["fpr"],
+                'Evaluations/TP': mean_dict["tp"],
+                'Evaluations/FP': mean_dict["fp"],
+                'Evaluations/TN': mean_dict["tn"],
+                'Evaluations/FN': mean_dict["fn"],
+                'Evaluations/Recall': mean_dict["recall"],
+                'Evaluations/Precision': mean_dict["precision"],
+                'Evaluations/F1 Score': mean_dict["fscore"],
             }
 
             if opt.off_wandb is False:  
@@ -390,7 +413,6 @@ with tqdm(range(opt.num_steps)) as pbar:
             tqdm.write(f"SHD: {mean_dict['shd']} | CPDAG SHD: {mean_dict['shd_c']} | AUROC: {mean_dict['auroc']}")
             tqdm.write(f"KL(learned || true): {onp.array(epoch_dict['true_obs_KL_term_Z'])}")
             tqdm.write(f" ")
-
 
         pbar.set_postfix(
             Epoch=i,
