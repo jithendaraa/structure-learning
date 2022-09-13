@@ -35,7 +35,7 @@ num_devices = jax.device_count()
 print(f"Number of devices: {num_devices}")
 # ? Parse args
 configs = yaml.safe_load((pathlib.Path("../..") / "configs.yaml").read_text())
-opt = utils.load_yaml_dibs(configs)
+opt = utils.load_yaml(configs)
 exp_config = vars(opt)
 
 # ? Set logdir

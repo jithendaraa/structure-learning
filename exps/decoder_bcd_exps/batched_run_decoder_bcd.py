@@ -42,7 +42,7 @@ num_devices = jax.device_count()
 print(f"Number of devices: {num_devices}")
 # ? Parse args
 configs = yaml.safe_load((pathlib.Path("../..") / "configs.yaml").read_text())
-opt = utils.load_yaml_dibs(configs)
+opt = utils.load_yaml(configs)
 exp_config = vars(opt)
 
 # ? Set seeds
@@ -61,6 +61,7 @@ L_dist = Normal
 
 # ? Variables
 dim = opt.num_nodes
+opt.num_samples = int(opt.pts_per_interv * opt.n_interv_sets) + opt.obs_data
 n_data = opt.num_samples
 degree = opt.exp_edges
 do_ev_noise = opt.do_ev_noise
@@ -124,9 +125,14 @@ if opt.use_proxy:
 p_z_obs_joint_mu, p_z_obs_joint_covar = get_joint_dist_params(opt.noise_sigma, jnp.array(sd.W))
 
 # ? Set parameter for Horseshoe prior on L
-horseshoe_tau = (1 / onp.sqrt(n_data)) * (2 * degree / ((dim - 1) - 2 * degree))
+if ((dim - 1) - 2 * degree) == 0:
+    p_n_over_n = 2 * degree / (dim - 1)
+    if p_n_over_n > 1:  p_n_over_n = 1
+    horseshoe_tau = p_n_over_n * jnp.sqrt(jnp.log(1.0 / p_n_over_n))
+else:
+    horseshoe_tau = (1 / onp.sqrt(n_data)) * (2 * degree / ((dim - 1) - 2 * degree) )
+
 if horseshoe_tau < 0:   horseshoe_tau = 1 / (2 * dim)
-print(f"Horseshoe tau is {horseshoe_tau}")
 
 # ? 1. Set optimizers for P and L
 log_gt_graph(ground_truth_W, logdir, exp_config, opt)
@@ -357,18 +363,14 @@ with tqdm(range(opt.num_steps)) as pbar:
                                         z_gt, 
                                         rk(i),
                                         interv_values[random_idxs],
-                                        True, 
-                                        tau, 
-                                        i,
                                         interv_nodes[random_idxs],
                                         forward,
-                                        horseshoe_tau,
-                                        ground_truth_L,
-                                        sd.W,
+                                        tau,
+                                        ground_truth_L, 
+                                        sd.W, 
                                         ground_truth_sigmas, 
                                         opt, 
-                                        P=sd.P
-                                    )
+                                        P=sd.P)
             
             mcc_scores = []
             for j in range(len(pred_z)):
@@ -381,7 +383,6 @@ with tqdm(range(opt.num_steps)) as pbar:
                 "X_MSE": onp.array(epoch_dict["x_mse"]),
                 "L_MSE": onp.array(epoch_dict["L_mse"]),
                 "KL(L)": onp.array(epoch_dict["KL(L)"]),
-                "L_elems_avg": onp.array(epoch_dict["L_elems"]),
                 "true_obs_KL_term_Z": onp.array(epoch_dict["true_obs_KL_term_Z"]),
                 "train sample KL": mean_dict["sample_kl"],
                 "Evaluations/SHD": mean_dict["shd"],
@@ -389,7 +390,18 @@ with tqdm(range(opt.num_steps)) as pbar:
                 "Evaluations/AUROC": mean_dict["auroc"],
                 "Evaluations/AUPRC_W": mean_dict["auprc_w"],
                 "Evaluations/AUPRC_G": mean_dict["auprc_g"],
-                'Evaluations/MCC': mcc_score
+                'Evaluations/MCC': mcc_score,
+
+                # Confusion matrix related metrics for structure
+                'Evaluations/TPR': mean_dict["tpr"],
+                'Evaluations/FPR': mean_dict["fpr"],
+                'Evaluations/TP': mean_dict["tp"],
+                'Evaluations/FP': mean_dict["fp"],
+                'Evaluations/TN': mean_dict["tn"],
+                'Evaluations/FN': mean_dict["fn"],
+                'Evaluations/Recall': mean_dict["recall"],
+                'Evaluations/Precision': mean_dict["precision"],
+                'Evaluations/F1 Score': mean_dict["fscore"],
             }
 
             if opt.use_proxy:
