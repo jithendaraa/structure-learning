@@ -101,9 +101,14 @@ elif [ ${exp_id} == '17s' ]
 then
     bash script_runners/graphvae_job_run.sh ${dataset} ${train} 'Decoder_BCD' ${time} ${config}
 
+# ! Batched Decoder BCD
 elif [ ${exp_id} == '18s' ]   
 then
     bash script_runners/batched_dbcd_job_run.sh ${dataset} ${train} 'Decoder_BCD' ${time} ${config}
 
+# ! VAE baseline
+elif [ ${exp_id} == '19s' ]   
+then
+    bash script_runners/run_vae_baseline_job.sh ${dataset} ${train} 'Decoder_BCD' ${time} ${config}
 fi
 

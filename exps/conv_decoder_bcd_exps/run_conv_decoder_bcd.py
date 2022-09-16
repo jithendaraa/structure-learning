@@ -28,7 +28,7 @@ from conv_decoder_bcd_eval import *
 
 # ? Parse args
 configs = yaml.safe_load((pathlib.Path("../..") / "configs.yaml").read_text())
-opt = utils.load_yaml_dibs(configs)
+opt = utils.load_yaml(configs)
 exp_config = vars(opt)
 
 # ? Set seeds
@@ -431,6 +431,3 @@ plt.close('all')
 print(test_interv_nodes)
 print(test_interv_values)
 print(test_interv_data)
-
-
-

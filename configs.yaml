@@ -17,7 +17,7 @@ defaults:
   off_wandb: True
   wandb_project: 'structure-learning'
   wandb_entity: 'structurelearning'
-  log_batches: 4
+  log_batches: 4  
 
   # ? Logging and checkpoint frequencies (steps)
   loss_log_freq: 100
@@ -37,7 +37,7 @@ defaults:
   encoder_out_ch: 64
 
   # ? hyperparams
-  lr: 2e-3
+  lr: 8e-4
   decay_rate: 0.5
   steps: 10000
   clip: -1
@@ -249,12 +249,12 @@ nonlinear_proj_dbcd_intervs:
   n_interv_sets: 10
 
 
-# ! Learn L linear Decoder BCD
 
+# ! 1. Learn L linear Decoder BCD
 linear_dbcd_obs:
   exp_name: 'Decoder BCD observational learn L (linear projection)'
-  exp_edges: 1.0
-  num_nodes: 20
+  exp_edges: 2.0
+  num_nodes: 10
   proj_dims: 100
   data_seed: 18
   off_wandb: True
@@ -284,30 +284,33 @@ linear_dbcd_multi_interv:
   interv_type: 'multi'
   interv_value: 'uniform'
   proj: 'linear'
-  num_nodes: 50
+  num_nodes: 10
   exp_edges: 1.0
   proj_dims: 100
   data_seed: 2
-  off_wandb: True
-  num_samples: 3500
+  off_wandb: False
   obs_data: 500
   learn_L: True    # 'partial'
-  n_interv_sets: 20
+  n_interv_sets: 40
+  pts_per_interv: 150
+  num_steps: 5000
 
-# ! batched learn L linear Decoder BCD
+
+
+# ! 2. batched learn L linear Decoder BCD
 batched_linear_dbcd_obs:
   exp_name: 'Batched Decoder BCD observational learn L (linear projection)'
+  proj: 'linear'
   exp_edges: 1.0
-  num_nodes: 20
+  num_nodes: 6
   proj_dims: 100
   data_seed: 18
   off_wandb: True
-  num_samples: 3000
-  obs_data: 3000
   learn_L: True    # 'partial'
-  proj: 'linear'
+  num_samples: 11000
+  obs_data: 1000
   num_steps: 5000
-  batches: 500
+  batches: 10000
 
 batched_linear_dbcd_single_interv:
   exp_name: 'Batched Decoder BCD single interventional learn L (linear projection)'
@@ -323,27 +326,30 @@ batched_linear_dbcd_single_interv:
   obs_data: 500
   learn_L: True    # 'partial'
   n_interv_sets: 20
-  batches: 500
+  batches: 10000
+
 
 batched_linear_dbcd_multi_interv:
   exp_name: 'Batched Decoder BCD multi interventional learn L (linear projection)'
   interv_type: 'multi'
   interv_value: 'uniform'
   proj: 'linear'
-  num_nodes: 50
-  exp_edges: 1.0
+  num_nodes: 6
+  exp_edges: 4.0
   proj_dims: 100
   data_seed: 2
   off_wandb: True
-  num_samples: 3500
-  obs_data: 500
+  num_samples: 11000
+  obs_data: 300
+  batches: 10000
   learn_L: True    # 'partial'
   n_interv_sets: 20
-  batches: 500
+  pts_per_interv: 150
+  num_steps: 3000
 
 
-# ! learn SCM linear Decoder BCD
 
+# ! 3. learn SCM linear Decoder BCD
 linear_dbcd_learn_SCM_obs:
   exp_name: 'Decoder BCD observational learn SCM (linear projection)'
   proj: 'linear' 
@@ -379,20 +385,81 @@ linear_dbcd_learn_SCM_multi_interv:
   proj: 'linear' 
   interv_type: 'multi'
   interv_value: 'uniform'
-  num_nodes: 6
-  proj_dims: 10
+  num_nodes: 20
+  exp_edges: 1.0
+  proj_dims: 100
   data_seed: 2
   off_wandb: True
-  num_samples: 3500
   obs_data: 500
   learn_noise: True
   learn_L: True    # 'partial'
   learn_P: True
+  n_interv_sets: 60
+  pts_per_interv: 100
+  num_steps: 10000
 
 
 
+# ! 4. batched learn SCM linear Decoder BCD
+batched_linear_dbcd_obs_learn_SCM:
+  exp_name: 'Batched Decoder BCD observational learn SCM (linear projection)'
+  proj: 'linear'
+  exp_edges: 1.0
+  num_nodes: 20
+  proj_dims: 100
+  data_seed: 18
+  off_wandb: True
+  num_samples: 3000
+  obs_data: 3000
+  num_steps: 5000
+  batches: 10000
+  learn_noise: True
+  learn_L: True    # 'partial'
+  learn_P: True
+  P_KL: True
+
+batched_linear_dbcd_single_interv_learn_SCM:
+  exp_name: 'Batched Decoder BCD single interventional learn SCM (linear projection)'
+  proj: 'linear'
+  interv_type: 'single'
+  interv_value: 'uniform'
+  num_nodes: 6
+  exp_edges: 1.0
+  proj_dims: 100
+  data_seed: 2
+  off_wandb: True
+  num_samples: 3500
+  obs_data: 500
+  n_interv_sets: 20
+  batches: 10000
+  learn_noise: True
+  learn_L: True    # 'partial'
+  learn_P: True
+  P_KL: True
+
+batched_linear_dbcd_multi_interv_learn_SCM:
+  exp_name: 'Batched Decoder BCD multi interventional learn SCM (linear projection)'
+  proj: 'linear'
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  num_nodes: 20
+  exp_edges: 1.0
+  proj_dims: 100
+  data_seed: 4
+  off_wandb: True
+  obs_data: 500
+  batches: 10000
+  num_steps: 3000
+  learn_noise: True
+  learn_L: True    # 'partial'
+  learn_P: True
+  # P_KL: True
+  n_interv_sets: 500
+  pts_per_interv: 100
 
 
+
+# ! 5. learn L nonlinear Decoder BCD
 nonlinear_proj_dbcd_obs:
   exp_name: 'Decoder BCD observational learn L (nonlinear projection)'
   proj: '2_layer_mlp'
@@ -424,41 +491,97 @@ nonlinear_proj_dbcd_multi_interv:
   proj: '2_layer_mlp'
   interv_type: 'multi'
   interv_value: 'uniform'
+  num_nodes: 10
+  exp_edges: 1.0
+  proj_dims: 100
+  data_seed: 19
+  off_wandb: True
+  num_samples: 3500
+  obs_data: 500
+  learn_L: True    # 'partial'
+  pts_per_interv: 100
+  n_interv_sets: 100
+  num_steps: 5000
+
+
+
+# ! 6. batched learn L nonlinear Decoder BCD
+batched_nonlinear_dbcd_obs:
+  exp_name: 'Batched Decoder BCD observational learn L (nonlinear projection)'
+  proj: '2_layer_mlp'
+  exp_edges: 1.0
   num_nodes: 6
-  proj_dims: 10
+  proj_dims: 100
+  data_seed: 18
+  off_wandb: True
+  learn_L: True    # 'partial'
+  num_samples: 11000
+  obs_data: 1000
+  num_steps: 5000
+  batches: 10000
+
+batched_nonlinear_dbcd_single_interv:
+  exp_name: 'Batched Decoder BCD single interventional learn L (nonlinear projection)'
+  interv_type: 'single'
+  interv_value: 'uniform'
+  proj: '2_layer_mlp'
+  num_nodes: 6
+  exp_edges: 1.0
+  proj_dims: 100
   data_seed: 2
   off_wandb: True
   num_samples: 3500
   obs_data: 500
   learn_L: True    # 'partial'
+  n_interv_sets: 20
+  batches: 10000
+
+batched_nonlinear_dbcd_multi_interv:
+  exp_name: 'Batched Decoder BCD multi interventional learn L (nonlinear projection)'
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  proj: '2_layer_mlp'
+  num_nodes: 6
+  exp_edges: 1.0
+  proj_dims: 100
+  data_seed: 2
+  off_wandb: True
+  num_samples: 11000
+  obs_data: 1000
+  batches: 10000
+  learn_L: True    # 'partial'
+  n_interv_sets: 20
+  num_steps: 3000
 
 
-nonlinear_proj_dbcd_learn_SCM_obs:
-  exp_name: 'nonlinear_proj_dbcd_learn_P_noise'
+
+# ! 7. learn SCM nonlinear Decoder BCD
+nonlinear_dbcd_learn_SCM_obs:
+  exp_name: 'Decoder BCD observational learn SCM (nonlinear projection)'
   proj: '2_layer_mlp'
   interv_type: 'multi'
   interv_value: 'uniform'
   num_nodes: 6
-  proj_dims: 10
+  proj_dims: 100
   data_seed: 3
   off_wandb: True
-  num_samples: 3500
   obs_data: 3500
   P_KL: True
-  n_interv_sets: 20
   learn_L: True    # 'partial'
   learn_noise: True
   learn_P: True
+  num_samples: 3500
+  n_interv_sets: 20
 
-nonlinear_proj_dbcd_learn_SCM_single_interv:
-  exp_name: 'nonlinear_proj_dbcd_learn_P_noise'
+nonlinear_dbcd_learn_SCM_single_interv:
+  exp_name: 'Decoder BCD single interventional learn SCM (nonlinear projection)'
   proj: '2_layer_mlp'
   interv_type: 'single'
   interv_value: 'uniform'
   num_nodes: 6
-  proj_dims: 10
-  data_seed: 3
-  off_wandb: True
+  proj_dims: 100
+  data_seed: 20
+  off_wandb: False
   num_samples: 3500
   obs_data: 500
   P_KL: True
@@ -466,26 +589,329 @@ nonlinear_proj_dbcd_learn_SCM_single_interv:
   learn_L: True    # 'partial'
   learn_noise: True
   learn_P: True
+  exp_edges: 2.0
 
-nonlinear_proj_dbcd_learn_SCM_multi_interv:
-  exp_name: 'nonlinear_proj_dbcd_learn_P_noise'
+nonlinear_dbcd_learn_SCM_multi_interv:
+  exp_name: 'Decoder BCD multi interventional learn SCM (nonlinear projection)'
   proj: '2_layer_mlp'
   interv_type: 'multi'
   interv_value: 'uniform'
-  num_nodes: 6
+  num_nodes: 5
+  exp_edges: 1.0
   proj_dims: 10
   data_seed: 3
+  off_wandb: False
+  obs_data: 300
+  learn_L: True    # 'partial'
+  learn_P: True
+  learn_noise: True
+  pts_per_interv: 150
+  n_interv_sets: 30
+  num_steps: 10000
+
+
+
+# ! 8. Batched learn SCM nonlinear Decoder BCD
+batched_nonlinear_dbcd_obs_learn_SCM:
+  exp_name: 'Batched Decoder BCD observational learn SCM (nonlinear projection)'
+  proj: '2_layer_mlp'
+  exp_edges: 1.0
+  num_nodes: 6
+  proj_dims: 100
+  data_seed: 18
   off_wandb: True
-  num_samples: 3500
-  obs_data: 500
+  num_samples: 11000
+  obs_data: 1000
+  num_steps: 5000
+  batches: 3000
   P_KL: True
-  n_interv_sets: 20
   learn_L: True    # 'partial'
   learn_noise: True
   learn_P: True
 
+batched_nonlinear_dbcd_single_interv_learn_SCM:
+  exp_name: 'Batched Decoder BCD single interventional learn SCM (nonlinear projection)'
+  interv_type: 'single'
+  interv_value: 'uniform'
+  proj: '2_layer_mlp'
+  num_nodes: 6
+  exp_edges: 1.0
+  proj_dims: 100
+  data_seed: 2
+  off_wandb: True
+  num_samples: 3500
+  obs_data: 500
+  n_interv_sets: 20
+  batches: 500
+  P_KL: True
+  learn_L: True    # 'partial'
+  learn_noise: True
+  learn_P: True
+
+batched_nonlinear_dbcd_multi_interv_learn_SCM:
+  exp_name: 'Batched Decoder BCD multi interventional learn SCM (nonlinear projection)'
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  proj: '2_layer_mlp'
+  num_nodes: 5
+  exp_edges: 1.0
+  proj_dims: 10
+  data_seed: 2
+  off_wandb: False
+  obs_data: 500
+  batches: 5000
+  learn_L: True    # 'partial'
+  learn_noise: True
+  learn_P: True
+  n_interv_sets: 40
+  pts_per_interv: 300
+  num_steps: 5000
 
 
+
+conv_decoder_bcd:
+  exp_name: 'Batched Conv. Decoder BCD'
+  num_nodes: 5
+  exp_edges: 1.0
+  data_seed: 2
+  obs_data: 300
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  noise_sigma: 1.5
+  dataset: 'chemdata'
+  generate: True
+  off_wandb: False
+  batches: 256
+  num_steps: 1000
+  lr: 8e-4
+  n_interv_sets: 20
+  pts_per_interv: 50
+
+conv_decoder_bcd_learn_SCM:
+  exp_name: 'Batched Conv. Decoder BCD (learn SCM)'
+  num_nodes: 5
+  exp_edges: 1.0
+  data_seed: 3
+  num_samples: 3300
+  obs_data: 300
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  noise_sigma: 1.5
+  dataset: 'chemdata'
+  generate: True
+  off_wandb: True
+  n_interv_sets: 20
+  batches: 128
+  num_steps: 700
+  lr: 3e-4
+  learn_P: True
+
+
+# ! baseline 1: VAE nondiagonal covariance
+linear_vae_corr_baseline:
+  exp_name: 'Linear VAE Corr. baseline'
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  proj: 'linear'
+  num_nodes: 5
+  exp_edges: 1.0
+  proj_dims: 100
+  data_seed: 1
+  off_wandb: True
+  obs_data: 500
+  learn_L: True    
+  n_interv_sets: 20
+  pts_per_interv: 100
+  num_steps: 1000
+  corr: True
+
+linear_vae_diag_baseline:
+  exp_name: 'Linear VAE Diag baseline'
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  proj: 'linear'
+  num_nodes: 5
+  exp_edges: 1.0
+  proj_dims: 100
+  data_seed: 1
+  off_wandb: True
+  obs_data: 500
+  learn_L: True    
+  n_interv_sets: 20
+  pts_per_interv: 100
+  num_steps: 1000
+  corr: False
+
+nonlinear_vae_corr_baseline:
+  exp_name: 'Nonlinear VAE Corr. baseline'
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  proj: '2_layer_mlp'
+  num_nodes: 5
+  exp_edges: 1.0
+  proj_dims: 100
+  data_seed: 1
+  off_wandb: True
+  obs_data: 500
+  learn_L: True    
+  n_interv_sets: 20
+  pts_per_interv: 100
+  num_steps: 1000
+
+
+# ! baseline 2: GraphVAE
+graphvae:
+  exp_name: 'Graph VAE baseline' 
+  model: GraphVAE
+  num_nodes: 5
+  exp_edges: 1.0
+  data_seed: 2
+  num_samples: 3300
+  obs_data: 300
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  noise_sigma: 1.5
+  generate: False
+  n_interv_sets: 20
+  batches: 10
+  num_steps: 300
+  total_dims: 100
+  dataset: 'chemdata'
+  lr: 1e-3
+  off_wandb: True
+
+
+
+gan_conv_decoder_bcd:
+  exp_name: 'Batched GAN Conv. Decoder BCD'
+  num_nodes: 5
+  exp_edges: 1.0
+  data_seed: 2
+  obs_data: 300
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  noise_sigma: 1.5
+  dataset: 'chemdata'
+  generate: False
+  off_wandb: False
+  batches: 50
+  num_steps: 500
+  disc_lr: 1e-3
+  lr: 1e-3
+  n_interv_sets: 50
+  pts_per_interv: 30
+  learn_L: True
+
+wgan_conv_decoder_bcd:
+  exp_name: 'Batched WGAN Conv. Decoder BCD'
+  num_nodes: 5
+  exp_edges: 1.0
+  data_seed: 2
+  obs_data: 300
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  noise_sigma: 1.5
+  dataset: 'chemdata'
+  generate: False
+  off_wandb: False
+  batches: 50
+  num_steps: 500
+  disc_lr: 5e-5
+  lr: 5e-5
+  n_interv_sets: 50
+  pts_per_interv: 30
+  learn_L: True
+
+
+
+
+
+vae:
+  exp_name: 'VAE (baseline)' 
+
+ladder_vae:
+  exp_name: 'Ladder VAE (baseline)' 
+ 
+gnn_vae:
+  exp_name: 'GNN (baseline)' 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+sup_conv_decoder_bcd:
+  exp_name: 'Supervised Conv. Decoder BCD'
+  num_nodes: 5
+  exp_edges: 1.0
+  data_seed: 2
+  num_samples: 3000
+  obs_data: 3000
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  noise_sigma: 1.5
+  dataset: 'chemdata'
+  generate: False
+  off_wandb: False
+  n_interv_sets: 20
+  batches: 20
+  num_steps: 300
+  learn_L: False
+  learn_noise: False
+  learn_P: False
+  lr: 8e-4
+
+conv_decoder:
+  exp_name: 'Conv. Decoder'
+  num_nodes: 5
+  exp_edges: 1.0
+  data_seed: 2
+  num_samples: 1000
+  obs_data: 1000
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  noise_sigma: 1.5
+  dataset: 'chemdata'
+  generate: True
+  off_wandb: True
+  n_interv_sets: 20
+  batches: 100
+  num_steps: 300
+  learn_L: False
+  learn_noise: False
+  learn_P: False
+  lr: 8e-4
+
+linear_decoder:
+  exp_name: 'Linear Decoder'
+  num_nodes: 5
+  exp_edges: 1.0
+  data_seed: 2
+  num_samples: 1000
+  obs_data: 1000
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  noise_sigma: 1.5
+  dataset: 'chemdata'
+  generate: False
+  off_wandb: False
+  n_interv_sets: 20
+  batches: 100
+  num_steps: 10000
+  learn_L: False
+  learn_noise: False
+  learn_P: False
+  lr: 8e-4
 
 supervised_linear_proj_vae_bcd:
   exp_name: 'VAE-BCD linear proj (supervised)'
@@ -607,318 +1033,265 @@ linear_dbcd_learn_partial_L_across_intervs:
 
 
 
-conv_decoder_bcd:
-  exp_name: 'Batched Conv. Decoder BCD'
-  num_nodes: 6
-  exp_edges: 1.0
-  data_seed: 2
-  num_samples: 3300
-  obs_data: 300
-  interv_type: 'multi'
-  interv_value: 'uniform'
-  noise_sigma: 1.5
-  dataset: 'chemdata'
-  generate: True
-  off_wandb: True
-  n_interv_sets: 20
-  batches: 10
-  num_steps: 300
+
+
+
+# controlled_supervision:
+#   exp_name: 'controlled supervision decoder bcd'
+#   num_nodes: 6
+#   proj_dims: 6
+#   data_seed: 2
+#   num_steps: 1000
+#   off_wandb: True
+#   num_samples: 2400
+#   obs_data: 2100
+#   interv_type: 'single'
+#   decoder_layers: 'linear'
+#   learn_noise: False
   
-conv_decoder_bcd_learn_SCM:
-  exp_name: 'Batched Conv. Decoder BCD (learn SCM)'
-  num_nodes: 6
-  exp_edges: 1.0
-  data_seed: 3
-  num_samples: 3300
-  obs_data: 300
-  interv_type: 'multi'
-  interv_value: 'uniform'
-  noise_sigma: 1.5
-  dataset: 'chemdata'
-  generate: True
-  n_interv_sets: 20
-  batches: 50
-  num_steps: 2000
-  off_wandb: False
-  learn_P: True
+#   learn_L: True    # 'partial'
+#   obs_Z_KL: False
+#   use_proxy: True
+#   edge_noise: 0.1
+#   pred_last_L: 1
 
-graphvae:
-  exp_name: 'Graph VAE (baseline)' 
-  model: GraphVAE
-  num_nodes: 6
-  exp_edges: 1.0
-  data_seed: 2
-  num_samples: 3300
-  obs_data: 300
-  interv_type: 'multi'
-  interv_value: 'uniform'
-  noise_sigma: 1.5
-  generate: True
-  n_interv_sets: 20
-  batches: 10
-  num_steps: 300
-  total_dims: 120
-  dataset: 'chemdata'
-  lr: 1e-3
-  off_wandb: False
+#   l2_reg: False
+#   tau_scaling: False
+#   kl_nodes: 1
+#   interv_value: 100.0
 
+# sparse_dbcd:
+#   exp_name: 'sparse projection decoder bcd'
+#   num_nodes: 6
+#   proj_dims: 6
+#   exp_edges: 1.0
+#   data_seed: 2
+#   num_steps: 5000
+#   off_wandb: False
+#   num_samples: 3000
+#   obs_data: 3000
+#   interv_type: 'single'
+#   decoder_layers: 'linear'
+#   learn_L: True    # 'partial'
+#   pred_last_L: 1
 
-controlled_supervision:
-  exp_name: 'controlled supervision decoder bcd'
-  num_nodes: 6
-  proj_dims: 6
-  data_seed: 2
-  num_steps: 1000
-  off_wandb: True
-  num_samples: 2400
-  obs_data: 2100
-  interv_type: 'single'
-  decoder_layers: 'linear'
-  learn_noise: False
-  
-  learn_L: True    # 'partial'
-  obs_Z_KL: False
-  use_proxy: True
-  edge_noise: 0.1
-  pred_last_L: 1
-
-  l2_reg: False
-  tau_scaling: False
-  kl_nodes: 1
-  interv_value: 100.0
-
-sparse_dbcd:
-  exp_name: 'sparse projection decoder bcd'
-  num_nodes: 6
-  proj_dims: 6
-  exp_edges: 1.0
-  data_seed: 2
-  num_steps: 5000
-  off_wandb: False
-  num_samples: 3000
-  obs_data: 3000
-  interv_type: 'single'
-  decoder_layers: 'linear'
-  learn_L: True    # 'partial'
-  pred_last_L: 1
-
-  l2_reg: False
-  tau_scaling: False
-  cov_space: False
-  fix_decoder: False
-  kl_nodes: 1
-  across_interv: False
-  reg_decoder: False
-  interv_value: 100.0
-  proj_sparsity: 1.0
-  identity_proj: True
+#   l2_reg: False
+#   tau_scaling: False
+#   cov_space: False
+#   fix_decoder: False
+#   kl_nodes: 1
+#   across_interv: False
+#   reg_decoder: False
+#   interv_value: 100.0
+#   proj_sparsity: 1.0
+#   identity_proj: True
 
 
 
-linear_bcd:
-  exp_name: 'linear_bcd'
-  ckpt_id: 'linear_bcd'
-  model: 'BCD'
-  num_nodes: 6
-  proj_dims: 10
-  exp_edges: 1.0
-  likelihood: 'linear'
-  sem_type: 'linear-gauss'
-  lr: 1e-3
-  data_seed: 0
-  num_steps: 20000
-  off_wandb: True
-  num_samples: 100
-  L_KL: False
-  # P_KL: True
+# linear_bcd:
+#   exp_name: 'linear_bcd'
+#   ckpt_id: 'linear_bcd'
+#   model: 'BCD'
+#   num_nodes: 6
+#   proj_dims: 10
+#   exp_edges: 1.0
+#   likelihood: 'linear'
+#   sem_type: 'linear-gauss'
+#   lr: 1e-3
+#   data_seed: 0
+#   num_steps: 20000
+#   off_wandb: True
+#   num_samples: 100
+#   L_KL: False
+#   # P_KL: True
 
 
-# ! Only decoder
-decoder:
-  exp_name: 'only_decoder'
-  ckpt_id: 'only_decoder'
-  model: 'Decoder_BCD'
-  num_nodes: 6
-  proj_dims: 10
-  exp_edges: 1.0
-  likelihood: 'linear'
-  sem_type: 'linear-gauss'
-  lr: 1e-3
-  data_seed: 0
-  num_steps: 5000
-  off_wandb: True
-  num_samples: 200
-  obs_data: 200
-  train_loss: 'LL'
-  decoder_layers: 'linear'
-  learn_noise: False
-  learn_L: False
-  l2_reg: False
-  z_sample: 'sample'
-  L_KL: False
-  P_KL: False
-  Z_KL: False
+# # ! Only decoder
+# decoder:
+#   exp_name: 'only_decoder'
+#   ckpt_id: 'only_decoder'
+#   model: 'Decoder_BCD'
+#   num_nodes: 6
+#   proj_dims: 10
+#   exp_edges: 1.0
+#   likelihood: 'linear'
+#   sem_type: 'linear-gauss'
+#   lr: 1e-3
+#   data_seed: 0
+#   num_steps: 5000
+#   off_wandb: True
+#   num_samples: 200
+#   obs_data: 200
+#   train_loss: 'LL'
+#   decoder_layers: 'linear'
+#   learn_noise: False
+#   learn_L: False
+#   l2_reg: False
+#   z_sample: 'sample'
+#   L_KL: False
+#   P_KL: False
+#   Z_KL: False
 
 
-# ! Dibs configs
+# # ! Dibs configs
 
-# ? 9. Decoder_DIBS
-# ! python main.py --config defaults decoder_dibs_er experimental
-decoder_dibs_er:
-  ckpt_id: 'decoder_dibs_er'
-  model: 'Decoder_DIBS'
-  proj: 'linear'
-  linear_decoder: False
-  # ? TODO has to be changed to 'reparam' later
-  grad_estimator: 'score' # ['score', 'reparam']
-  z_prior: 'sample'   # TODO: 'actual' needs fixing from std to covar so use 'sample for now' | ['actual', 'sample'] 
-  algo: 'def'
-  num_nodes: 4
-  lr: 8e-4
+# # ? 9. Decoder_DIBS
+# # ! python main.py --config defaults decoder_dibs_er experimental
+# decoder_dibs_er:
+#   ckpt_id: 'decoder_dibs_er'
+#   model: 'Decoder_DIBS'
+#   proj: 'linear'
+#   linear_decoder: False
+#   # ? TODO has to be changed to 'reparam' later
+#   grad_estimator: 'score' # ['score', 'reparam']
+#   z_prior: 'sample'   # TODO: 'actual' needs fixing from std to covar so use 'sample for now' | ['actual', 'sample'] 
+#   algo: 'def'
+#   num_nodes: 4
+#   lr: 8e-4
 
-  steps: 1000
-  num_updates: 500
-  proj_dims: 10
-  data_seed: 1
-  exp_edges: 0.5
-  num_samples: 200
-  obs_data: 200
-  projection: 'random'
-  likelihood: 'nonlinear'  # ['bge', 'nonlinear']
-  datagen: 'linear'
+#   steps: 1000
+#   num_updates: 500
+#   proj_dims: 10
+#   data_seed: 1
+#   exp_edges: 0.5
+#   num_samples: 200
+#   obs_data: 200
+#   projection: 'random'
+#   likelihood: 'nonlinear'  # ['bge', 'nonlinear']
+#   datagen: 'linear'
 
-# ? DIBS
-linear_dibs:
-  exp_name: 'linear_joint_dibs'
-  ckpt_id: 'train_dibs_er'
-  likelihood: 'linear'  # ['bge', 'nonlinear', 'linear']
-  datagen: 'linear'
-  model: 'DIBS'
-  data_seed: 2
-  num_nodes: 5
-  num_updates: 1000
-  num_samples: 500
-  obs_data: 300
-  across_interv: True
-  interv_type: 'single'  # ['single', 'multi']
-  exp_edges: 0.5
-  grad_estimator: 'reparam'
-  off_wandb: False
+# # ? DIBS
+# linear_dibs:
+#   exp_name: 'linear_joint_dibs'
+#   ckpt_id: 'train_dibs_er'
+#   likelihood: 'linear'  # ['bge', 'nonlinear', 'linear']
+#   datagen: 'linear'
+#   model: 'DIBS'
+#   data_seed: 2
+#   num_nodes: 5
+#   num_updates: 1000
+#   num_samples: 500
+#   obs_data: 300
+#   across_interv: True
+#   interv_type: 'single'  # ['single', 'multi']
+#   exp_edges: 0.5
+#   grad_estimator: 'reparam'
+#   off_wandb: False
 
-nonlinear_dibs:
-  exp_name: 'nonlinear_joint_dibs'
-  ckpt_id: 'train_dibs_er'
-  likelihood: 'nonlinear'  # ['bge', 'nonlinear', 'linear']
-  datagen: 'nonlinear'
-  model: 'DIBS'
-  data_seed: 1
-  num_nodes: 50
-  num_updates: 5000
-  num_samples: 200
-  obs_data: 100
-  across_interv: True
-  interv_type: 'single'  # ['single', 'multi']
-  exp_edges: 1.0
-  grad_estimator: 'reparam'
-  off_wandb: True
-
-
-# ? Linear Decoder DIBS (Joint)
-linear_decoder_dibs:
-  exp_name: 'linear_decoder_dibs'
-  ckpt_id: 'joint_linear_decoder_dibs_er'
-  likelihood: 'linear'  # ['bge', 'nonlinear', 'linear']
-  datagen: 'linear'
-  model: 'Decoder_JointDiBS'
-  linear_decoder: False
-  num_nodes: 5
-  proj_dims: 10
-  exp_edges: 0.5
-  lr: 8e-4
-
-  steps: 14000
-  num_updates: 4000
-  data_seed: 12
-  num_samples: 500
-  obs_data: 300
-  off_wandb: True
-  clamp: False 
-  reinit: False # reinit target and model every iter
-  interv_type: 'single'  # ['single', 'multi']
-  grad_estimator: 'reparam'
-  across_interv: True
-  supervised: True
-  topsort: False
-
-  # ! num_nodes: 4, 6, 8, 10, 20
-  # ! num_updates: 1k, 3k, 3k, 5k, 5k
-  # ! proj_dims: 10, 10, 20, 20, 50
-
-  # ! clamp: T, F
-  # ! reinit: T, F
-  # ! obs_data :
-    # ! 100 {50, 100, 200} , 
-    #  ! 200 {100, 200, 300}, 
-    #  ! 300 {200, 300, 400}
-
-# ? Nonlinear Decoder DIBS (Joint)
-nonlinear_decoder_dibs:
-  exp_name: 'nonlinear_decoder_dibs'
-  ckpt_id: 'joint_nonlinear_decoder_dibs_er'
-  likelihood: 'nonlinear'  # ['bge', 'nonlinear', 'linear']
-  datagen: 'nonlinear'
-  model: 'Decoder_JointDiBS'
-  linear_decoder: False
-  exp_edges: 0.5
-  supervised: True
-  lr: 8e-4
-  proj_dims: 10
-
-  steps: 1100
-  num_nodes: 4
-  num_updates: 1000
-  data_seed: 1
-  num_samples: 100
-  obs_data: 100
-  across_interv: False
-  off_wandb: True
-  clamp: False
-  reinit: False # reinit target and model every iter
-  interv_type: 'single'  # ['single', 'multi']
-  grad_estimator: 'reparam'
+# nonlinear_dibs:
+#   exp_name: 'nonlinear_joint_dibs'
+#   ckpt_id: 'train_dibs_er'
+#   likelihood: 'nonlinear'  # ['bge', 'nonlinear', 'linear']
+#   datagen: 'nonlinear'
+#   model: 'DIBS'
+#   data_seed: 1
+#   num_nodes: 50
+#   num_updates: 5000
+#   num_samples: 200
+#   obs_data: 100
+#   across_interv: True
+#   interv_type: 'single'  # ['single', 'multi']
+#   exp_edges: 1.0
+#   grad_estimator: 'reparam'
+#   off_wandb: True
 
 
-# ? 8. VAE_DIBS
-# ! python main.py --config defaults experimental linear_vaedibs_er
-linear_vaedibs_er:
-  ckpt_id: 'linear_vaedibs_er'
-  model: 'VAE_DIBS'
-  dataset: 'er'
-  datatype: 'er'
-  data_seed: 12
-  lr: 9e-4
-  num_nodes: 4
-  exp_edges: 0.7
-  proj: 'linear'
-  known_ED: (True,True)
-  steps: 1000      # updates for VAE part of VAE DIBS
-  num_updates: 500    # updates for DIBS
-  proj_dims: 10
-  num_samples: 3000
-  soft_constraint: False
+# # ? Linear Decoder DIBS (Joint)
+# linear_decoder_dibs:
+#   exp_name: 'linear_decoder_dibs'
+#   ckpt_id: 'joint_linear_decoder_dibs_er'
+#   likelihood: 'linear'  # ['bge', 'nonlinear', 'linear']
+#   datagen: 'linear'
+#   model: 'Decoder_JointDiBS'
+#   linear_decoder: False
+#   num_nodes: 5
+#   proj_dims: 10
+#   exp_edges: 0.5
+#   lr: 8e-4
+
+#   steps: 14000
+#   num_updates: 4000
+#   data_seed: 12
+#   num_samples: 500
+#   obs_data: 300
+#   off_wandb: True
+#   clamp: False 
+#   reinit: False # reinit target and model every iter
+#   interv_type: 'single'  # ['single', 'multi']
+#   grad_estimator: 'reparam'
+#   across_interv: True
+#   supervised: True
+#   topsort: False
+
+#   # ! num_nodes: 4, 6, 8, 10, 20
+#   # ! num_updates: 1k, 3k, 3k, 5k, 5k
+#   # ! proj_dims: 10, 10, 20, 20, 50
+
+#   # ! clamp: T, F
+#   # ! reinit: T, F
+#   # ! obs_data :
+#     # ! 100 {50, 100, 200} , 
+#     #  ! 200 {100, 200, 300}, 
+#     #  ! 300 {200, 300, 400}
+
+# # ? Nonlinear Decoder DIBS (Joint)
+# nonlinear_decoder_dibs:
+#   exp_name: 'nonlinear_decoder_dibs'
+#   ckpt_id: 'joint_nonlinear_decoder_dibs_er'
+#   likelihood: 'nonlinear'  # ['bge', 'nonlinear', 'linear']
+#   datagen: 'nonlinear'
+#   model: 'Decoder_JointDiBS'
+#   linear_decoder: False
+#   exp_edges: 0.5
+#   supervised: True
+#   lr: 8e-4
+#   proj_dims: 10
+
+#   steps: 1100
+#   num_nodes: 4
+#   num_updates: 1000
+#   data_seed: 1
+#   num_samples: 100
+#   obs_data: 100
+#   across_interv: False
+#   off_wandb: True
+#   clamp: False
+#   reinit: False # reinit target and model every iter
+#   interv_type: 'single'  # ['single', 'multi']
+#   grad_estimator: 'reparam'
+
+
+# # ? 8. VAE_DIBS
+# # ! python main.py --config defaults experimental linear_vaedibs_er
+# linear_vaedibs_er:
+#   ckpt_id: 'linear_vaedibs_er'
+#   model: 'VAE_DIBS'
+#   dataset: 'er'
+#   datatype: 'er'
+#   data_seed: 12
+#   lr: 9e-4
+#   num_nodes: 4
+#   exp_edges: 0.7
+#   proj: 'linear'
+#   known_ED: (True,True)
+#   steps: 1000      # updates for VAE part of VAE DIBS
+#   num_updates: 500    # updates for DIBS
+#   proj_dims: 10
+#   num_samples: 3000
+#   soft_constraint: False
 
 
 
-experimental:
-  off_wandb: True
+# experimental:
+#   off_wandb: True
 
-mini:
-  loss_log_freq: 5
-  media_log_freq: 5
-  steps: 100
+# mini:
+#   loss_log_freq: 5
+#   media_log_freq: 5
+#   steps: 100
 
-mila:
-  offline_wandb: False
+# mila:
+#   offline_wandb: False
 
 
 # # ? 1. Vanilla Slot attention

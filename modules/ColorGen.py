@@ -11,8 +11,6 @@ class LinearGaussianColor(object):
         self.n = n
         self.num_obs_data = obs_data
         self.num_interv_data = n - obs_data
-
-
         self.d = d
         self.graph_type = graph_type
         self.degree = degree

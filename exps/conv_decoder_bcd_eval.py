@@ -36,8 +36,8 @@ def log_gt_graph(ground_truth_W, logdir, exp_config_dict, opt, writer=None):
         wandb.log({"graph_structure(GT-pred)/Ground truth W": wandb.Image(join(logdir, 'gt_w.png'))}, step=0)
 
     # ? Logging to tensorboard
-    gt_graph_image = onp.asarray(imageio.imread(join(logdir, 'gt_w.png')))
     if writer:
+        gt_graph_image = onp.asarray(imageio.imread(join(logdir, 'gt_w.png')))
         writer.add_image('graph_structure(GT-pred)/Ground truth W', gt_graph_image, 0, dataformats='HWC')
 
 
@@ -127,10 +127,7 @@ def eval_mean(model_params, L_params, state, forward, data, rng_key, interv_node
     stats = {key: [stats[key]] for key in stats}
     
     for i, W in enumerate(batch_W[1:]):
-        print('hmm1')
         new_stats = sample_stats(W, w_noise[i])
-        print('hmm2')
-
         for key in new_stats:
             stats[key] = stats[key] + [new_stats[key]]
     
@@ -141,7 +138,7 @@ def eval_mean(model_params, L_params, state, forward, data, rng_key, interv_node
     return out_stats
 
 
-def gan_eval_mean(gen_params, L_params, gen_state, gen, data, rng_key, interv_nodes, 
+def gan_eval_mean(gen_params, L_params, gen, data, rng_key, interv_nodes, 
                 interv_values, opt, ground_truth_W=None, ground_truth_sigmas=None):
 
     edge_threshold = 0.3
@@ -154,8 +151,7 @@ def gan_eval_mean(gen_params, L_params, gen_state, gen, data, rng_key, interv_no
 
     data = data[:opt.obs_data]
 
-    res, _ = gen.apply(gen_params, 
-                gen_state, 
+    res = gen.apply(gen_params, 
                 rng_key, 
                 rng_key, 
                 interv_nodes, 

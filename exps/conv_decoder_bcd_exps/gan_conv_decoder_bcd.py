@@ -27,7 +27,7 @@ from loss_fns import *
 from tensorflow_probability.substrates.jax.distributions import (Horseshoe,
                                                                  Normal)
 from conv_decoder_bcd_eval import *
-from models.Conv_Decoder_BCD import Conv_Decoder_BCD, Discriminator
+from models.Conv_Decoder_BCD import Conv_Decoder_BCD, ConvDiscriminator
 
 
 # ? Parse args
@@ -97,7 +97,7 @@ def gen(rng_key, interv_targets, interv_values, L_params):
     return model(rng_key, interv_targets, interv_values, L_params)
 
 def disc(image):
-    model = Discriminator(proj_dims)
+    model = ConvDiscriminator()
     return model(image)
 
 gen = hk.transform(gen)
@@ -247,7 +247,7 @@ disc_opt_params, disc_params = update_discriminator(disc_grads, disc_opt_params,
                                                                                                 interv_values[:bs], 
                                                                                                 rng_key)
 
-def train_batch(gen_opt_params, gen_params, L_opt_params, L_params, 
+def train_batch(b, gen_opt_params, gen_params, L_opt_params, L_params, 
                   disc_opt_params, disc_params, x_data, z_data, interv_nodes_, interv_values_):
     
     disc_loss, disc_grads = value_and_grad(get_disc_loss, argnums=(2))(rng_key, 
@@ -303,7 +303,7 @@ with tqdm(range(20)) as pbar:
                     batch_W, 
                     z_samples, 
                     X_recons, 
-                    pred_W_means) = train_batch(gen_opt_params, 
+                    pred_W_means) = train_batch(b, gen_opt_params, 
                                                 gen_params, 
                                                 L_opt_params, 
                                                 L_params, 
@@ -332,7 +332,7 @@ with tqdm(range(20)) as pbar:
                 pbar2.set_postfix(
                     Batch=f"{b}/{num_batches}",
                     X_mse=f"{log_dict['x_mse']:.2f}",
-                    KL=f"{log_dict['true_obs_KL_term_Z']:.4f}", 
+                    KL=f"{log_dict['true_obs_KL_term_Z']:.9f}", 
                     L_mse=f"{log_dict['L_mse']:.3f}"
                 )
 

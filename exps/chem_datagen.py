@@ -9,7 +9,6 @@ def generate_colors(opt, chem_data, low, high, interv_low, interv_high):
     n_interv_sets = opt.n_interv_sets
     interv_data_per_set = (opt.num_samples - opt.obs_data) // n_interv_sets
     obs_data = chem_data.obs_X
-
     interv_data = []
     interv_values = np.random.uniform(low=interv_low, high=interv_high, size=(n, d))
     interv_targets = np.full((n, d), False)
@@ -32,7 +31,6 @@ def generate_colors(opt, chem_data, low, high, interv_low, interv_high):
         else: interv_data = np.concatenate((interv_data, interv_data_), axis=0)
 
     z = np.concatenate((obs_data, interv_data), axis=0)
-
     return z, interv_targets, interv_values
 
 def intervene_sem(

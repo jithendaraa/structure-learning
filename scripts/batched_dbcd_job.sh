@@ -11,18 +11,19 @@
 #SBATCH --mail-type=ALL
 
 seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
-lrs=(0.002)
-num_steps=(1000)
+lrs=(0.0008)
+num_steps=(3000)
 
-num_samples=(181000)
-obs_data=1000
 num_nodes=20
 proj_dims=100
 exp_edges=(1.0)
+pts_per_interv=100
+n_interv_sets=200
 
 off_wandb='False'
-n_interv_sets=20
 batches=5000
+obs_data=500
+num_samples=(181000)
 
 array_len=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#num_steps[@]} * ${#num_samples[@]} ))
 defg=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#num_steps[@]} * ${#num_samples[@]} ))
@@ -46,10 +47,10 @@ module load anaconda/3
 module unload cuda/11.2 && module load cuda/11.0
 conda activate lbcd
 echo `date` "Python starting"
-echo "python batched_run_decoder_bcd.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --n_interv_sets ${n_interv_sets} --batches ${batches}"
+echo "python batched_run_decoder_bcd.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --n_interv_sets ${n_interv_sets} --batches ${batches} --pts_per_interv ${pts_per_interv}"
 
 cd exps/decoder_bcd_exps
-python batched_run_decoder_bcd.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --n_interv_sets ${n_interv_sets} --batches ${batches}
+python batched_run_decoder_bcd.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_samples ${num_sample} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --n_interv_sets ${n_interv_sets} --batches ${batches} --pts_per_interv ${pts_per_interv}
 cd ../..
 
 echo $end

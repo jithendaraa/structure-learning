@@ -24,21 +24,22 @@ class BN(hk.Module):
     def __call__(self, x):
         return hk.BatchNorm(True, True, 0.9)(x, True)
 
-class Discriminator(hk.Module):
-    def __init__(self, image_dims, features=16):
+class ConvDiscriminator(hk.Module):
+    def __init__(self, features=16):
         super().__init__()
-
-        self.image_dims = image_dims
 
         self.disc = hk.Sequential([
             hk.Conv2D(features, 4, stride=2), jax.nn.leaky_relu, # 32 * 32
             hk.Conv2D(features * 2, 4, stride=2), jax.nn.leaky_relu, # 16 * 16
             hk.Conv2D(features * 4, 4, stride=2), jax.nn.leaky_relu, # 8 * 8
             hk.Conv2D(features * 8, 4, stride=2), jax.nn.leaky_relu, # 4 * 4
-            hk.Conv2D(1, 4, stride=2, padding=(0,0)), jax.nn.sigmoid, 
+            hk.Conv2D(1, 4, stride=2, padding=(0,0)), jax.nn.sigmoid
         ])
 
     def __call__(self, x):
+        """
+            Given x, this discriminator approximates D(x)
+        """
         return self.disc(x).reshape(-1)
 
 
@@ -79,18 +80,28 @@ class Conv_Decoder_BCD(hk.Module):
                                 hk.Linear(dim * dim)
                             ])
             
+        # pdb.set_trace()
+        # self.linear_decoder = hk.Sequential([
+        #     hk.Linear(16), jax.nn.gelu,
+        #     hk.Linear(64), jax.nn.gelu,
+        #     hk.Linear(256), jax.nn.gelu,
+        #     hk.Linear(512), jax.nn.gelu,
+        #     hk.Linear(512), jax.nn.gelu,
+        #     hk.Linear(512), jax.nn.gelu,
+        #     hk.Linear(1024), jax.nn.gelu,
+        #     hk.Linear(2048), jax.nn.gelu,
+        #     hk.Linear(int(proj_dims[-1] * proj_dims[-2])), jax.nn.sigmoid
+        # ])
 
         self.linear_decoder = hk.Sequential([
-            hk.Linear(16), jax.nn.gelu,
-            hk.Linear(64), jax.nn.gelu,
-            hk.Linear(256), jax.nn.gelu,
-            hk.Linear(512), jax.nn.gelu,
-            hk.Linear(512), jax.nn.gelu,
-            hk.Linear(512), jax.nn.gelu,
-            hk.Linear(1024), jax.nn.gelu,
-            hk.Linear(2048), jax.nn.gelu,
-            hk.Linear(int(proj_dims[-1] * proj_dims[-2])), jax.nn.sigmoid
-        ])
+             hk.Linear(16), jax.nn.gelu,
+             hk.Linear(64), jax.nn.gelu,
+             hk.Linear(256), jax.nn.gelu,
+             hk.Linear(512), jax.nn.gelu,
+             hk.Linear(1024), jax.nn.gelu,
+             hk.Linear(2048), jax.nn.gelu,
+             hk.Linear(int(proj_dims[-1] * proj_dims[-2])), jax.nn.sigmoid
+         ])
 
     def sample_W(self, L, P):
         W = (P @ L @ P.T).T
@@ -179,9 +190,7 @@ class Conv_Decoder_BCD(hk.Module):
         return samples
 
     def __call__(self, rng_key, interv_targets, interv_values, L_params, hard=True):
-        
         h_, w_ = self.proj_dims[-2] // 2, self.proj_dims[-1] // 2  
-
         num_input_samples = len(interv_targets)
         l_batch, full_log_prob_l = self.sample_L(L_params, rng_key)
 

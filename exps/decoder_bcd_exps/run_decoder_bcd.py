@@ -13,17 +13,16 @@ import haiku as hk
 import jax
 import jax.random as rnd
 import matplotlib.pyplot as plt
-import networkx as nx
 import numpy as onp
 import ruamel.yaml as yaml
 import utils, datagen
-from jax import config, grad, jit, lax, value_and_grad, vmap
+from jax import config, jit, lax, value_and_grad, vmap
 from jax import numpy as jnp
 from jax.tree_util import tree_map, tree_multimap
 
 config.update("jax_enable_x64", True)
 
-from dag_utils import SyntheticDataset, count_accuracy
+from dag_utils import SyntheticDataset
 # Data generation procedure
 from dibs_new.dibs.target import make_linear_gaussian_model
 from divergences import *
@@ -40,6 +39,7 @@ from bcd_utils import *
 
 num_devices = jax.device_count()
 print(f"Number of devices: {num_devices}")
+
 # ? Parse args
 configs = yaml.safe_load((pathlib.Path("../..") / "configs.yaml").read_text())
 opt = utils.load_yaml(configs)
@@ -114,10 +114,6 @@ if opt.use_proxy:
     print(f'W_proxy: {W_proxy}')
     # ? Get GT observational (proxy) joint distributions
     proxy_p_z_obs_joint_mu, proxy_p_z_obs_joint_covar = get_joint_dist_params(opt.noise_sigma, W_proxy)
-
-node_mus = jnp.ones((d)) * opt.noise_mu
-node_vars = jnp.ones((d)) * (opt.noise_sigma**2)
-interv_types = onp.eye(d, dtype=onp.bool)
 
 p_z_obs_joint_mu, p_z_obs_joint_covar = get_joint_dist_params(opt.noise_sigma, jnp.array(sd.W))
 

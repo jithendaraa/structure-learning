@@ -13,18 +13,15 @@ from sklearn import metrics
 import ruamel.yaml as yaml
 
 
-def load_yaml_dibs(configs, exp=''):
+def load_yaml(configs, exp=''):
     default_config = 'defaults'
     if exp != '': default_config += ' ' + exp
     parser = argparse.ArgumentParser()
     parser.add_argument('--configs', nargs='+', default=default_config)
-    
     args, remaining = parser.parse_known_args()
     defaults = {}
-
     names = args.configs
     if isinstance(names, list) is False: names = names.split(' ')
-
     for name in names:  defaults.update(configs[name])
 
     parser = argparse.ArgumentParser()
@@ -64,7 +61,6 @@ def set_opts(opt):
     if opt.num_nodes == 2:  opt.exp_edges = 0.8
     if opt.num_nodes <=4: opt.alpha_lambd = 10.
     else: opt.alpha_lambd = 1000.
-
     return opt
 
 def args_type(default):

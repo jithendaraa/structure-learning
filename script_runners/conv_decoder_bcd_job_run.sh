@@ -8,7 +8,7 @@ config=$5
 
 keys=("seed" "exp_edges" "lr" "num_steps" "num_samples")
 
-seeds=(19)
+seeds=(9 11 17)
 exp_edges=(1.0)
 lrs=(0.001)
 num_samples=(200)

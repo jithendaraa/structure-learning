@@ -10,13 +10,13 @@
 #SBATCH --mail-type=REQUEUE
 #SBATCH --mail-type=ALL
 
-seeds=(19)
+seeds=(9 11 17)
 exp_edges=(1.0)
 lrs=(0.0008)
 num_steps=(2000)
 
-num_nodes=5
-n_interv_sets=100
+num_nodes=10
+n_interv_sets=50
 pts_per_interv=50
 
 batches=256
