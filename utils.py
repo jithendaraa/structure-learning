@@ -240,8 +240,12 @@ def set_tb_logdir(opt):
     elif opt.algo == 'fast-slow':
       logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_proj{opt.proj}{opt.proj_dims}_samples{opt.num_samples}_expedges{opt.exp_edges}_steps{opt.steps}_dibsupdates{opt.num_updates}_knownED{opt.known_ED}_lindecode{opt.linear_decoder}_algo{opt.algo}_particles{opt.n_particles}_dibslr{opt.dibs_lr}_datagen({opt.datagen})'
       
-  elif opt.model in ['Decoder_BCD', 'GraphVAE']:
-    logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_decoder_{opt.decoder_layers}_loss_{opt.train_loss}_L_KL{opt.L_KL}_Z_KL{opt.Z_KL}_learn_L{opt.learn_L}_pred_last_L{opt.pred_last_L}'
+  elif opt.model in ['Decoder_BCD']:
+    logdir += f'_({opt.num_nodes})_seed{opt.data_seed}_L_KL{opt.L_KL}_Z_KL{opt.Z_KL}_learn_L{opt.learn_L}'
+  
+  elif opt.model in ['GraphVAE']:
+    logdir += f'_({opt.num_nodes})_seed{opt.data_seed}'
+
 
   return logdir
 

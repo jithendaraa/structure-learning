@@ -8,8 +8,8 @@ config=$5
 
 keys=("seed" "exp_edges" "lr" "num_steps" "num_samples")
 
-seeds=(1 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
-exp_edges=(2.0)
+seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
+exp_edges=(1.0)
 lrs=(0.001)
 num_samples=(200)
 num_steps=(1000)
@@ -20,7 +20,7 @@ if [ ${train} == 'train' ]
 then
     if [ ${dataset} == 'er' ]
     then
-        output_file="out/Decoder_BCD/linear_decoder_bcd-%A_%a.out"
+        output_file="out/GraphVAE/graphvae-%A_%a.out"
         echo "Train Decoder BCD ER: ${config}"
     else
         echo "Not implemented dataset ${dataset}" 
@@ -29,7 +29,7 @@ else
     echo "Not implemented dataset ${train}" 
 fi
 
-command="sbatch --array=1-${array_len}%512 --job-name ${config} --output ${output_file} --time ${time} scripts/linear_decoder_bcd_job.sh ${config}"   
+command="sbatch --array=1-${array_len}%512 --job-name ${config} --output ${output_file} --time ${time} scripts/run_graphvae_baseline.sh ${config}"   
 echo ""
 echo ${command}
 echo ""

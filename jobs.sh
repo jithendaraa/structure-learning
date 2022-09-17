@@ -110,5 +110,10 @@ then
 elif [ ${exp_id} == '19s' ]   
 then
     bash script_runners/run_vae_baseline_job.sh ${dataset} ${train} 'Decoder_BCD' ${time} ${config}
+
+# ! GraphVAE baseline
+elif [ ${exp_id} == '20s' ]   
+then
+    bash script_runners/run_graphvae_baseline_job.sh ${dataset} ${train} 'Decoder_BCD' ${time} ${config}
 fi
 

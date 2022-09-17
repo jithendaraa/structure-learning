@@ -1,0 +1,68 @@
+{
+    "name": "GraphVAE",
+    "exp_name": "GraphVAE chemdata",
+    "dataset": "chemdata",
+    "offline_wandb": false,
+    "off_wandb": false,
+    "wandb_project": "structure-learning",
+    "wandb_entity": "structurelearning",
+    "n_gpu": 1,
+    "data_seed": 3, 
+    "pts_per_interv": 100,
+    "n_interv_sets": 20,
+    "obs_data": 500,
+    "exp_edges": 1.0,
+    "sem_type": "linear-gauss",
+    "noise_sigma": 1.5,
+    "low": -8.0,
+    "high": 8.0,
+    "interv_low": -5.0,
+    "interv_high": 5.0,
+    "arch": {
+        "type": "GraphVAE",
+        "args": {
+            "input_dim": 2500,
+            "n_nodes": 5,
+            "node_dim": 1
+        }
+    },
+    "data_loader": {
+        "type": "ChemDataLoader",
+        "args": {
+            "data_dir": "/home/mila/j/jithendaraa.subramanian/scratch/",
+            "batch_size": 2048,
+            "shuffle": false,
+            "validation_split": 0.2,
+            "num_workers": 0
+        }
+    },
+    "optimizer": {
+        "type": "Adam",
+        "args": {
+            "lr": 0.001,
+            "weight_decay": 0,
+            "amsgrad": true
+        }
+    },
+    "loss": "loss_MNIST",
+    "metrics": [
+        "map_compare"
+    ],
+    "lr_scheduler": {
+        "type": "StepLR",
+        "args": {
+            "step_size": 100,
+            "gamma": 0.8
+        }
+    },
+    "trainer": {
+        "epochs": 252,
+        "save_dir": "saved/",
+        "save_period": 50,
+        "verbosity": 2,
+        "monitor": "off",
+        "early_stop": 10000,
+        "tensorboardX": false,
+        "log_dir": "saved/runs"
+    }
+}

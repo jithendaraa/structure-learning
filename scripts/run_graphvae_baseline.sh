@@ -11,14 +11,14 @@
 #SBATCH --mail-type=ALL
 #SBATCH --exclude=rtx1
 
-seeds=(1 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
+seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
 lrs=(0.0008)
-num_steps=(8000)
+num_steps=(252)
 
-num_nodes=20
+num_nodes=5
 proj_dims=100
-exp_edges=(2.0)
-n_interv_sets=800
+exp_edges=(4.0)
+n_interv_sets=20
 
 pts_per_interv=100
 obs_data=500
@@ -45,11 +45,11 @@ module load anaconda/3
 module unload cuda/11.2 && module load cuda/11.0
 conda activate lbcd
 echo `date` "Python starting"
-echo "python run_decoder_bcd.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --n_interv_sets ${n_interv_sets} --pts_per_interv ${pts_per_interv}"
+echo "python train.py --config chem_config.json --dataseed ${seed} --exp_edges ${exp_edge}"
 
-cd exps/decoder_bcd_exps
-python run_decoder_bcd.py --config defaults ${id} --data_seed ${seed} --exp_edges ${exp_edge} --lr ${lr} --num_steps ${step} --num_nodes ${num_nodes} --proj_dims ${proj_dims} --obs_data ${obs_data} --off_wandb ${off_wandb} --n_interv_sets ${n_interv_sets} --pts_per_interv ${pts_per_interv}
-cd ../..
+cd vae-latent-structure/
+python train.py --config chem_config.json --dataseed ${seed} --exp_edges ${exp_edge}
+cd ../
 
 echo $end
 end=`date +%s`

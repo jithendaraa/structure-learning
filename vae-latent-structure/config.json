@@ -1,0 +1,58 @@
+{
+    "name": "GraphVAE",
+    "exp_name": "GraphVAE MNIST",
+    "dataset": "MNIST",
+    "offline_wandb": false,
+    "off_wandb": true,
+    "wandb_project": "structure-learning",
+    "wandb_entity": "structurelearning",
+    "n_gpu": 1,
+    "data_seed": 2,
+    "arch": {
+        "type": "GraphVAE",
+        "args": {
+            "input_dim": 784,
+            "n_nodes": 5,
+            "node_dim": 1
+        }
+    },
+    "data_loader": {
+        "type": "MnistDataLoader",
+        "args": {
+            "data_dir": "/home/mila/j/jithendaraa.subramanian/scratch/mnist_data/",
+            "batch_size": 1024,
+            "shuffle": false,
+            "validation_split": 0.2,
+            "num_workers": 0
+        }
+    },
+    "optimizer": {
+        "type": "Adam",
+        "args": {
+            "lr": 0.001,
+            "weight_decay": 0,
+            "amsgrad": true
+        }
+    },
+    "loss": "loss_MNIST",
+    "metrics": [
+        "map_compare"
+    ],
+    "lr_scheduler": {
+        "type": "StepLR",
+        "args": {
+            "step_size": 100,
+            "gamma": 0.8
+        }
+    },
+    "trainer": {
+        "epochs": 10000,
+        "save_dir": "saved/",
+        "save_period": 50,
+        "verbosity": 2,
+        "monitor": "off",
+        "early_stop": 10000,
+        "tensorboardX": false,
+        "log_dir": "saved/runs"
+    }
+}

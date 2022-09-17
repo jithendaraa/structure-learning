@@ -7,8 +7,7 @@ from dataclasses import dataclass
 
 from PIL import Image
 import skimage
-
-
+from torchvision import transforms
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -62,7 +61,7 @@ class LinGaussColorCubesRL(gym.Env):
 
         self.observation_space = spaces.Box
         self.action_space = spaces.Dict(action_dict)
-
+        
         self.colorgen = LinearGaussianColor(1, self.num_objects,
                                             'erdos-renyi', 
                                             2.0, 
@@ -143,7 +142,6 @@ class LinGaussColorCubesRL(gym.Env):
                 ),
                 color=rgb_colors[idx])
 
-
     def step(self, action, channel_colors=None):
         nodes_to_intervene = action['nodes']
         interv_values = action['values'].reshape(1, -1)
@@ -160,7 +158,6 @@ class LinGaussColorCubesRL(gym.Env):
                 channel_colors = self.colorgen.capped_interv_samples(nodes_to_intervene, interv_values, 
                                                                 self.low, self.high).squeeze(0)
 
-            
         normalized_channel_colors = 255. * ((channel_colors / (2 * self.high)) + 0.5)  
         rgb_colors = []
         for color in normalized_channel_colors:
@@ -170,6 +167,13 @@ class LinGaussColorCubesRL(gym.Env):
         state_obs = self.render()
         state_obs = state_obs[:3, :, :]
         interv_details = (nodes_to_intervene, interv_values) 
+        
+        # pil_image = Image.fromarray(np.uint8(state_obs.T))
+        # np_image = transforms.Compose([
+        #     transforms.Resize(64), 
+        #     transforms.ToTensor()]
+        # )(pil_image).numpy().transpose(1, 2, 0)
+        # state_obs = (interv_details, np_image * 255.)
         state_obs = (interv_details, state_obs.T)
         return state_obs, None, done, None
 
