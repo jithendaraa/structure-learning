@@ -1,0 +1,12 @@
+name: liga_vi
+channels:
+  - defaults
+dependencies:
+  - _libgcc_mutex=0.1=main
+  - _openmp_mutex=5.1=1_gnu
+  - ca-certificates=2022.4.26=h06a4308_0
+  - libgcc-ng=11.2.0=h1234567_1
+  - libgomp=11.2.0=h1234567_1
+  - openssl=1.1.1q=h7f8727e_0
+prefix: /home/mila/j/jithendaraa.subramanian/.conda/envs/liga_vi
+

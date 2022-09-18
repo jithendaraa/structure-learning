@@ -18,7 +18,7 @@ num_steps=(252)
 num_nodes=5
 proj_dims=100
 exp_edges=(4.0)
-n_interv_sets=20
+n_interv_sets=100
 
 pts_per_interv=100
 obs_data=500

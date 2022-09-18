@@ -10,18 +10,18 @@
 #SBATCH --mail-type=REQUEUE
 #SBATCH --mail-type=ALL
 
-seeds=(9 11 17)
+seeds=(1 2)
 exp_edges=(1.0)
 lrs=(0.0008)
 num_steps=(2000)
 
-num_nodes=10
-n_interv_sets=50
-pts_per_interv=50
+num_nodes=5
+n_interv_sets=20
+pts_per_interv=100
 
 batches=256
 generate='True'
-obs_data=300
+obs_data=500
 interv_type='multi'
 interv_value='uniform'
 off_wandb='False'

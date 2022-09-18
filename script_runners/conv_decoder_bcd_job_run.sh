@@ -8,7 +8,7 @@ config=$5
 
 keys=("seed" "exp_edges" "lr" "num_steps" "num_samples")
 
-seeds=(9 11 17)
+seeds=(1 2)
 exp_edges=(1.0)
 lrs=(0.001)
 num_samples=(200)
@@ -20,7 +20,7 @@ if [ ${train} == 'train' ]
 then
     if [ ${dataset} == 'er' ]
     then
-        output_file="out/Decoder_BCD/conv_decoder_bcd-%A_%a.out"
+        output_file="out/Conv_Decoder_BCD/conv_decoder_bcd-%A_%a.out"
         echo "Train Conv Decoder BCD ER: ${config}"
     else
         echo "Not implemented dataset ${dataset}" 

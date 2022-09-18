@@ -60,10 +60,8 @@ def eval_mean(model_params, L_params, state, forward, data, rng_key, interv_node
     hard = True
     dim = opt.num_nodes
     do_ev_noise = opt.do_ev_noise
-
     if opt.do_ev_noise: noise_dim = 1
     else: noise_dim = dim
-
     data = data[:opt.obs_data]
 
     res, _ = forward.apply(model_params, 
@@ -101,37 +99,27 @@ def eval_mean(model_params, L_params, state, forward, data, rng_key, interv_node
 
         auprcs_w.append(cdt.metrics.precision_recall(gt_graph_w, pred_graph_w)[0])
         auprcs_g.append(cdt.metrics.precision_recall(gt_graph_g, pred_graph_g)[0])
+        
         stats = count_accuracy(ground_truth_W, est_W_clipped)
-
-        if get_wasserstein:
-            true_wasserstein_distance = precision_wasserstein_loss(ground_truth_sigmas, ground_truth_W, est_noise, est_W_clipped)
-            sample_wasserstein_loss = precision_wasserstein_sample_loss(z_prec, est_noise, est_W_clipped)
-        else:
-            true_wasserstein_distance, sample_wasserstein_loss = 0.0, 0.0
-
-        true_KL_divergence = precision_kl_loss(ground_truth_sigmas, ground_truth_W, est_noise, est_W_clipped)
-        sample_kl_divergence = precision_kl_sample_loss(z_prec, est_noise, est_W_clipped)
 
         G_cpdag = graphical_models.DAG.from_nx(nx.DiGraph(onp.array(est_W_clipped))).cpdag()
         gt_graph_cpdag = graphical_models.DAG.from_nx(nx.DiGraph(onp.array(gt_graph_clipped))).cpdag()
         
         stats["shd_c"] = gt_graph_cpdag.shd(G_cpdag)
-        stats["true_kl"] = true_KL_divergence
-        stats["sample_kl"] = sample_kl_divergence
-        stats["true_wasserstein"] = true_wasserstein_distance
-        stats["sample_wasserstein"] = sample_wasserstein_loss
         stats["MSE"] = np.mean((Xs.T - est_W_clipped.T @ Xs.T) ** 2)
         return stats
 
     stats = sample_stats(batch_W[0], w_noise[0])
-    stats = {key: [stats[key]] for key in stats}
+    stats = {key: [stats[key]] for key in stats}    
     
     for i, W in enumerate(batch_W[1:]):
         new_stats = sample_stats(W, w_noise[i])
+        
         for key in new_stats:
             stats[key] = stats[key] + [new_stats[key]]
     
     out_stats = {key: onp.mean(stats[key]) for key in stats}
+    
     out_stats["auroc"] = auroc(batch_W, ground_truth_W, edge_threshold)
     out_stats["auprc_w"] = np.array(auprcs_w).mean()
     out_stats["auprc_g"] = np.array(auprcs_g).mean()

@@ -328,7 +328,6 @@ batched_linear_dbcd_single_interv:
   n_interv_sets: 20
   batches: 10000
 
-
 batched_linear_dbcd_multi_interv:
   exp_name: 'Batched Decoder BCD multi interventional learn L (linear projection)'
   interv_type: 'multi'
@@ -674,7 +673,7 @@ conv_decoder_bcd:
   num_nodes: 5
   exp_edges: 1.0
   data_seed: 2
-  obs_data: 300
+  obs_data: 500
   interv_type: 'multi'
   interv_value: 'uniform'
   noise_sigma: 1.5
@@ -682,10 +681,11 @@ conv_decoder_bcd:
   generate: True
   off_wandb: False
   batches: 256
-  num_steps: 1000
+  num_steps: 2000
   lr: 8e-4
   n_interv_sets: 20
-  pts_per_interv: 50
+  pts_per_interv: 100
+
 
 conv_decoder_bcd_learn_SCM:
   exp_name: 'Batched Conv. Decoder BCD (learn SCM)'
@@ -705,6 +705,7 @@ conv_decoder_bcd_learn_SCM:
   num_steps: 700
   lr: 3e-4
   learn_P: True
+
 
 
 # ! baseline 1: VAE nondiagonal covariance
