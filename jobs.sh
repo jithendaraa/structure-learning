@@ -107,7 +107,7 @@ then
     bash script_runners/batched_dbcd_job_run.sh ${dataset} ${train} 'Decoder_BCD' ${time} ${config}
 
 # ! VAE baseline
-elif [ ${exp_id} == '19s' ]   
+elif [ ${exp_id} == '19s' ]
 then
     bash script_runners/run_vae_baseline_job.sh ${dataset} ${train} 'Decoder_BCD' ${time} ${config}
 
@@ -115,5 +115,10 @@ then
 elif [ ${exp_id} == '20s' ]   
 then
     bash script_runners/run_graphvae_baseline_job.sh ${dataset} ${train} 'Decoder_BCD' ${time} ${config}
+
+elif [ ${exp_id} == '21s' ]   
+then
+    bash script_runners/run_chemvae_baseline_job.sh ${dataset} ${train} 'Decoder_BCD' ${time} ${config}
+
 fi
 

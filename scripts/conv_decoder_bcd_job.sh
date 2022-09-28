@@ -10,8 +10,8 @@
 #SBATCH --mail-type=REQUEUE
 #SBATCH --mail-type=ALL
 
-seeds=(1 2)
-exp_edges=(1.0)
+seeds=(8)
+exp_edges=(4.0)
 lrs=(0.0008)
 num_steps=(2000)
 

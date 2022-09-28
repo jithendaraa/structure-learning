@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --time=27:00:00
-#SBATCH --mem=32G
+#SBATCH --mem=48G
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=6
 #SBATCH --mail-user=jithen.subra@gmail.com
@@ -10,18 +10,18 @@
 #SBATCH --mail-type=REQUEUE
 #SBATCH --mail-type=ALL
 
-seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
+seeds=(2 7 9 10 16 17 19 20)
 lrs=(0.0008)
-num_steps=(3000)
+num_steps=(8000)
 
 num_nodes=20
 proj_dims=100
 exp_edges=(1.0)
 pts_per_interv=100
-n_interv_sets=200
+n_interv_sets=800
 
 off_wandb='False'
-batches=5000
+batches=90000
 obs_data=500
 num_samples=(181000)
 

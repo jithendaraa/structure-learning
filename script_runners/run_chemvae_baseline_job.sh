@@ -8,7 +8,7 @@ config=$5
 
 keys=("seed" "exp_edges" "lr" "num_steps" "num_samples")
 
-seeds=(8)
+seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
 exp_edges=(1.0)
 lrs=(0.001)
 num_samples=(200)
@@ -20,8 +20,8 @@ if [ ${train} == 'train' ]
 then
     if [ ${dataset} == 'er' ]
     then
-        output_file="out/Conv_Decoder_BCD/conv_decoder_bcd-%A_%a.out"
-        echo "Train Conv Decoder BCD ER: ${config}"
+        output_file="out/ChemVAE_baseline/chemvae-%A_%a.out"
+        echo "Train VAE on chemdata: ${config}"
     else
         echo "Not implemented dataset ${dataset}" 
     fi
@@ -29,7 +29,7 @@ else
     echo "Not implemented dataset ${train}" 
 fi
 
-command="sbatch --array=1-${array_len}%512 --job-name ${config} --output ${output_file} --time ${time} scripts/conv_decoder_bcd_job.sh ${config}"   
+command="sbatch --array=1-${array_len}%512 --job-name ${config} --output ${output_file} --time ${time} scripts/chemvae_job.sh ${config}"   
 echo ""
 echo ${command}
 echo ""

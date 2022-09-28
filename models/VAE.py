@@ -6,12 +6,13 @@ import jax.random as rnd
 from jax import vmap, ops, random
 
 class VAE(hk.Module):
-    def __init__(self, d, D, corr):
+    def __init__(self, d, D, corr, sigmoid=True):
         super().__init__()
 
         self.d = d
         self.D = D
         self.corr = corr
+        self.sigmoid = sigmoid
         if corr: 
             self.elements_in_chol = int(((d**2 - d)/2) + d)
         else:
@@ -26,7 +27,8 @@ class VAE(hk.Module):
             hk.Linear(d + self.elements_in_chol)
         ])
 
-        self.decoder = hk.Sequential([
+        if sigmoid is False:
+            self.decoder = hk.Sequential([
             hk.Linear(64), jax.nn.relu,
             hk.Linear(128), jax.nn.relu,
             hk.Linear(256), jax.nn.relu,
@@ -35,6 +37,17 @@ class VAE(hk.Module):
             hk.Linear(128), jax.nn.relu,
             hk.Linear(D)
         ])
+
+        else:
+            self.decoder = hk.Sequential([
+                hk.Linear(64), jax.nn.relu,
+                hk.Linear(128), jax.nn.relu,
+                hk.Linear(256), jax.nn.relu,
+                hk.Linear(256), jax.nn.relu,
+                hk.Linear(128), jax.nn.relu,
+                hk.Linear(128), jax.nn.relu,
+                hk.Linear(D), jax.nn.sigmoid
+            ])
     
     def lower(self, chols_flat):
         """
@@ -53,20 +66,22 @@ class VAE(hk.Module):
             z = z_mu + (jnp.diag(z_L_chol) @ std_normal_noise)
         return z
 
-    def __call__(self, rng_key, X, corr):
+    def __call__(self, rng_key, X, corr, z_chols_max=10.):
         n = X.shape[0]
         rng_keys = rnd.split(rng_key, n)
         z_outs = self.encoder(X)
         z_mus, z_chols_flat = z_outs[:, :self.d], z_outs[:, self.d:]
-
+        z_chols_flat = jnp.where(jnp.abs(z_chols_flat) > z_chols_max, (z_chols_flat / jnp.abs(z_chols_flat)) * z_chols_max, z_chols_flat)
+        
         if corr is True:
             z_L_chols = vmap(self.lower, 0, 0)(jnp.exp(z_chols_flat))
             z_pred = vmap(self.reparam_sample, (0, 0, 0), 0)(rng_keys, z_mus, z_L_chols)
         else: 
-            pdb.set_trace()
-            z_L_chols = jnp.sqrt(jnp.diag(jnp.exp(z_chols_flat)))
+            z_cov = vmap(jnp.diag, 0, 0)(jnp.exp(z_chols_flat))
+            z_L_chols = jnp.sqrt(z_cov)
             z_pred = vmap(self.reparam_sample, (0, 0, 0), 0)(rng_keys, z_mus, jnp.exp(z_chols_flat))
 
         X_recons = self.decoder(z_pred)
-        return X_recons, z_pred, z_mus, z_L_chols
+        if self.sigmoid is False: return X_recons, z_pred, z_mus, z_L_chols
+        return X_recons*255., z_pred, z_mus, z_L_chols
         

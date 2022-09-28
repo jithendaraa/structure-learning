@@ -52,6 +52,7 @@ sd = SyntheticDataset(
     noise_scale=opt.noise_sigma,
     data_seed=opt.data_seed,
 )
+
 ground_truth_W = sd.W
 ground_truth_P = sd.P
 ground_truth_L = sd.P.T @ sd.W.T @ sd.P
@@ -78,82 +79,59 @@ interv_nodes = jnp.array([jnp.concatenate((interv_nodes[i], jnp.array([opt.num_n
 p_z_mu = jnp.zeros((d))
 p_z_covar = jnp.eye(d)
 
-def forward_fn(rng_key, X, corr):
-    model = VAE(d, opt.proj_dims, corr)
-    return model(rng_key, X, corr)
-
-
-def init_vae_params(opt, x_data):
-    forward = hk.transform(forward_fn)
-    model_layers = [optax.scale_by_belief(eps=1e-8), optax.scale(-opt.lr)]
-    opt_model = optax.chain(*model_layers)
-    model_params = forward.init(next(key), rng_key, x_data, opt.corr)
-    model_opt_params = opt_model.init(model_params)
-    return forward, model_params, model_opt_params, opt_model
-
+forward, model_params, model_opt_params, opt_model = numerical_init_vae_params(opt, opt.proj_dims, key, rng_key, x)
 
 def get_elbo(model_params, rng_key, x_data):
-    X_recons, z_pred, q_z_mus, z_L_chols = forward.apply(model_params, rng_key, rng_key, x_data, opt.corr)
+    X_recons, z_pred, q_z_mus, z_L_chols = forward.apply(model_params, rng_key, d, opt.proj_dims, rng_key, x_data, opt.corr)
     mse_loss = jnp.mean(get_mse(x_data[:, :opt.proj_dims], X_recons))
-    pdb.set_trace()
     q_z_covars = vmap(get_covar, 0, 0)(z_L_chols)
     kl_loss = jnp.mean(vmap(get_single_kl, (None, None, 0, 0, None), 0)(p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt))
     return (1e-5 * jnp.mean(mse_loss + kl_loss))
 
-
-# @jit
+@jit
 def gradient_step(model_params, x_data):
     loss, grads = value_and_grad(get_elbo, argnums=(0))(model_params, rng_key, x_data)
-    X_recons, z_pred, q_z_mus, z_L_chols = forward.apply(model_params, rng_key, rng_key, x_data, opt.corr)
-    
+    X_recons, z_pred, q_z_mus, z_L_chols = forward.apply(model_params, rng_key, d, opt.proj_dims, rng_key, x_data, opt.corr)
     q_z_covars = vmap(get_covar, 0, 0)(z_L_chols)
     true_obs_KL_term_Z = vmap(get_single_kl, (None, None, 0, 0, None), 0)(p_z_obs_joint_covar, p_z_obs_joint_mu, q_z_covars, q_z_mus, opt)
 
     log_dict = {
         "z_mse": jnp.mean(get_mse(z_pred, z_gt)),
-        "x_mse": jnp.mean(get_mse(x, X_recons)),
-        "L_mse": L_mse,
-        "true_obs_KL_term_Z": jnp.mean(true_obs_KL_term_Z),
+        "x_mse": jnp.mean(get_mse(x_data[:, :opt.proj_dims], X_recons)),
+        "L_MSE": L_mse,
+        "true_obs_KL_term_Z": jnp.mean(true_obs_KL_term_Z)
     }
-    
     return X_recons, loss, grads, z_pred, log_dict
 
-x_data = jnp.concatenate((x, no_interv_targets), axis=1)
-forward, model_params, model_opt_params, opt_model = init_vae_params(opt, x_data)
 
 with tqdm(range(opt.num_steps)) as pbar:
     for i in pbar:
-        X_recons, loss, grads, z_pred, log_dict = gradient_step(model_params, x_data)
+        X_recons, loss, grads, z_pred, log_dict = gradient_step(model_params, x)
+        
+        mcc = get_cross_correlation(onp.array(z_pred), onp.array(z_gt))
+        auroc = get_vae_auroc(d, ground_truth_W)
 
-        try: 
-            mcc_score = get_cross_correlation(onp.array(z_pred), onp.array(z_gt))
-            auroc_score = get_auroc(d, ground_truth_W)
-        except:
-            mcc_score = 50.
-            auroc_score = 0.5
-
-        if (i+1) % 50 == 0 or i == 0:   
-            
-            wandb_dict = {
-                "ELBO": onp.array(loss),
-                "Z_MSE": onp.array(log_dict["z_mse"]),
-                "X_MSE": onp.array(log_dict["x_mse"]),
-                "L_MSE": onp.array(log_dict["L_mse"]),
-                "true_obs_KL_term_Z": onp.array(log_dict["true_obs_KL_term_Z"]),
-                "Evaluations/SHD": jnp.sum(binary_gt_W),
-                "Evaluations/AUROC": auroc_score,
-                'Evaluations/MCC': mcc_score,
-            }
-
+        wandb_dict = {
+            "ELBO": onp.array(loss),
+            "Z_MSE": onp.array(log_dict["z_mse"]),
+            "X_MSE": onp.array(log_dict["x_mse"]),
+            "L_MSE": L_mse,
+            "true_obs_KL_term_Z": onp.array(log_dict["true_obs_KL_term_Z"]),
+            "Evaluations/SHD": jnp.sum(binary_gt_W),
+            "Evaluations/AUROC": auroc,
+            'Evaluations/MCC': mcc,
+        }
+        
+        if (i+1) % 50 == 0 or i == 0:       
             if opt.off_wandb is False:  
                 wandb.log(wandb_dict, step=i)
 
         pbar.set_postfix(
             ELBO=f"{loss:.4f}",
             SHD=jnp.sum(binary_gt_W),
-            MCC=mcc_score, 
-            L_mse=f"{log_dict['L_mse']:.3f}",
-            AUROC=f"{auroc_score:.2f}",
+            MCC=mcc, 
+            L_mse=f"{log_dict['L_MSE']:.3f}",
+            AUROC=f"{auroc:.2f}",
             KL_Z=f"{onp.array(log_dict['true_obs_KL_term_Z']):.4f}"
         )
 

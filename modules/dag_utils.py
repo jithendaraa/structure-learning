@@ -243,6 +243,7 @@ def count_accuracy(W_true, W_est, W_und=None) -> Dict["str", float]:
         shd: undirected extra + undirected missing + reverse
         nnz: prediction positive
     """
+    
     B_true = W_true != 0
     B = W_est != 0
     B_und = None if W_und is None else W_und
@@ -256,8 +257,8 @@ def count_accuracy(W_true, W_est, W_und=None) -> Dict["str", float]:
     cond = np.flatnonzero(B_true)
     cond_reversed = np.flatnonzero(B_true.T)
     cond_skeleton = np.concatenate([cond, cond_reversed])
-    # true pos
     true_pos = np.intersect1d(pred, cond, assume_unique=True)
+    
     if B_und is not None:
         # treat undirected edge favorably
         pred_und = np.flatnonzero(B_und)
@@ -268,6 +269,7 @@ def count_accuracy(W_true, W_est, W_und=None) -> Dict["str", float]:
     if B_und is not None:
         false_pos_und = np.setdiff1d(pred_und, cond_skeleton, assume_unique=True)  # type: ignore
         false_pos = np.concatenate([false_pos, false_pos_und])
+    
     # reverse
     extra = np.setdiff1d(pred, cond, assume_unique=True)
     reverse = np.intersect1d(extra, cond_reversed, assume_unique=True)
@@ -275,32 +277,37 @@ def count_accuracy(W_true, W_est, W_und=None) -> Dict["str", float]:
     pred_size = len(pred)
     if B_und is not None:
         pred_size += len(pred_und)  # type: ignore
-
+    
     cond_neg_size = 0.5 * d * (d - 1) - len(cond)
     fdr = float(len(reverse) + len(false_pos)) / max(pred_size, 1)
     tpr = float(len(true_pos)) / max(len(cond), 1)
     fpr = float(len(reverse) + len(false_pos)) / max(cond_neg_size, 1)
-    
+
     # structural hamming distance
     B_lower = np.tril(B + B.T)
     if B_und is not None:
         B_lower += np.tril(B_und + B_und.T)
     
-    pred_lower = np.flatnonzero(B_lower)
-    cond_lower = np.flatnonzero(np.tril(B_true + B_true.T))
-    extra_lower = np.setdiff1d(pred_lower, cond_lower, assume_unique=True)
-    missing_lower = np.setdiff1d(cond_lower, pred_lower, assume_unique=True)
-    shd = len(extra_lower) + len(missing_lower) + len(reverse)
-
+    try:
+        pred_lower = np.flatnonzero(B_lower)
+        cond_lower = np.flatnonzero(np.tril(B_true + B_true.T))
+        extra_lower = np.setdiff1d(pred_lower, cond_lower, assume_unique=True)
+        missing_lower = np.setdiff1d(cond_lower, pred_lower, assume_unique=True)
+        shd = len(extra_lower) + len(missing_lower) + len(reverse)
+    except:
+        shd = np.sum(np.abs(g_flat - pred_flat))
+        
     tn, fp, fn, tp = sklearn_metrics.confusion_matrix(g_flat, pred_flat).ravel()
+    
     precision = tp / (tp + fp)
     recall = tp / (tp + fn)
+    
     try:
         f1_score = 2 * precision * recall / (precision + recall)
         if np.isnan(f1_score): f1_score = 0
     except:
         f1_score = 0
-
+    
     return {"fdr": fdr, 
             "tpr": tpr, 
             "fpr": fpr, 

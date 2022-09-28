@@ -6,7 +6,9 @@ import matplotlib.pyplot as plt
 from scipy.optimize import linear_sum_assignment
 from sklearn.metrics import roc_curve, auc
 from jax import jit
-
+from models.VAE import VAE
+import haiku as hk
+import optax
 
 def get_joint_dist_params(sigma, W):
     """
@@ -49,15 +51,38 @@ def from_W(W: jnp.ndarray, dim: int) -> jnp.ndarray:
     out_2 = W[onp.tril_indices(dim, -1)]
     return onp.concatenate([out_1, out_2])
 
+def forward_fn(d, h, w, rng_key, X, corr, sigmoid=True):
+    model = VAE(d, h*w, corr, sigmoid)
+    return model(rng_key, X, corr)
 
-def auroc(pred_Ws, gt_W, threshold):
-    
-    
-    
-    return auroc
+def numerical_vae_forward_fn(d, proj_dims, rng_key, X, corr, sigmoid=False):
+    model = VAE(d, proj_dims, corr, sigmoid)
+    return model(rng_key, X, corr)
+
+def numerical_init_vae_params(opt, proj_dims, key, rng_key, x_data):
+    forward = hk.transform(numerical_vae_forward_fn)
+    model_layers = [optax.scale_by_belief(eps=1e-8), optax.scale(-opt.lr)]
+    opt_model = optax.chain(*model_layers)
+    model_params = forward.init(next(key), opt.num_nodes, 
+                                proj_dims, rng_key, 
+                                x_data, 
+                                opt.corr)
+    model_opt_params = opt_model.init(model_params)
+    return forward, model_params, model_opt_params, opt_model
 
 
-def get_auroc(d, gt_W, threshold=0.3):
+def init_vae_params(opt, h, w, key, rng_key, x_data):
+    forward = hk.transform(forward_fn)
+    model_layers = [optax.scale_by_belief(eps=1e-8), optax.scale(-opt.lr)]
+    opt_model = optax.chain(*model_layers)
+    model_params = forward.init(next(key), opt.num_nodes, 
+                                h, w, rng_key, 
+                                x_data, opt.corr)
+    model_opt_params = opt_model.init(model_params)
+    return forward, model_params, model_opt_params, opt_model
+
+
+def get_vae_auroc(d, gt_W, threshold=0.3):
     """Given a sample of adjacency graphs of shape n x d x d, 
     compute the AUROC for detecting edges. For each edge, we compute
     a probability that there is an edge there which is the frequency with 
