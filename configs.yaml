@@ -4,6 +4,7 @@ defaults:
   dataset: 'er'
   datatype: 'er'
   ckpt_id: 'linear_decoder_bcd'
+  baseroot: '/home/mila/j/jithendaraa.subramanian'
 
   # ? Directories
   logdir: "logs"
@@ -284,16 +285,17 @@ linear_dbcd_multi_interv:
   interv_type: 'multi'
   interv_value: 'uniform'
   proj: 'linear'
-  num_nodes: 10
+  num_nodes: 5
   exp_edges: 1.0
   proj_dims: 100
-  data_seed: 2
-  off_wandb: False
+  data_seed: 6
+  off_wandb: True
   obs_data: 500
   learn_L: True    # 'partial'
-  n_interv_sets: 40
-  pts_per_interv: 150
+  n_interv_sets: 25
+  pts_per_interv: 100
   num_steps: 5000
+  L_KL: True
 
 
 
@@ -333,8 +335,8 @@ batched_linear_dbcd_multi_interv:
   interv_type: 'multi'
   interv_value: 'uniform'
   proj: 'linear'
-  num_nodes: 6
-  exp_edges: 4.0
+  num_nodes: 20
+  exp_edges: 1.0
   proj_dims: 100
   data_seed: 2
   off_wandb: True
@@ -342,8 +344,8 @@ batched_linear_dbcd_multi_interv:
   obs_data: 300
   batches: 10000
   learn_L: True    # 'partial'
-  n_interv_sets: 20
-  pts_per_interv: 150
+  n_interv_sets: 800
+  pts_per_interv: 100
   num_steps: 3000
 
 
@@ -444,16 +446,15 @@ batched_linear_dbcd_multi_interv_learn_SCM:
   num_nodes: 20
   exp_edges: 1.0
   proj_dims: 100
-  data_seed: 4
-  off_wandb: True
+  data_seed: 2
   obs_data: 500
-  batches: 10000
-  num_steps: 3000
+  batches: 90000
   learn_noise: True
   learn_L: True    # 'partial'
+  off_wandb: False
   learn_P: True
-  # P_KL: True
-  n_interv_sets: 500
+  num_steps: 8000
+  n_interv_sets: 800
   pts_per_interv: 100
 
 
@@ -490,16 +491,16 @@ nonlinear_proj_dbcd_multi_interv:
   proj: '2_layer_mlp'
   interv_type: 'multi'
   interv_value: 'uniform'
-  num_nodes: 10
+  num_nodes: 5
   exp_edges: 1.0
   proj_dims: 100
   data_seed: 19
-  off_wandb: True
+  off_wandb: False
   num_samples: 3500
   obs_data: 500
   learn_L: True    # 'partial'
   pts_per_interv: 100
-  n_interv_sets: 100
+  n_interv_sets: 25
   num_steps: 5000
 
 
@@ -540,17 +541,18 @@ batched_nonlinear_dbcd_multi_interv:
   interv_type: 'multi'
   interv_value: 'uniform'
   proj: '2_layer_mlp'
-  num_nodes: 6
+  num_nodes: 5
   exp_edges: 1.0
   proj_dims: 100
-  data_seed: 2
-  off_wandb: True
+  data_seed: 19
+  off_wandb: False
   num_samples: 11000
-  obs_data: 1000
+  obs_data: 500
   batches: 10000
   learn_L: True    # 'partial'
-  n_interv_sets: 20
-  num_steps: 3000
+  n_interv_sets: 25
+  pts_per_interv: 100
+  num_steps: 5000
 
 
 
@@ -672,20 +674,20 @@ conv_decoder_bcd:
   exp_name: 'Batched Conv. Decoder BCD'
   num_nodes: 5
   exp_edges: 1.0
-  data_seed: 2
+  data_seed: 3
   obs_data: 500
   interv_type: 'multi'
   interv_value: 'uniform'
   noise_sigma: 1.5
   dataset: 'chemdata'
   generate: True
-  off_wandb: False
+  off_wandb: True
   batches: 256
   num_steps: 2000
   lr: 8e-4
   n_interv_sets: 20
   pts_per_interv: 100
-
+  baseroot: '/home/mila/j/jithendaraa.subramanian'
 
 conv_decoder_bcd_learn_SCM:
   exp_name: 'Batched Conv. Decoder BCD (learn SCM)'
@@ -705,6 +707,7 @@ conv_decoder_bcd_learn_SCM:
   num_steps: 700
   lr: 3e-4
   learn_P: True
+
 
 
 
@@ -731,11 +734,28 @@ linear_vae_diag_baseline:
   interv_type: 'multi'
   interv_value: 'uniform'
   proj: 'linear'
-  num_nodes: 5
+  num_nodes: 10
   exp_edges: 1.0
   proj_dims: 100
   data_seed: 1
   off_wandb: True
+  obs_data: 500
+  learn_L: True    
+  n_interv_sets: 800
+  pts_per_interv: 100
+  num_steps: 1000
+  corr: False
+
+nonlinear_vae_diag_baseline:
+  exp_name: 'Nonlinear VAE Diag baseline'
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  proj: '2_layer_mlp'
+  num_nodes: 10
+  exp_edges: 4.0
+  proj_dims: 100
+  data_seed: 1
+  off_wandb: False
   obs_data: 500
   learn_L: True    
   n_interv_sets: 20
@@ -763,23 +783,46 @@ nonlinear_vae_corr_baseline:
 # ! baseline 2: GraphVAE
 graphvae:
   exp_name: 'Graph VAE baseline' 
-  model: GraphVAE
   num_nodes: 5
   exp_edges: 1.0
   data_seed: 2
   num_samples: 3300
-  obs_data: 300
+  obs_data: 500
   interv_type: 'multi'
   interv_value: 'uniform'
   noise_sigma: 1.5
   generate: False
-  n_interv_sets: 20
   batches: 10
   num_steps: 300
   total_dims: 100
   dataset: 'chemdata'
   lr: 1e-3
-  off_wandb: True
+  off_wandb: False
+  n_interv_sets: 20
+  pts_per_interv: 100
+
+vae_diag_chemdata:
+  exp_name: 'VAE chemdata'
+  num_nodes: 10
+  exp_edges: 4.0
+  data_seed: 20
+  obs_data: 500
+  interv_type: 'multi'
+  interv_value: 'uniform'
+  noise_sigma: 1.5
+  dataset: 'chemdata'
+  generate: True
+  off_wandb: False
+  batches: 256
+  num_steps: 200
+  lr: 8e-4
+  n_interv_sets: 20
+  pts_per_interv: 100
+  baseroot: '/home/mila/j/jithendaraa.subramanian'
+  corr: False
+
+
+
 
 
 
@@ -1006,31 +1049,6 @@ nonlinear_proj_vae_bcd_learn_SCM:
   learn_P: True
   learn_noise: True
   learn_L: True
-
-linear_dbcd_learn_partial_L:
-  exp_name: 'linear_dbcd_learn_partial_L'
-  num_nodes: 6
-  proj_dims: 10
-  learn_L: 'partial'
-  num_samples: 1800
-  obs_data: 1800
-  pred_last_L: 1
-  data_seed: 2
-  off_wandb: True
-  interv_value: 'uniform'
-
-linear_dbcd_learn_partial_L_across_intervs:
-  exp_name: 'linear_dbcd_learn_partial_L_across_intervs'
-  num_nodes: 6
-  proj_dims: 10
-  learn_L: 'partial'
-  num_samples: 1800
-  obs_data: 900
-  pred_last_L: 1
-  data_seed: 2
-  off_wandb: True
-  interv_value: 100.0
-  interv_type: 'single'
 
 
 
