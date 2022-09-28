@@ -18,7 +18,7 @@ import math
 def get_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--configs', nargs='+', required=True)
-    parser.add_argument('--data_path', default="/home/jithen/scratch")
+    parser.add_argument('--data_path', default="<default_datapath>")
 
     args, remaining = parser.parse_known_args()
     configs = yaml.safe_load(

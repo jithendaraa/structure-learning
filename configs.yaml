@@ -4,20 +4,20 @@ defaults:
   dataset: 'er'
   datatype: 'er'
   ckpt_id: 'linear_decoder_bcd'
-  baseroot: '/home/mila/j/jithendaraa.subramanian'
+  baseroot: '<enter_baseroot>'
 
   # ? Directories
   logdir: "logs"
-  user_dir: "/home/jithen"            
-  storage_dir: "/home/jithen/scratch"
+  user_dir: "<enter_user_dir>"            
+  storage_dir: "<enter_storage_dir>"
   data_dir: 'datasets/CLEVR_v1.0/images'      # user_dir/storage_dir/data_dir
   model_params_logdir: "model_params"         # has the form logs/<model_name>/model_params/<id>_00000xxxxx.pickle
 
   # ? wandb
   offline_wandb: False
   off_wandb: True
-  wandb_project: 'structure-learning'
-  wandb_entity: 'structurelearning'
+  wandb_project: '<wandb_project>'
+  wandb_entity: '<wandb_entity>'
   log_batches: 4  
 
   # ? Logging and checkpoint frequencies (steps)
@@ -687,7 +687,6 @@ conv_decoder_bcd:
   lr: 8e-4
   n_interv_sets: 20
   pts_per_interv: 100
-  baseroot: '/home/mila/j/jithendaraa.subramanian'
 
 conv_decoder_bcd_learn_SCM:
   exp_name: 'Batched Conv. Decoder BCD (learn SCM)'
@@ -818,7 +817,6 @@ vae_diag_chemdata:
   lr: 8e-4
   n_interv_sets: 20
   pts_per_interv: 100
-  baseroot: '/home/mila/j/jithendaraa.subramanian'
   corr: False
 
 

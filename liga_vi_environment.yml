@@ -8,5 +8,5 @@ dependencies:
   - libgcc-ng=11.2.0=h1234567_1
   - libgomp=11.2.0=h1234567_1
   - openssl=1.1.1q=h7f8727e_0
-prefix: /home/mila/j/jithendaraa.subramanian/.conda/envs/liga_vi
+prefix: /home/liga_vi
 

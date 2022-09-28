@@ -78,21 +78,21 @@ def generate_data(opt, low=-8., high=8.):
 
         # ? Use above colors to generate images
         images = generate_chem_image_dataset(opt.num_samples, opt.num_nodes, interv_values, interv_targets, z)
-        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/interv_values-seed{opt.data_seed}.npy', onp.array(interv_values))
-        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/interv_targets-seed{opt.data_seed}.npy', onp.array(interv_targets))
-        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/z-seed{opt.data_seed}.npy', onp.array(z))
-        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/images-seed{opt.data_seed}.npy', onp.array(images))
-        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/W-seed{opt.data_seed}.npy', onp.array(gt_W))
-        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/P-seed{opt.data_seed}.npy', onp.array(gt_P))
+        onp.save(f'{opt.baseroot}/interv_values-seed{opt.data_seed}.npy', onp.array(interv_values))
+        onp.save(f'{opt.baseroot}/interv_targets-seed{opt.data_seed}.npy', onp.array(interv_targets))
+        onp.save(f'{opt.baseroot}/z-seed{opt.data_seed}.npy', onp.array(z))
+        onp.save(f'{opt.baseroot}/images-seed{opt.data_seed}.npy', onp.array(images))
+        onp.save(f'{opt.baseroot}/W-seed{opt.data_seed}.npy', onp.array(gt_W))
+        onp.save(f'{opt.baseroot}/P-seed{opt.data_seed}.npy', onp.array(gt_P))
 
 
     else:
-        interv_targets = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/interv_targets-seed{opt.data_seed}.npy'))
-        interv_values = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/interv_values-seed{opt.data_seed}.npy'))
-        z = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/z-seed{opt.data_seed}.npy'))
-        images = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/images-seed{opt.data_seed}.npy'))
-        gt_W = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/W-seed{opt.data_seed}.npy'))
-        gt_P = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/P-seed{opt.data_seed}.npy'))
+        interv_targets = jnp.array(onp.load(f'{opt.baseroot}/interv_targets-seed{opt.data_seed}.npy'))
+        interv_values = jnp.array(onp.load(f'{opt.baseroot}/interv_values-seed{opt.data_seed}.npy'))
+        z = jnp.array(onp.load(f'{opt.baseroot}/z-seed{opt.data_seed}.npy'))
+        images = jnp.array(onp.load(f'{opt.baseroot}/images-seed{opt.data_seed}.npy'))
+        gt_W = jnp.array(onp.load(f'{opt.baseroot}/W-seed{opt.data_seed}.npy'))
+        gt_P = jnp.array(onp.load(f'{opt.baseroot}/P-seed{opt.data_seed}.npy'))
         gt_L = jnp.array(gt_P.T @ gt_W.T @ gt_P)
 
     print(gt_W)

@@ -3,12 +3,6 @@
 #SBATCH --mem=32G
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=6
-#SBATCH --mail-user=jithen.subra@gmail.com
-#SBATCH --mail-type=BEGIN
-#SBATCH --mail-type=END
-#SBATCH --mail-type=FAIL
-#SBATCH --mail-type=REQUEUE
-#SBATCH --mail-type=ALL
 
 seeds=(3 8 10 13 15 18)
 exp_edges=(1.0)
@@ -47,8 +41,6 @@ num_sample=${num_samples[ $((  ${SLURM_ARRAY_TASK_ID} % ${#num_samples[@]} )) ]}
 start=`date +%s`
 echo "Script"
 
-# cp /home/jithen/scratch/datasets/CLEVR_v1.0.zip $SLURM_TMPDIR/CLEVR_v1.0.zip
-# unzip $SLURM_TMPDIR/CLEVR_v1.0.zip
 module load anaconda/3
 module unload cuda/11.2 && module load cuda/11.0
 deactivate

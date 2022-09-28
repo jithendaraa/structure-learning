@@ -29,7 +29,7 @@
     "data_loader": {
         "type": "ChemDataLoader",
         "args": {
-            "data_dir": "/home/mila/j/jithendaraa.subramanian/scratch/",
+            "data_dir": "<enter_data_dir>",
             "batch_size": 3000,
             "shuffle": false,
             "validation_split": 0.1,

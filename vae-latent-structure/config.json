@@ -19,7 +19,7 @@
     "data_loader": {
         "type": "MnistDataLoader",
         "args": {
-            "data_dir": "/home/mila/j/jithendaraa.subramanian/scratch/mnist_data/",
+            "data_dir": "<enter_data_dir>",
             "batch_size": 1024,
             "shuffle": false,
             "validation_split": 0.2,
