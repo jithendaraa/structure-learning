@@ -8,11 +8,11 @@ config=$5
 
 keys=("seed" "exp_edges" "lr" "num_steps" "num_samples")
 
-seeds=(2 7 9 10 16 17 19 20)
+seeds=(18)
 exp_edges=(1.0)
-lrs=(0.001)
+lrs=(0.0008)
 num_samples=(200)
-num_steps=(4000)
+num_steps=(8000)
 
 array_len=$(( ${#seeds[@]} * ${#exp_edges[@]} * ${#lrs[@]} * ${#num_steps[@]} * ${#num_samples[@]} ))
 echo $array_len

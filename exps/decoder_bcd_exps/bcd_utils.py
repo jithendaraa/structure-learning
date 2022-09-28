@@ -25,7 +25,6 @@ from jax.flatten_util import ravel_pytree
 from jax import tree_util
 from jax.tree_util import tree_map, tree_multimap
 from haiku._src import data_structures
-from loss_fns import log_prob_X
 from functools import partial
 
 Tensor = Any

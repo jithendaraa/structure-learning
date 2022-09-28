@@ -9,6 +9,7 @@ sys.path.append('../../CausalMBRL/envs')
 from tqdm import tqdm
 import utils
 import ruamel.yaml as yaml
+from PIL import Image
 
 from conv_decoder_bcd_utils import *
 import envs, wandb
@@ -58,8 +59,9 @@ proj_dims = (1, 50, 50)
 log_stds_max=10.
 logdir = utils.set_tb_logdir(opt)
 
-z, interv_nodes, interv_values, images, gt_W, gt_P, gt_L = generate_data(opt, low, high)
+z, interv_nodes, interv_values, images, gt_W, gt_P, gt_L = generate_data(opt, low, high, baseroot=opt.baseroot)
 log_gt_graph(gt_W, logdir, vars(opt), opt)
+pdb.set_trace()
 
 # ? Set parameter for Horseshoe prior on L
 if ((d - 1) - 2 * degree) == 0:
@@ -253,184 +255,166 @@ num_test_samples = 10
                                                 low, high, 
                                                 10)
 
-
-plt.figure()
-plt.imshow(padded_test_images/255.)
-plt.savefig(f'/home/mila/j/jithendaraa.subramanian/scratch/test_gt_image_learnP{opt.learn_P}_seed{opt.data_seed}_d{d}_ee_{int(opt.exp_edges)}.png')
-plt.close('all')
+plt.imsave(f'{opt.baseroot}/scratch/test_gt_image_learnP{opt.learn_P}_seed{opt.data_seed}_d{d}_ee_{int(opt.exp_edges)}.png', padded_test_images)
 
 # Training loop
-# with tqdm(range(opt.num_steps)) as pbar:  
-#     for i in pbar:
+with tqdm(range(opt.num_steps)) as pbar:  
+    for i in pbar:
+        pred_z = None
+        pred_x = None
+        pred_W = None
+        epoch_dict = {}
 
-for i in range(opt.num_steps):
-    pred_z = None
-    pred_x = None
-    pred_W = None
-    epoch_dict = {}
-
-    # with tqdm(range(num_batches)) as pbar2:
-    #     for b in pbar2:
-    
-    for b in range(num_batches):
-        start_idx = b * bs
-        end_idx = min(n, (b+1) * bs)
-        x_data, z_data = images[start_idx:end_idx], z[start_idx:end_idx]
-
-        (   state, 
-            model_opt_params, 
-            model_params, 
-            L_opt_params, 
-            L_params,
-            log_dict, 
-            batch_W, 
-            z_samples, 
-            X_recons, 
-            pred_W_means    ) = train_batch(state, 
-                                            model_opt_params, 
-                                            model_params, 
-                                            L_opt_params, 
-                                            L_params,
-                                            x_data,
-                                            z_data,
-                                            interv_nodes[start_idx:end_idx],
-                                            interv_values[start_idx:end_idx])
+        with tqdm(range(num_batches)) as pbar2:
+            for b in pbar2:
         
-        if jnp.any(jnp.isnan(ravel_pytree(L_params)[0])):   raise Exception("Got NaNs in L params")
+                start_idx = b * bs
+                end_idx = min(n, (b+1) * bs)
+                x_data, z_data = images[start_idx:end_idx], z[start_idx:end_idx]
 
-        if b == 0:
-            pred_z = z_samples
-            pred_x = X_recons
-            epoch_dict = log_dict
-            pred_W = pred_W_means[jnp.newaxis, :]
-        else:
-            pred_z = jnp.concatenate((pred_z, z_samples), axis=1)
-            pred_x = jnp.concatenate((pred_x, X_recons), axis=1)
-            pred_W = jnp.concatenate((pred_W, pred_W_means[jnp.newaxis, :]), axis=0)
-            
-            for key, val in log_dict.items():
-                epoch_dict[key] += val
+                (   state, 
+                    model_opt_params, 
+                    model_params, 
+                    L_opt_params, 
+                    L_params,
+                    log_dict, 
+                    batch_W, 
+                    z_samples, 
+                    X_recons, 
+                    pred_W_means    ) = train_batch(state, 
+                                                    model_opt_params, 
+                                                    model_params, 
+                                                    L_opt_params, 
+                                                    L_params,
+                                                    x_data,
+                                                    z_data,
+                                                    interv_nodes[start_idx:end_idx],
+                                                    interv_values[start_idx:end_idx])
+                
+                if jnp.any(jnp.isnan(ravel_pytree(L_params)[0])):   raise Exception("Got NaNs in L params")
 
-        # pbar2.set_postfix(
-        #     Batch=f"{b}/{num_batches}",
-        #     X_mse=f"{log_dict['x_mse']:.2f}",
-        #     KL=f"{log_dict['true_obs_KL_term_Z']:.4f}", 
-        #     L_mse=f"{log_dict['L_mse']:.3f}"
-        # )
+                if b == 0:
+                    pred_z = z_samples
+                    pred_x = X_recons
+                    epoch_dict = log_dict
+                    pred_W = pred_W_means[jnp.newaxis, :]
+                else:
+                    pred_z = jnp.concatenate((pred_z, z_samples), axis=1)
+                    pred_x = jnp.concatenate((pred_x, X_recons), axis=1)
+                    pred_W = jnp.concatenate((pred_W, pred_W_means[jnp.newaxis, :]), axis=0)
+                    
+                    for key, val in log_dict.items():
+                        epoch_dict[key] += val
 
-    for key in epoch_dict:
-        epoch_dict[key] = epoch_dict[key] / num_batches 
+                pbar2.set_postfix(
+                    Batch=f"{b}/{num_batches}",
+                    X_mse=f"{log_dict['x_mse']:.2f}",
+                    KL=f"{log_dict['true_obs_KL_term_Z']:.4f}", 
+                    L_mse=f"{log_dict['L_mse']:.3f}"
+                )
 
-    if i % 20 == 0:
-        random_idxs = onp.random.choice(n, bs, replace=False)
-        mean_dict = eval_mean(  model_params, 
-                                L_params,
-                                state,
-                                f, 
-                                z, 
-                                rk(i), 
-                                interv_nodes[random_idxs], 
-                                interv_values[random_idxs],
-                                opt, 
-                                gt_L, 
-                                gt_W, 
-                                ground_truth_sigmas, 
-                            )
+        for key in epoch_dict:
+            epoch_dict[key] = epoch_dict[key] / num_batches 
 
-        mcc_scores = []
-        for j in range(len(pred_z)):
-            mcc_scores.append(get_cross_correlation(onp.array(pred_z[j]), onp.array(z)))
-        mcc_score = onp.mean(onp.array(mcc_scores))
+        if i % 20 == 0:
+            random_idxs = onp.random.choice(n, bs, replace=False)
+            mean_dict = eval_mean(  model_params, 
+                                    L_params,
+                                    state,
+                                    f, 
+                                    z, 
+                                    rk(i), 
+                                    interv_nodes[random_idxs], 
+                                    interv_values[random_idxs],
+                                    opt, 
+                                    gt_L, 
+                                    gt_W, 
+                                    ground_truth_sigmas, 
+                                )
 
-        wandb_dict = {
-            # Different loss related metrics and evaluating SCM params (L_MSE)
-            "ELBO": epoch_dict['ELBO'],
-            "Z_MSE": epoch_dict["z_mse"],
-            "X_MSE": epoch_dict["x_mse"],
-            "L_MSE": epoch_dict["L_mse"],
-            "KL(L)": epoch_dict["KL(L)"],
-            "true_obs_KL_term_Z": epoch_dict["true_obs_KL_term_Z"],
+            mcc_scores = []
+            for j in range(len(pred_z)):
+                mcc_scores.append(get_cross_correlation(onp.array(pred_z[j]), onp.array(z)))
+            mcc_score = onp.mean(onp.array(mcc_scores))
 
-            # Evaluating structure and causal variables (MCC)
-            "Evaluations/SHD": mean_dict["shd"],
-            "Evaluations/SHD_C": mean_dict["shd_c"],
-            "Evaluations/AUROC": mean_dict["auroc"],
-            "Evaluations/AUPRC_W": mean_dict["auprc_w"],
-            "Evaluations/AUPRC_G": mean_dict["auprc_g"],
-            'Evaluations/MCC': mcc_score,
-            
-            # Confusion matrix related metrics for structure
-            'Evaluations/TPR': mean_dict["tpr"],
-            'Evaluations/FPR': mean_dict["fpr"],
-            'Evaluations/TP': mean_dict["tp"],
-            'Evaluations/FP': mean_dict["fp"],
-            'Evaluations/TN': mean_dict["tn"],
-            'Evaluations/FN': mean_dict["fn"],
-            'Evaluations/Recall': mean_dict["recall"],
-            'Evaluations/Precision': mean_dict["precision"],
-            'Evaluations/F1 Score': mean_dict["fscore"],
-        }
+            wandb_dict = {
+                # Different loss related metrics and evaluating SCM params (L_MSE)
+                "ELBO": epoch_dict['ELBO'],
+                "Z_MSE": epoch_dict["z_mse"],
+                "X_MSE": epoch_dict["x_mse"],
+                "L_MSE": epoch_dict["L_mse"],
+                "KL(L)": epoch_dict["KL(L)"],
+                "true_obs_KL_term_Z": epoch_dict["true_obs_KL_term_Z"],
 
-        if opt.off_wandb is False:  
-            plt.imshow(jnp.mean(pred_W, axis=0))
-            plt.savefig(join(logdir, f'pred_w_learnP{opt.learn_P}_seed{opt.data_seed}_d{d}_ee_{int(opt.exp_edges)}_sets{opt.n_interv_sets}_pts{opt.pts_per_interv}.png'))
-            wandb_dict["graph_structure(GT-pred)/Predicted W"] = wandb.Image(join(logdir, f'pred_w_learnP{opt.learn_P}_seed{opt.data_seed}_d{d}_ee_{int(opt.exp_edges)}_sets{opt.n_interv_sets}_pts{opt.pts_per_interv}.png'))
-            plt.close('all')
+                # Evaluating structure and causal variables (MCC)
+                "Evaluations/SHD": mean_dict["shd"],
+                "Evaluations/SHD_C": mean_dict["shd_c"],
+                "Evaluations/AUROC": mean_dict["auroc"],
+                "Evaluations/AUPRC_W": mean_dict["auprc_w"],
+                "Evaluations/AUPRC_G": mean_dict["auprc_g"],
+                'Evaluations/MCC': mcc_score,
+                
+                # Confusion matrix related metrics for structure
+                'Evaluations/TPR': mean_dict["tpr"],
+                'Evaluations/FPR': mean_dict["fpr"],
+                'Evaluations/TP': mean_dict["tp"],
+                'Evaluations/FP': mean_dict["fp"],
+                'Evaluations/TN': mean_dict["tn"],
+                'Evaluations/FN': mean_dict["fn"],
+                'Evaluations/Recall': mean_dict["recall"],
+                'Evaluations/Precision': mean_dict["precision"],
+                'Evaluations/F1 Score': mean_dict["fscore"],
+            }
 
-            plt.figure()
-            plt.imshow(jnp.mean(pred_x[:, start_idx, :, :, 0], axis=0)/255.)
-            plt.savefig(join(logdir, f'pred_image_learnP{opt.learn_P}_seed{opt.data_seed}_d{d}_ee_{int(opt.exp_edges)}_sets{opt.n_interv_sets}_pts{opt.pts_per_interv}.png'))
-            wandb_dict["graph_structure(GT-pred)/Reconstructed image"] = wandb.Image(join(logdir, f'pred_image_learnP{opt.learn_P}_seed{opt.data_seed}_d{d}_ee_{int(opt.exp_edges)}_sets{opt.n_interv_sets}_pts{opt.pts_per_interv}.png'))
-            plt.close('all')
+            if opt.off_wandb is False:  
+                plt.imshow(jnp.mean(pred_W, axis=0))
+                plt.savefig(join(logdir, f'pred_w_learnP{opt.learn_P}_seed{opt.data_seed}_d{d}_ee_{int(opt.exp_edges)}_sets{opt.n_interv_sets}_pts{opt.pts_per_interv}.png'))
+                wandb_dict["graph_structure(GT-pred)/Predicted W"] = wandb.Image(join(logdir, f'pred_w_learnP{opt.learn_P}_seed{opt.data_seed}_d{d}_ee_{int(opt.exp_edges)}_sets{opt.n_interv_sets}_pts{opt.pts_per_interv}.png'))
+                plt.close('all')
 
-            plt.figure()
-            plt.imshow(images[start_idx, :, :, 0]/255.)
-            plt.savefig(join(logdir, f'gt_image_learnP{opt.learn_P}_seed{opt.data_seed}_d{d}_ee_{int(opt.exp_edges)}_sets{opt.n_interv_sets}_pts{opt.pts_per_interv}.png'))
-            wandb_dict["graph_structure(GT-pred)/GT image"] = wandb.Image(join(logdir, f'gt_image_learnP{opt.learn_P}_seed{opt.data_seed}_d{d}_ee_{int(opt.exp_edges)}_sets{opt.n_interv_sets}_pts{opt.pts_per_interv}.png'))
-            plt.close('all')
-            
-            wandb.log(wandb_dict, step=i)
+                plt.figure()
+                plt.imshow(jnp.mean(pred_x[:, start_idx, :, :, 0], axis=0)/255.)
+                plt.savefig(join(logdir, f'pred_image_learnP{opt.learn_P}_seed{opt.data_seed}_d{d}_ee_{int(opt.exp_edges)}_sets{opt.n_interv_sets}_pts{opt.pts_per_interv}.png'))
+                wandb_dict["graph_structure(GT-pred)/Reconstructed image"] = wandb.Image(join(logdir, f'pred_image_learnP{opt.learn_P}_seed{opt.data_seed}_d{d}_ee_{int(opt.exp_edges)}_sets{opt.n_interv_sets}_pts{opt.pts_per_interv}.png'))
+                plt.close('all')
 
-        shd = mean_dict["shd"]
-        # tqdm.write(f"Epoch {i} | {epoch_dict['ELBO']}")
-        # tqdm.write(f"Z_MSE: {epoch_dict['z_mse']} | X_MSE: {epoch_dict['x_mse']}")
-        # tqdm.write(f"L MSE: {epoch_dict['L_mse']}")
-        # tqdm.write(f"SHD: {mean_dict['shd']} | CPDAG SHD: {mean_dict['shd_c']} | AUROC: {mean_dict['auroc']}")
-        # tqdm.write(f"KL(learned || true): {onp.array(epoch_dict['true_obs_KL_term_Z'])}")
-        # tqdm.write(f" ")
+                plt.figure()
+                plt.imshow(images[start_idx, :, :, 0]/255.)
+                plt.savefig(join(logdir, f'gt_image_learnP{opt.learn_P}_seed{opt.data_seed}_d{d}_ee_{int(opt.exp_edges)}_sets{opt.n_interv_sets}_pts{opt.pts_per_interv}.png'))
+                wandb_dict["graph_structure(GT-pred)/GT image"] = wandb.Image(join(logdir, f'gt_image_learnP{opt.learn_P}_seed{opt.data_seed}_d{d}_ee_{int(opt.exp_edges)}_sets{opt.n_interv_sets}_pts{opt.pts_per_interv}.png'))
+                plt.close('all')
+                
+                wandb.log(wandb_dict, step=i)
 
-        print(f"Epoch {i} | {epoch_dict['ELBO']}")
-        print(f"Z_MSE: {epoch_dict['z_mse']} | X_MSE: {epoch_dict['x_mse']}")
-        print(f"L MSE: {epoch_dict['L_mse']}")
-        print(f"SHD: {mean_dict['shd']} | CPDAG SHD: {mean_dict['shd_c']} | AUROC: {mean_dict['auroc']}")
-        print(f"KL(learned || true): {onp.array(epoch_dict['true_obs_KL_term_Z'])}")
-        print(f" ")
+            shd = mean_dict["shd"]
+            tqdm.write(f"Epoch {i} | {epoch_dict['ELBO']}")
+            tqdm.write(f"Z_MSE: {epoch_dict['z_mse']} | X_MSE: {epoch_dict['x_mse']}")
+            tqdm.write(f"L MSE: {epoch_dict['L_mse']}")
+            tqdm.write(f"SHD: {mean_dict['shd']} | CPDAG SHD: {mean_dict['shd_c']} | AUROC: {mean_dict['auroc']}")
+            tqdm.write(f"KL(learned || true): {onp.array(epoch_dict['true_obs_KL_term_Z'])}")
+            tqdm.write(f" ")
 
-
-    # pbar.set_postfix(
-    #     Epoch=i,
-    #     X_mse=f"{epoch_dict['x_mse']:.2f}",
-    #     KL=f"{epoch_dict['true_obs_KL_term_Z']:.4f}", 
-    #     L_mse=f"{epoch_dict['L_mse']:.3f}",
-    #     SHD=shd
-    # )
+        pbar.set_postfix(
+            Epoch=i,
+            X_mse=f"{epoch_dict['x_mse']:.2f}",
+            KL=f"{epoch_dict['true_obs_KL_term_Z']:.4f}", 
+            L_mse=f"{epoch_dict['L_mse']:.3f}",
+            SHD=shd
+        )
 
 loss, (res, _, _) = get_loss(model_params, L_params, state, test_images, test_interv_nodes, test_interv_values)
 pred_image = jnp.mean(res[-1], axis=0)
 
 _, h, w, c = pred_image.shape
-padded_pred_images = onp.zeros((5, w, c))
+padded_pred_images = onp.zeros((h, 5, c))
 
 for i in range(num_test_samples):
-    padded_pred_images = onp.concatenate((padded_pred_images, pred_image[i]), axis=0)
-    padded_pred_images = onp.concatenate((padded_pred_images, onp.zeros((5, w, c))), axis=0)
+    padded_pred_images = onp.concatenate((padded_pred_images, pred_image[i]), axis=1)
+    padded_pred_images = onp.concatenate((padded_pred_images, onp.zeros((h, 5, c))), axis=1)
 
 padded_pred_images = padded_pred_images[:, :, 0]
 
-plt.figure()
-plt.imshow(padded_pred_images/255.)
-plt.savefig(f'/home/mila/j/jithendaraa.subramanian/scratch/test_pred_image_learnP{opt.learn_P}_seed{opt.data_seed}_d{d}_ee_{int(opt.exp_edges)}_sets{opt.n_interv_sets}_pts{opt.pts_per_interv}.png')
-plt.close('all')
+plt.imsave(f'{opt.baseroot}/scratch/test_pred_image_learnP{opt.learn_P}_seed{opt.data_seed}_d{d}_ee_{int(opt.exp_edges)}_sets{opt.n_interv_sets}_pts{opt.pts_per_interv}.png', padded_pred_images)
 
 print(test_interv_nodes)
 print(test_interv_values)

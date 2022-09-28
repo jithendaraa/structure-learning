@@ -11,19 +11,19 @@
 #SBATCH --mail-type=ALL
 #SBATCH --exclude=rtx1
 
-seeds=(2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
+seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
 lrs=(0.0008)
 num_steps=(1000)
 
-num_nodes=5
+num_nodes=20
 proj_dims=100
-exp_edges=(1.0)
-n_interv_sets=20
+exp_edges=(4.0)
+n_interv_sets=800
 
 pts_per_interv=100
 obs_data=500
 off_wandb='False'
-num_samples=(300)
+num_samples=(500)
 
 array_len=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#num_steps[@]} * ${#num_samples[@]} ))
 defg=$(( ${#exp_edges[@]} * ${#lrs[@]} * ${#num_steps[@]} * ${#num_samples[@]} ))

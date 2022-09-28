@@ -7,12 +7,14 @@ from base import BaseModel
 EPSILON = 1e-30
 
 class GraphVAE(BaseModel):
-    def __init__(self, input_dim, n_nodes, node_dim):
+    def __init__(self, input_dim, n_nodes, node_dim, sigmoid=True):
         super(GraphVAE, self).__init__()
         # store parameters
         self.input_dim = input_dim
         self.n_nodes = n_nodes
         self.node_dim = node_dim
+        self.sigmoid = sigmoid
+        print(sigmoid)
 
         # encoder: x -> h_x
         self.encoder = nn.Sequential(
@@ -117,11 +119,14 @@ class GraphVAE(BaseModel):
 
         # sample from approximate posterior distribution q(z_1, z_2 ... z_n|x)
         z = torch.cat(parents, dim=1)
-        out = torch.sigmoid(self.decoder(z))
+        if self.sigmoid:
+            out = torch.sigmoid(self.decoder(z))
+        else: 
+            out = self.decoder(z)
 
         # build output
         output = {}
         output['mu'] = out
         output['means'] = mu_z
         output['sigmas'] = sigma_z
-        return output
+        return output, z

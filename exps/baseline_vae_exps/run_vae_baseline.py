@@ -103,12 +103,14 @@ def gradient_step(model_params, x_data):
     }
     return X_recons, loss, grads, z_pred, log_dict
 
-
+mcc = 50.
 with tqdm(range(opt.num_steps)) as pbar:
     for i in pbar:
         X_recons, loss, grads, z_pred, log_dict = gradient_step(model_params, x)
-        
-        mcc = get_cross_correlation(onp.array(z_pred), onp.array(z_gt))
+        try:
+            mcc = get_cross_correlation(onp.array(z_pred), onp.array(z_gt))
+        except:
+            pass
         auroc = get_vae_auroc(d, ground_truth_W)
 
         wandb_dict = {

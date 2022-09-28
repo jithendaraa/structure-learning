@@ -48,15 +48,15 @@ class Trainer(BaseTrainer):
         """
         self.model.train()
         pred_images = None
-
         total_loss = 0
         total_metrics = np.zeros(len(self.metrics))
+        
         for batch_idx, data in enumerate(self.data_loader):
             data = data.to(self.device).type(torch.float)
 
             with torch.autograd.detect_anomaly():
                 self.optimizer.zero_grad()
-                output = self.model(data)
+                output, _ = self.model(data)
                 kl, nll = self.loss(output, data)
                 loss = kl + nll
                 loss.backward()
@@ -127,11 +127,9 @@ class Trainer(BaseTrainer):
         with torch.no_grad():
             for batch_idx, data in enumerate(self.valid_data_loader):
                 data = data.to(self.device)
-
-                output = self.model(data)
+                output, z_pred = self.model(data)
                 kl, nll = self.loss(output, data)
                 loss = kl + nll
-
                 self.writer.set_step((epoch - 1) * len(self.valid_data_loader) + batch_idx, 'valid')
                 self.writer.add_scalar('loss', loss.item())
                 self.writer.add_scalar('kl', kl.item())

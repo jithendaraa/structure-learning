@@ -13,5 +13,4 @@ conda install -c conda-forge tensorflow-probability
 pip install torch==1.10.0
 conda install -c conda-forge wandb
 pip install graphical-models
-conda install -c conda-forge ipdb
-conda install -c conda-forge python-igraph
+conda install -c conda-forge ipdb python-igraph

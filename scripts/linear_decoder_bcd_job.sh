@@ -11,14 +11,14 @@
 #SBATCH --mail-type=ALL
 #SBATCH --exclude=rtx1
 
-seeds=(1 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
+seeds=(1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20)
 lrs=(0.0008)
-num_steps=(8000)
+num_steps=(3000)
 
 num_nodes=20
 proj_dims=100
-exp_edges=(2.0)
-n_interv_sets=800
+exp_edges=(4.0)
+n_interv_sets=80
 
 pts_per_interv=100
 obs_data=500

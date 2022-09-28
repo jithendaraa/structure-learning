@@ -1,13 +1,13 @@
 {
     "name": "GraphVAE",
-    "exp_name": "GraphVAE chemdata",
-    "dataset": "chemdata",
+    "exp_name": "GraphVAE vector baseline",
+    "dataset": "vector",
     "offline_wandb": false,
-    "off_wandb": false,
+    "off_wandb": true,
     "wandb_project": "structure-learning",
     "wandb_entity": "structurelearning",
     "n_gpu": 1,
-    "data_seed": 3, 
+    "data_seed": 1, 
     "pts_per_interv": 100,
     "n_interv_sets": 20,
     "obs_data": 500,
@@ -18,19 +18,23 @@
     "high": 8.0,
     "interv_low": -5.0,
     "interv_high": 5.0,
+    "interv_value": "uniform",
+    "proj": "2_layer_mlp",
+    "interv_type": "multi",
     "arch": {
         "type": "GraphVAE",
         "args": {
-            "input_dim": 2500,
-            "n_nodes": 10,
-            "node_dim": 1
+            "input_dim": 100,
+            "n_nodes": 20,
+            "node_dim": 1,
+            "sigmoid": false
         }
     },
     "data_loader": {
-        "type": "ChemDataLoader",
+        "type": "VectorDataLoader",
         "args": {
             "data_dir": "/home/mila/j/jithendaraa.subramanian/scratch/",
-            "batch_size": 3000,
+            "batch_size": 10000,
             "shuffle": false,
             "validation_split": 0.1,
             "num_workers": 0

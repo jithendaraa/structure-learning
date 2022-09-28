@@ -21,7 +21,7 @@ import haiku as hk
 from sklearn.metrics import roc_curve, auc
 from modules.ColorGen import LinearGaussianColor
 
-def generate_data(opt, low=-8., high=8., interv_low=-5., interv_high=5.):
+def generate_data(opt, low=-8., high=8., interv_low=-5., interv_high=5., baseroot=None):
     n = opt.num_samples
     d = opt.num_nodes
 
@@ -48,21 +48,20 @@ def generate_data(opt, low=-8., high=8., interv_low=-5., interv_high=5.):
 
         # ? Use above colors to generate images
         images = generate_chem_image_dataset(opt.num_samples, opt.num_nodes, interv_values, interv_targets, z)
-        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/interv_values-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy', onp.array(interv_values))
-        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/interv_targets-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy', onp.array(interv_targets))
-        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/z-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy', onp.array(z))
-        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/images-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy', onp.array(images))
-        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/W-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy', onp.array(gt_W))
-        onp.save(f'/home/mila/j/jithendaraa.subramanian/scratch/P-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy', onp.array(gt_P))
-
+        onp.save(f'{baseroot}/scratch/interv_values-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy', onp.array(interv_values))
+        onp.save(f'{baseroot}/scratch/interv_targets-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy', onp.array(interv_targets))
+        onp.save(f'{baseroot}/scratch/z-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy', onp.array(z))
+        onp.save(f'{baseroot}/scratch/images-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy', onp.array(images))
+        onp.save(f'{baseroot}/scratch/W-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy', onp.array(gt_W))
+        onp.save(f'{baseroot}/scratch/P-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy', onp.array(gt_P))
 
     else:
-        interv_targets = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/interv_targets-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy'))
-        interv_values = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/interv_values-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy'))
-        z = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/z-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy'))
-        images = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/images-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy'))
-        gt_W = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/W-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy'))
-        gt_P = jnp.array(onp.load(f'/home/mila/j/jithendaraa.subramanian/scratch/P-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy'))
+        interv_targets = jnp.array(onp.load(f'{baseroot}/scratch/interv_targets-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy'))
+        interv_values = jnp.array(onp.load(f'{baseroot}/scratch/interv_values-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy'))
+        z = jnp.array(onp.load(f'{baseroot}/scratch/z-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy'))
+        images = jnp.array(onp.load(f'{baseroot}/scratch/images-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy'))
+        gt_W = jnp.array(onp.load(f'{baseroot}/scratch/W-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy'))
+        gt_P = jnp.array(onp.load(f'{baseroot}/scratch/P-seed{opt.data_seed}_d{d}_ee{int(opt.exp_edges)}.npy'))
         gt_L = jnp.array(gt_P.T @ gt_W.T @ gt_P)
 
     print(gt_W)
@@ -113,11 +112,11 @@ def generate_test_samples(d, W, sem_type, noise_sigma, low, high, num_test_sampl
                                             test_interv_targets, 
                                             test_interv_data)
     _, h, w, c = test_images.shape
-    padded_test_images = onp.zeros((5, w, c))
+    padded_test_images = onp.zeros((h, 5, c))
 
     for i in range(num_test_samples):
-        padded_test_images = onp.concatenate((padded_test_images, test_images[i]), axis=0)
-        padded_test_images = onp.concatenate((padded_test_images, onp.zeros((5, w, c))), axis=0)
+        padded_test_images = onp.concatenate((padded_test_images, test_images[i]), axis=1)
+        padded_test_images = onp.concatenate((padded_test_images, onp.zeros((h, 5, c))), axis=1)
 
     max_cols = jnp.max(test_interv_targets.sum(1))
     data_idx_array = jnp.array([jnp.arange(d + 1)] * num_test_samples)

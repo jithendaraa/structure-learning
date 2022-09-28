@@ -8,6 +8,42 @@ from utils.util import ensure_dir
 from utils.visualization import WriterTensorboardX
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.optimize import linear_sum_assignment
+from sklearn.metrics import roc_curve, auc
+
+
+def get_cross_correlation(pred_latent, true_latent):
+    dim= pred_latent.shape[1]
+    cross_corr= np.zeros((dim, dim))
+    for i in range(dim):
+        for j in range(dim):
+            cross_corr[i,j]= (np.cov( pred_latent[:,i], true_latent[:,j] )[0,1]) / ( np.std(pred_latent[:,i])*np.std(true_latent[:,j]) )
+    
+    cost= -1*np.abs(cross_corr)
+    row_ind, col_ind= linear_sum_assignment(cost)
+    
+    score= 100*np.sum( -1*cost[row_ind, col_ind].sum() )/(dim)
+    return score
+
+def from_W(W, dim):
+    """Turns a d x d matrix into a (d x (d-1)) vector with zero diagonal."""
+    out_1 = W[np.triu_indices(dim, 1)]
+    out_2 = W[np.tril_indices(dim, -1)]
+    return np.concatenate([out_1, out_2])
+
+def auroc(Ws, W_true, threshold=0.3):
+    """Given a sample of adjacency graphs of shape n x d x d, 
+    compute the AUROC for detecting edges. For each edge, we compute
+    a probability that there is an edge there which is the frequency with 
+    which the sample has edges over threshold."""
+    _, dim, dim = Ws.shape
+    edge_present = np.abs(Ws) > threshold
+    prob_edge_present = np.mean(edge_present, axis=0)
+    true_edges = from_W(np.abs(W_true) > threshold, dim).astype(int)
+    predicted_probs = from_W(prob_edge_present, dim)
+    fprs, tprs, _ = roc_curve(y_true=true_edges, y_score=predicted_probs, pos_label=1)
+    auroc = auc(fprs, tprs)
+    return auroc
 
 class BaseTrainer:
     """
@@ -58,8 +94,6 @@ class BaseTrainer:
         # Save configuration file into checkpoint directory:
         ensure_dir(self.checkpoint_dir)
         config_save_path = os.path.join(self.checkpoint_dir, 'config.json')
-        with open(config_save_path, 'w') as handle:
-            json.dump(config, handle, indent=4, sort_keys=False)
 
         if resume:
             self._resume_checkpoint(resume)
@@ -81,7 +115,7 @@ class BaseTrainer:
         list_ids = list(range(n_gpu_use))
         return device, list_ids
 
-    def train(self, config, gt_bin_W, gt_W):
+    def train(self, config, gt_bin_W, gt_W, z_true=None, x_true=None):
         """
         Full training logic
         """
@@ -113,7 +147,7 @@ class BaseTrainer:
             adj_matrix = np.where(adj_matrix >= 0.5, 1.0, 0.0)
             shd = np.sum(np.abs(adj_matrix - gt_bin_W))
             # save logged informations into log dict
-            log = {'epoch': epoch, 'shd': shd}
+            log = {'epoch': epoch, 'Evaluations/SHD': shd}
             
             for key, value in result.items():
                 if key == 'metrics':
@@ -125,9 +159,13 @@ class BaseTrainer:
             
             wandb_log_dict = log
             wandb_log_dict['loss'] = result['loss']
-            
+            _, z_pred = self.model(x_true.cuda())
+            mcc_score = get_cross_correlation(z_pred.cpu().detach().numpy(), z_true)
+            wandb_log_dict['Evaluations/MCC'] = mcc_score
+            auroc_score = auroc(adj_matrix[np.newaxis, :], gt_W)
+            wandb_log_dict['Evaluations/AUROC'] = auroc_score
+
             if config["off_wandb"] is False and epoch % 50 == 0: 
-                
                 L_mse = np.mean((gt_W - adj_matrix)**2)
                 plt.imshow(adj_matrix)
                 plt.savefig('pred_w.png')
@@ -143,19 +181,11 @@ class BaseTrainer:
                     plt.savefig('gt_image.png')
                     plt.close('all')
 
-                    print('Saved')
                     wandb_log_dict['graph_structure(GT-pred)/Reconstructed image'] = wandb.Image('pred_image.png')
                     wandb_log_dict['graph_structure(GT-pred)/GT image'] = wandb.Image('gt_image.png')
 
                 wandb_log_dict['L_MSE'] = L_mse
                 wandb.log(wandb_log_dict, step=epoch)
-
-            # print logged informations to the screen
-            # if self.train_logger is not None:
-            #     self.train_logger.add_entry(log)
-            #     if self.verbosity >= 1:
-            #         for key, value in log.items():
-            #             self.logger.info('    {:15s}: {}'.format(str(key), value))
 
             # evaluate model performance according to configured metric, save best checkpoint as model_best
             best = False

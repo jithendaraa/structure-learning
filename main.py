@@ -1,5 +1,5 @@
 import warnings
-import sys
+import sys, pdb
 sys.path.append('models')
 
 from models.Decoder_DIBS import Decoder_DIBS
@@ -127,6 +127,7 @@ def build_model(opt, device, loader_objs):
     
 
 def main(opt, exp_config):
+    pdb.set_trace()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     loader_objs = parse_datasets(opt, device) # Dataloader
     model, key = build_model(opt, device, loader_objs)

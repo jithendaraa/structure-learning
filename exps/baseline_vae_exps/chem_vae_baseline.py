@@ -88,12 +88,14 @@ model_opt_params,
 opt_model) = init_vae_params(opt, h, w, key, rng_key, 
                             flat_images[:bs])
 
+@jit
 def get_elbo(model_params, rng_key, x_data):
     X_recons, z_pred, q_z_mus, z_L_chols = forward.apply(model_params, rng_key, d, h, w, rng_key, x_data, opt.corr)
-    mse_loss = jnp.mean(get_mse(x_data, X_recons))
+    mse_loss = 1e-5 * jnp.mean(get_mse(x_data, X_recons))
     q_z_covars = vmap(get_covar, 0, 0)(z_L_chols)
-    kl_loss = jnp.mean(vmap(get_single_kl, (None, None, 0, 0, None), 0)(p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt))
-    return (1e-5 * jnp.mean(mse_loss + kl_loss))
+    kl_loss = 1e-5 * jnp.mean(vmap(get_single_kl, (None, None, 0, 0, None), 0)(p_z_covar, p_z_mu, q_z_covars, q_z_mus, opt))
+    loss = jnp.mean(mse_loss + kl_loss)
+    return loss
 
 @jit
 def gradient_step(model_params, x_data, z_data):
@@ -113,9 +115,10 @@ def train_batch(model_opt_params, model_params, x_data, z_data):
     X_recons, loss, grads, z_pred, log_dict = gradient_step(model_params, x_data, z_data)
     model_updates, model_opt_params = opt_model.update(grads, model_opt_params, model_params)
     model_params = optax.apply_updates(model_params, model_updates)
-    log_dict['Evaluations/MCC'] = get_cross_correlation(onp.array(z_pred), onp.array(z_data))
     log_dict['Evaluations/AUROC'] = get_vae_auroc(d, gt_W)
     return X_recons, loss, z_pred, model_opt_params, model_params, log_dict
+
+mcc = 50. 
 
 with tqdm(range(opt.num_steps)) as pbar:  
     for i in pbar:        
@@ -130,6 +133,12 @@ with tqdm(range(opt.num_steps)) as pbar:
             (X_recons, loss, z_pred, model_opt_params, 
             model_params, log_dict) = train_batch(model_opt_params, model_params, x_data, z_data)
             epoch_loss += loss
+
+            try:
+                mcc = get_cross_correlation(onp.array(z_pred), onp.array(z_data))
+            except: 
+                pass
+            log_dict['Evaluations/MCC'] = mcc
 
             if b == 0:  epoch_dict = log_dict
             else:       

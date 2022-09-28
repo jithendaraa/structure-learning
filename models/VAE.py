@@ -71,7 +71,7 @@ class VAE(hk.Module):
         rng_keys = rnd.split(rng_key, n)
         z_outs = self.encoder(X)
         z_mus, z_chols_flat = z_outs[:, :self.d], z_outs[:, self.d:]
-        z_chols_flat = jnp.where(jnp.abs(z_chols_flat) > z_chols_max, (z_chols_flat / jnp.abs(z_chols_flat)) * z_chols_max, z_chols_flat)
+        z_chols_flat = jnp.clip(z_chols_flat, -z_chols_max, z_chols_max)
         
         if corr is True:
             z_L_chols = vmap(self.lower, 0, 0)(jnp.exp(z_chols_flat))

@@ -25,13 +25,13 @@ torch.backends.cudnn.benchmark = False
 def get_instance(module, name, config, *args):
     return getattr(module, config[name]['type'])(*args, **config[name]['args'])
 
-def get_config_dict(config, dataseed, exp_edges):
+def get_config_dict(config):
     config_dict = {
-        "num_nodes": config['arch']['args']['n_nodes'],
         "batch_size": config['data_loader']['args']['batch_size'],
         "dataset": config['data_loader']['type'],
         "num_steps": config['trainer']['epochs'],
-        "model": "GraphVAE"
+        "model": "GraphVAE",
+        "input_dim": config['arch']['args']['input_dim']
     }
 
     for key in config.keys():
@@ -40,19 +40,31 @@ def get_config_dict(config, dataseed, exp_edges):
 
     return config_dict
 
-def main(config, resume, dataseed, exp_edges):
+def main(config, resume, dataseed, exp_edges, num_nodes):
     train_logger = Logger()
     config['data_seed'] = dataseed
     config['exp_edges'] = exp_edges
-    exp_config_dict = get_config_dict(config, dataseed, exp_edges)
-
+    config['arch']['args']['n_nodes'] = num_nodes
+    config['num_nodes'] = num_nodes
+    exp_config_dict = get_config_dict(config)
 
     # setup data_loader instances
     if config['dataset'] == 'MNIST':
         data_loader = get_instance(module_data, 'data_loader', config)
         valid_data_loader = data_loader.split_validation()
-    else:
+    
+    elif config['dataset'] == 'chemdata':
         data_loader = module_data.ChemDataLoader(config['data_loader']['args']['data_dir'],
+                                                 config['data_loader']['args']['batch_size'],
+                                                 config['data_loader']['args']['shuffle'],
+                                                 config['data_loader']['args']['validation_split'],
+                                                 config['data_loader']['args']['num_workers'],
+                                                 exp_config_dict,
+                                                 training=True
+                                                )
+    
+    elif config['dataset'] == 'vector':
+        data_loader = module_data.VectorDataLoader(config['data_loader']['args']['data_dir'],
                                                  config['data_loader']['args']['batch_size'],
                                                  config['data_loader']['args']['shuffle'],
                                                  config['data_loader']['args']['validation_split'],
@@ -88,7 +100,10 @@ def main(config, resume, dataseed, exp_edges):
         trainer.model.gating_params[x][y - x -1].data = torch.Tensor([[v]]).detach()
         print("Setting {}-{} to {}".format(x, y, v))
 
-    trainer.train(exp_config_dict, data_loader.gt_binary_W, data_loader.gt_W)
+    trainer.train(exp_config_dict, data_loader.gt_binary_W, 
+                data_loader.gt_W, 
+                z_true=data_loader.z, 
+                x_true=data_loader.x)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='PyTorch Template')
@@ -100,6 +115,7 @@ if __name__ == '__main__':
                         help='indices of GPUs to enable (default: all)')
     parser.add_argument('--dataseed', type=int, default=13)
     parser.add_argument('--exp_edges', type=float, default=1.0)
+    parser.add_argument('--num_nodes', type=int, default=10)
     args = parser.parse_args()
 
     if args.config:
@@ -113,7 +129,6 @@ if __name__ == '__main__':
         # load config from checkpoint if new config file is not given.
         # Use '--config' and '--resume' together to fine-tune trained model with changed configurations.
         # config = torch.load(args.resume)['config']
-
         with open(args.config) as handle:
             config = json.load(handle)
 
@@ -124,4 +139,4 @@ if __name__ == '__main__':
     if args.device:
         os.environ["CUDA_VISIBLE_DEVICES"] = args.device
 
-    main(config, args.resume, args.dataseed, args.exp_edges)
+    main(config, args.resume, args.dataseed, args.exp_edges, args.num_nodes)
