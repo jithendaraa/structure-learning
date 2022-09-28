@@ -3,7 +3,7 @@
 ## Setup
 
 1. Create your virtual environment: `virtualenv --no-download ~/causal`
-2. Add the following to your bashrc file if you are on computecanada:
+2. Add the following to your bashrc file:
    ```
    alias act_causal='source ~/causal/bin/activate' 
    module load python/3.7   
@@ -13,8 +13,7 @@
    ``` 
    and run `source /path/to/bashrc/file`
 
-3. If you're not on computecanada, make sure you install `jaxlib==0.1.69`. If you <i>are</i> on CC, then install `jaxlib` by running the following: 
-      ```
+3.    ```
       cd jax_setup/ 
       chmod +x jax_setup.sh 
       ./jax_setup.sh 
